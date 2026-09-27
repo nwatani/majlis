@@ -325,6 +325,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin .tile audio{display:none}
 .callwin .tile .t-name{position:absolute;bottom:5px;inset-inline-start:6px;font-size:10.5px;font-weight:600;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:99px;display:flex;gap:5px;align-items:center}
 .callwin .tile .t-name svg{width:11px;height:11px}
+.callwin .tile .t-name.spk{outline:2px solid var(--ok);outline-offset:1px;background:rgba(18,120,80,.72);transition:outline-color .15s}
 .callwin .tile .no-vid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#8CA6AE;font-size:11px;background:inherit}
 .callwin .tile .no-vid .avatar{width:44px;height:44px;font-size:17px}
 .callwin .tile .scr-tag{position:absolute;top:5px;inset-inline-start:6px;font-size:9.5px;font-family:var(--mono);background:rgba(245,168,60,.85);color:#221503;padding:1px 7px;border-radius:99px;font-weight:600}
@@ -599,6 +600,10 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <input type="color" id="wbColor" value="#F5A83C" title="Color">
           <label class="brange" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <label class="brange" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
+          <span class="bsep"></span>
+          <button class="btool" data-align="left" title="Align left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h14" stroke-linecap="round"/></svg></button>
+          <button class="btool" data-align="center" title="Align center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M5 18h14" stroke-linecap="round"/></svg></button>
+          <button class="btool" data-align="right" title="Align right — محاذاة يمين"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M10 12h10M6 18h14" stroke-linecap="round"/></svg></button>
           <span class="bsep"></span>
           <button class="btool" id="wbUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="btool" id="wbRedo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -1374,9 +1379,24 @@ M.Net = {
   },
   nudge(){
     if(!M.Net.connected) return;
-    M.Net.send('hb',{ts:Date.now()});
+    M.Net.hbTick();   /* full-profile heartbeat → names/status recover after network switches */
     M.bus.emit('nudge');
     M.log('info','nudge: re-announced presence');
+  },
+  /* §15/§33 — per-peer transport diagnostics: ICE state + candidate path (LAN / internet / TURN relay) */
+  async peerInfo(pid){
+    try{
+      const pc=M.Net.room?.getPeers?.()?.[pid]; if(!pc) return null;
+      const out={ice:pc.iceConnectionState||'?', conn:pc.connectionState||'?', path:'—'};
+      const stats=await pc.getStats();
+      stats.forEach(r=>{
+        if(r.type==='candidate-pair' && (r.state==='succeeded'||r.nominated)){
+          const loc=stats.get(r.localCandidateId);
+          if(loc?.candidateType) out.path = loc.candidateType==='relay' ? 'TURN relay' : loc.candidateType==='srflx' ? 'direct internet' : 'direct LAN';
+        }
+      });
+      return out;
+    }catch(e){ return null; }
   },
   leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); M.Net.connected=false; }
 };
@@ -1389,6 +1409,7 @@ M.Members = {
     if(isNew) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
     const early=M.Net._early?.get(peerId);
     if(early && !patch.n) patch={...early,...patch};
+    if(patch.n && patch.status==='connecting') patch.status='online';  /* identified via handshake/heartbeat → online immediately, call buttons appear at once */
     Object.assign(m,patch); m.lastSeen=Date.now();
     M.State.peers.set(peerId,m);
     if(patch.n && isNew){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
@@ -1842,7 +1863,7 @@ M.UI = {
   tab:'chat',
   init(){
     M.$$('.tabbtn').forEach(b=>b.onclick=()=>M.UI.setTab(b.dataset.tab));
-    M.bus.on('members',()=>M.UI.renderMembers());
+    M.bus.on('members',()=>{ M.UI.renderMembers(); M.UI.onlineCount(); });
     M.bus.on('callState',()=>{ M.UI.renderMembers(); M.UI.badges(); });
     M.bus.on('wbPeers',()=>M.UI.renderMembers());
     M.bus.on('perms',()=>{ M.Chat.refreshComposerState(); M.UI.renderMembers(); M.bus.emit('ccRefresh'); });
@@ -1850,6 +1871,10 @@ M.UI = {
     M.$('#btnMenu').onclick=()=>{ M.$('#sidebar').classList.add('open'); let s=M.$('#sideScrim'); if(!s){ s=M.el('div',null); s.id='sideScrim'; s.onclick=()=>M.$('#sidebar').classList.remove('open'); document.body.appendChild(s); } s.classList.remove('hidden'); };
     if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display='';
     addEventListener('resize',M.debounce(()=>{ if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display=''; else { M.$('#btnMenu').style.display='none'; M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden'); } M.bus.emit('resize'); },150));
+  },
+  onlineCount(){
+    const on=M.Members.onlinePeers().length;
+    const el=M.$('#peersLbl'); if(el){ el.textContent=on; el.title=on+' / '+M.State.peers.size+' '+M.t('members_s'); }
   },
   setTab(tab){
     M.UI.tab=tab;
@@ -1916,6 +1941,7 @@ M.UI = {
     const av=M.$('#selfAvatar'); av.textContent=M.initials(M.State.self.name); av.style.background=M.avatarBg(M.State.self.name);
     M.Chat.switchTarget(null);
     M.UI.renderMembers();
+    M.UI.onlineCount();
     M.UI.badges();
     M.Notify.ask();
   }
@@ -1937,6 +1963,10 @@ M.Media = {
       video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:24}, facingMode:'user', ...(dev.cam?{deviceId:{ideal:dev.cam}}:{}) } };
   },
   async acquire(kind){
+    if(!navigator.mediaDevices?.getUserMedia){
+      M.toast('err','Media unavailable','Camera & microphone require a secure context — open the site over HTTPS (GitHub Pages), not file:// or http.',{ms:8000});
+      throw new Error('mediaDevices unavailable');
+    }
     if(M.Media.streams[kind] && M.Media.streams[kind].active){ M.Media.refs[kind]=(M.Media.refs[kind]||0)+1; M.Media.watch(kind); return M.Media.streams[kind]; }
     try{
       const s=await navigator.mediaDevices.getUserMedia(M.Media.constraints(kind));
@@ -2036,6 +2066,8 @@ M.Call = {
     setInterval(()=>{ // duration timers + quality dots
       M.Call.sessions.forEach(s=>{ if(s.status==='active' && s.durEl) s.durEl.textContent=M.fmt.dur((Date.now()-s.startedAt)/1000); });
     },1000);
+    M.Call._spk=new WeakMap();                       /* §12 active-speaker indication */
+    setInterval(()=>M.Call.paintSpeakers(),700);
   },
   all(){ return [...M.Call.sessions.values()]; },
   activeCount(){ let n=0; M.Call.sessions.forEach(s=>{ if(s.status==='active') n++; }); return n; },
@@ -2305,6 +2337,7 @@ M.Call = {
     if(tiles.length>4) grid.style.gridTemplateColumns='repeat(3,1fr)';
     for(const tl of tiles){
       const tile=M.el('div','tile');
+      if(!tl.self) tile.dataset.pid=tl.pid;
       if(tl.self){
         const name=M.t('you');
         const hasVid=s.kind==='video' && s.localStream?.getVideoTracks().some(t=>t.enabled&&t.readyState==='live');
@@ -2357,6 +2390,35 @@ M.Call = {
       card.appendChild(acts);
       list.appendChild(card);
     }
+  },
+  /* §12 active speaker — RMS level of each remote audio stream, highlighted per call window */
+  paintSpeakers(){
+    if(document.hidden) return;
+    M.Call.sessions.forEach(s=>{
+      if(s.status!=='active'||!s.win) return;
+      let best=null, bestV=0.03;
+      s.remotes.forEach((r,pid)=>{
+        const st=r.stream; if(!st || st.getAudioTracks().length===0 || st.getAudioTracks().every(t=>!t.enabled)) return;
+        let an=M.Call._spk.get(st);
+        if(!an){
+          try{
+            M.Call._ac ??= new (window.AudioContext||window.webkitAudioContext)();
+            if(M.Call._ac.state==='suspended') M.Call._ac.resume();
+            const src=M.Call._ac.createMediaStreamSource(st);
+            an=M.Call._ac.createAnalyser(); an.fftSize=512; src.connect(an);
+            M.Call._spk.set(st,an);
+          }catch(e){ return; }
+        }
+        const d=new Uint8Array(an.frequencyBinCount); an.getByteTimeDomainData(d);
+        let sum=0; for(let i=0;i<d.length;i++){ const v=(d[i]-128)/128; sum+=v*v; }
+        const rms=Math.sqrt(sum/d.length);
+        if(rms>bestV){ bestV=rms; best=pid; }
+      });
+      s.win.querySelectorAll('.tile').forEach(t=>{
+        const tag=t.querySelector('.t-name');
+        if(tag) tag.classList.toggle('spk', !!t.dataset.pid && t.dataset.pid===best);
+      });
+    });
   },
 
   openGroupModal(){
@@ -2413,6 +2475,14 @@ M.WB = {
     M.$('#wbColor').oninput=e=>{ M.WB.color=e.target.value; M.WB._colorTouched=true; };
     M.$('#wbSize').oninput=e=>{ M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value; };
     M.$('#wbFont').oninput=e=>M.WB.font=+e.target.value;
+    /* §20 text alignment (auto by default = direction-aware; click again for auto) */
+    M.$$('#boardBar [data-align]').forEach(b=>b.onclick=()=>{
+      const v=b.dataset.align;
+      M.WB.align=(M.WB.align===v)?null:v;
+      M.$$('#boardBar [data-align]').forEach(x=>x.classList.toggle('on',x.dataset.align===M.WB.align));
+      const o=M.WB.sel && M.WB.objs.get(M.WB.sel);
+      if(o && (o.type==='text'||o.type==='note') && M.WB.canEdit()){ o.align=M.WB.align; M.WB.send({t:'up',o}); M.WB.dirty=true; }
+    });
     M.$('#wbUndo').onclick=()=>M.WB.doUndo();
     M.$('#wbRedo').onclick=()=>M.WB.doRedo();
     M.$('#wbDel').onclick=()=>M.WB.deleteSel();
@@ -3058,13 +3128,39 @@ M.App = {
     M.log('info','entered room '+code+' ('+(M.Crypto.has()?'E2EE':'plaintext signaling')+')');
   },
   backToLobby(flag){
-    try{ M.Call.all().forEach(s=>M.Call.teardown(s.id)); }catch(e){}
-    try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){}   /* announce departure… */
-    if(flag) safeSet(sessionStorage,'mj.note',flag);
-    setTimeout(()=>{                                        /* …give it time to flush, then exit */
+    try{ [...M.Call.sessions.values()].forEach(s=>M.Call.teardown(s.id)); }catch(e){}
+    try{ if(M.Net.A.bye) M.Net.A.bye.send({ts:Date.now()}); }catch(e){}   /* announce departure… */
+    setTimeout(()=>{                                       /* …give it time to flush, then exit in place (no page reload — works everywhere, even sandboxed previews) */
       try{ M.Net.leave(); }catch(e){}
-      location.href=location.pathname+location.search+location.hash;
-    },700);
+      M.App.resetState();
+      M.$('#app').classList.add('hidden');
+      M.$('#lobby').classList.remove('hidden');
+      M.$('#btnCC').classList.add('hidden');
+      M.lobbyMsg('');
+      const note = flag==='ended'?M.t('sys_room_end') : flag==='kicked'?M.t('sys_you_kicked') : null;
+      if(note) setTimeout(()=>M.toast('info',note),250);
+      M.log('info','returned to lobby'+(flag?' ('+flag+')':''));
+    },500);
+  },
+  resetState(){
+    M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map();
+    M.Net.lastHb.clear(); M.Net.rtt.clear();
+    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT);
+    M.State.peers.clear(); M.State.perms=null; M.State.chatTarget=null;
+    M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
+    M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
+    M.State.self.admin=false;
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.legacy=false; M.Admin.seq=0;
+    M.Crypto.key=null; M.Crypto.passB64=null;
+    M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
+    if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
+    M.FT.sends.clear(); M.FT.recvs.clear();
+    M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.rev=0; M.WB.activePeers.clear();
+    M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
+    M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
+    M.$('#callLayer').innerHTML=''; M.$('#memberList').innerHTML=''; M.$('#peersLbl').textContent='0';
+    M.$('#wbText').classList.add('hidden');
+    M.$('#mCC').classList.remove('open'); M.$('#mIncoming').classList.add('hidden');
   }
 };
 M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.classList.toggle('ok',!err&&!!txt); e.style.color=err?'var(--err)':''; };
@@ -3157,8 +3253,11 @@ M.CC = {
   memberRow(p,isSelf){
     const row=M.el('div','cc-mrow');
     const av=M.el('div','avatar',M.initials(p.name)); av.style.background=M.avatarBg(p.name);
+    let tf=0; /* §5 active transfers involving this member */
+    M.FT.sends.forEach(t=>{ if(t.target===p.id && ['queued','sending','paused','verify'].includes(t.status)) tf++; });
+    M.FT.recvs.forEach(r=>{ if(r.from===p.id && r.status==='receiving') tf++; });
     const nm=M.el('div','nm');
-    nm.innerHTML=`<b>${p.name.replace(/</g,'&lt;')}${p.adm?M.Icons.crown:''}</b><small>${M.fmt.idShort(p.id)} · ${p.os||'?'} · ${p.br||''} · <span style="color:${p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)'}">${M.t(p.status||'online')}</span>${M.Call.peerInCall(p.id)?' · 🔴 '+M.t('in_call'):''}${M.WB.activePeers.has(p.id)?' · 🖊 '+M.t('on_board'):''}</small>`;
+    nm.innerHTML=`<b>${p.name.replace(/</g,'&lt;')}${p.adm?M.Icons.crown:''}</b><small>${M.fmt.idShort(p.id)} · ${p.os||'?'} · ${p.br||''} · <span style="color:${p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)'}">${M.t(p.status||'online')}</span>${M.Call.peerInCall(p.id)?' · 🔴 '+M.t('in_call'):''}${M.WB.activePeers.has(p.id)?' · 🖊 '+M.t('on_board'):''}${tf?' · ⇅ '+tf+' '+M.t('active_transfers'):''}</small>`;
     row.append(av,nm);
     if(!isSelf){
       const acts=M.el('div','acts');
@@ -3193,7 +3292,7 @@ M.CC = {
     if(kind==='recv'&&t.status==='receiving'){ const b=M.el('button','cc-mini dgr',M.t('cancel')); b.onclick=()=>M.FT.cancelRecv(t.id); row.appendChild(b); }
     return row;
   },
-  renderDiag(){
+  async renderDiag(){
     const el=M.$('#ccDiag'); if(!el) return;
     const peers=[...M.State.peers.values()];
     const rows=[
@@ -3209,10 +3308,11 @@ M.CC = {
       ['browser',M.Platform.br+' on '+M.Platform.os]
     ];
     el.innerHTML=rows.map(([k,v])=>`<div class="cc-kv"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
-    peers.filter(p=>p.status!=='offline').slice(0,12).forEach(p=>{
+    for(const p of peers.filter(x=>x.status!=='offline').slice(0,12)){
       const rtt=M.Net.rtt.get(p.id);
-      el.insertAdjacentHTML('beforeend',`<div class="cc-kv"><span class="k">↳ ${p.name.replace(/</g,'&lt;')}</span><span class="v">${p.status} · rtt ${rtt==null?'—':rtt+'ms'}</span></div>`);
-    });
+      const inf=await M.Net.peerInfo(p.id);
+      el.insertAdjacentHTML('beforeend',`<div class="cc-kv"><span class="k">↳ ${p.name.replace(/</g,'&lt;')}</span><span class="v">${p.status} · rtt ${rtt==null?'—':rtt+'ms'}${inf?` · ice ${inf.ice} · ${inf.path}`:''}</span></div>`);
+    }
   },
   init(){
     M.$('#btnCC').onclick=()=>M.CC.open();
