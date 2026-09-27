@@ -202,7 +202,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #roomChip svg{width:15px;height:15px;color:var(--mut)}
 #topStatus{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);font-family:var(--mono)}
 .grow{flex:1}
-#btnMenu{display:none}
+#btnMenu{display:none;width:auto;padding:0 9px;gap:6px}
 @media (max-width:900px){ #btnMenu{display:inline-flex} }
 .btn-admin{background:rgba(245,168,60,.1);border-color:rgba(245,168,60,.45);color:var(--amber2)}
 .btn-admin:hover{background:rgba(245,168,60,.2)}
@@ -258,11 +258,18 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #sideLangBtn,#sideThemeBtn{display:none}
 @media (max-width:900px){ #sideLangBtn,#sideThemeBtn{display:inline-flex} }
 @media (max-width:900px){
-  #sidebar{position:fixed;inset-block:0;inset-inline-start:0;z-index:60;width:290px;background:var(--bg1);transform:translateX(-105%);transition:transform .22s ease;box-shadow:var(--sh)}
-  [dir="rtl"] #sidebar{transform:translateX(105%)}
-  #sidebar.open{transform:none !important}
-  #sideScrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55}
+  #sidebar{position:fixed;inset-block:0;inset-inline-start:0;z-index:150;width:min(302px,86vw);background:var(--bg1);transform:translateX(-108%);visibility:hidden;transition:transform .26s cubic-bezier(.2,.8,.3,1),visibility .26s;box-shadow:0 24px 70px -20px rgba(0,0,0,.6)}
+  [dir="rtl"] #sidebar{transform:translateX(108%)}
+  #sidebar.open{transform:none !important;visibility:visible}
+  #sideScrim{position:fixed;inset:0;background:rgba(8,14,17,.55);z-index:145;backdrop-filter:blur(2px)}
 }
+#menuBadge{display:none;min-width:17px;height:17px;padding:0 4px;border-radius:99px;background:var(--amber);color:#221503;font-size:10px;font-weight:700;place-items:center;font-family:var(--mono)}
+#menuBadge.on{display:grid}
+#sideClose{display:none;margin-inline-start:auto}
+@media (max-width:900px){ #sideClose{display:inline-flex} }
+#btnMenu.pulse{animation:menuPulse 1.2s ease 3}
+@keyframes menuPulse{0%{box-shadow:0 0 0 0 rgba(245,168,60,.65)}70%{box-shadow:0 0 0 13px rgba(245,168,60,0)}100%{box-shadow:0 0 0 0 rgba(245,168,60,0)}}
+#topStatus{cursor:pointer}
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 #tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg);overflow-x:auto;scrollbar-width:none}
@@ -574,7 +581,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <div id="app" class="hidden">
   <div id="reconBanner" class="hidden"><span class="led warn pulse"></span><span data-i18n="reconnecting">Connection lost — recovering automatically…</span><button class="btn btn-sm" id="btnReconnNow" style="margin-inline-start:auto" data-i18n="retry_now">Retry now</button></div>
   <header id="topbar">
-    <button class="icon-btn" id="btnMenu" title="Members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg></button>
+    <button class="icon-btn" id="btnMenu" title="Members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg><span id="menuBadge">0</span></button>
     <div class="brand-mini"><svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#142229"/><circle cx="10" cy="12" r="3" fill="#F5A83C"/><circle cx="23" cy="11" r="2.4" fill="#38CFB6"/><circle cx="16" cy="23" r="2.7" fill="#E9F3F4"/><path d="M10 12L23 11M10 12L16 23M23 11L16 23" stroke="#31505d" stroke-width="1.4"/></svg><span>MAJLIS</span></div>
     <button id="roomChip" title="Copy invite link"><span id="roomCodeLbl">······</span><svg id="roomLockIco" class="hidden" viewBox="0 0 24 24" fill="none" stroke="#F5A83C" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
     <div id="topStatus"><span class="led" id="sigLed"></span><span id="peersLbl">0</span><span class="lbltxt" data-i18n="online_s">online</span><span id="callsTopLbl" class="hidden" style="color:var(--red)">● <span id="callsTopN">0</span></span></div>
@@ -589,8 +596,9 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <button class="icon-btn danger" id="btnLeave" title="Leave room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </header>
   <div id="main">
+    <div id="sideScrim" class="hidden"></div>
     <aside id="sidebar">
-      <div id="selfCard" style="cursor:pointer"><div class="avatar" id="selfAvatar">?</div><div style="min-width:0"><b id="selfName">—</b> <svg id="renameIco" style="display:inline-block;vertical-align:-2px;opacity:.55" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" stroke-linejoin="round"/></svg><small id="selfIdLbl">···</small></div></div>
+      <div id="selfCard" style="cursor:pointer"><div class="avatar" id="selfAvatar">?</div><div style="min-width:0"><b id="selfName">—</b> <svg id="renameIco" style="display:inline-block;vertical-align:-2px;opacity:.55" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" stroke-linejoin="round"/></svg><small id="selfIdLbl">···</small></div><button class="icon-btn danger" id="sideClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button></div>
       <div id="memberList"></div>
       <div id="sideFoot">
         <span class="pill" id="connPill"><span class="led" id="connLed"></span><span id="connLbl">connecting</span></span>
@@ -918,7 +926,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.7.2';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.7.3';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2106,12 +2114,26 @@ M.UI = {
     M.$('#selfCard').onclick=()=>M.UI.renameSelf();
     M.bus.on('lang',()=>{ M.$('#selfCard').title=M.t('display_name'); });
     M.$('#selfCard').title=M.t('display_name');
-    M.$('#btnMenu').onclick=()=>{ M.$('#sidebar').classList.add('open'); let s=M.$('#sideScrim'); if(!s){ s=M.el('div',null); s.id='sideScrim'; s.onclick=()=>{ M.$('#sidebar').classList.remove('open'); s.classList.add('hidden'); }; document.body.appendChild(s); } s.classList.remove('hidden'); };
-    addEventListener('resize',M.debounce(()=>{ if(!matchMedia('(max-width:900px)').matches){ M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden'); } M.bus.emit('resize'); },150));
+    /* mobile member drawer — static scrim, explicit open/close, three entry points */
+    M.$('#btnMenu').onclick=()=>M.UI.openDrawer();
+    M.$('#sideClose').onclick=e=>{ e.stopPropagation(); M.UI.closeDrawer(); };
+    M.$('#sideScrim').onclick=()=>M.UI.closeDrawer();
+    M.$('#topStatus').onclick=()=>{ if(matchMedia('(max-width:900px)').matches) M.UI.openDrawer(); };
+    addEventListener('resize',M.debounce(()=>{ if(!matchMedia('(max-width:900px)').matches) M.UI.closeDrawer(); M.bus.emit('resize'); },150));
   },
   onlineCount(){
     const on=M.Members.onlinePeers().length;
     const el=M.$('#peersLbl'); if(el){ el.textContent=on; el.title=on+' / '+M.State.peers.size+' '+M.t('members_s'); }
+    const bd=M.$('#menuBadge'); if(bd){ bd.textContent=on>99?'99+':on; bd.classList.toggle('on',on>0); }
+    /* on phones, draw the eye to the members button when someone new arrives */
+    if(on>(M.UI._lastOn||0) && matchMedia('(max-width:900px)').matches){
+      const b=M.$('#btnMenu'); b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse');
+    }
+    M.UI._lastOn=on;
+  },
+  openDrawer(){
+    M.$('#sidebar').classList.add('open');
+    M.$('#sideScrim').classList.remove('hidden');
   },
   closeDrawer(){
     M.$('#sidebar').classList.remove('open');
