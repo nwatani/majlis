@@ -202,6 +202,8 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #roomChip svg{width:15px;height:15px;color:var(--mut)}
 #topStatus{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);font-family:var(--mono)}
 .grow{flex:1}
+#btnMenu{display:none}
+@media (max-width:900px){ #btnMenu{display:inline-flex} }
 .btn-admin{background:rgba(245,168,60,.1);border-color:rgba(245,168,60,.45);color:var(--amber2)}
 .btn-admin:hover{background:rgba(245,168,60,.2)}
 @media (max-width:760px){
@@ -241,6 +243,13 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .member:hover .acts{display:flex}
 .member .acts .icon-btn{width:29px;height:29px}
 .member .acts .icon-btn svg{width:15px;height:15px}
+/* touch devices have no hover — member actions are always reachable */
+@media (hover:none), (max-width:900px){
+  .member{flex-wrap:wrap;row-gap:2px}
+  .member .acts{display:flex;width:100%;justify-content:flex-end;padding-inline-start:43px;margin-top:1px}
+  .member .acts .icon-btn{width:35px;height:33px}
+  .member .acts .icon-btn svg{width:17px;height:17px}
+}
 .member .ind{display:flex;gap:4px;align-items:center}
 .member .ind svg{width:13px;height:13px;color:var(--teal)}
 .member .ind svg.hot{color:var(--red);animation:ledPulse 1.2s infinite}
@@ -565,7 +574,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <div id="app" class="hidden">
   <div id="reconBanner" class="hidden"><span class="led warn pulse"></span><span data-i18n="reconnecting">Connection lost — recovering automatically…</span><button class="btn btn-sm" id="btnReconnNow" style="margin-inline-start:auto" data-i18n="retry_now">Retry now</button></div>
   <header id="topbar">
-    <button class="icon-btn" id="btnMenu" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg></button>
+    <button class="icon-btn" id="btnMenu" title="Members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg></button>
     <div class="brand-mini"><svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#142229"/><circle cx="10" cy="12" r="3" fill="#F5A83C"/><circle cx="23" cy="11" r="2.4" fill="#38CFB6"/><circle cx="16" cy="23" r="2.7" fill="#E9F3F4"/><path d="M10 12L23 11M10 12L16 23M23 11L16 23" stroke="#31505d" stroke-width="1.4"/></svg><span>MAJLIS</span></div>
     <button id="roomChip" title="Copy invite link"><span id="roomCodeLbl">······</span><svg id="roomLockIco" class="hidden" viewBox="0 0 24 24" fill="none" stroke="#F5A83C" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
     <div id="topStatus"><span class="led" id="sigLed"></span><span id="peersLbl">0</span><span class="lbltxt" data-i18n="online_s">online</span><span id="callsTopLbl" class="hidden" style="color:var(--red)">● <span id="callsTopN">0</span></span></div>
@@ -908,7 +917,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.7.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.7.1';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1099,7 +1108,7 @@ en:{
  rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
  rc_wait:'awaiting member approval…', rc_connect:'member approved — connecting…',
  rc_start_ok:'Session active — click the window, then move, click, scroll or type', rc_declined:'The member declined the request',
- rc_unsup:'Screen capture is not supported on that device', rc_ended:'Remote session ended', rc_you_declined:'Request declined',
+ rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call',
  rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
  rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
 },
@@ -1182,7 +1191,7 @@ ar:{
  rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
  rc_wait:'بانتظار موافقة العضو…', rc_connect:'وافق العضو — جارٍ الاتصال…',
  rc_start_ok:'الجلسة نشطة — انقر النافذة ثم حرّك وانقر واكتب', rc_declined:'رفض العضو الطلب',
- rc_unsup:'التقاط الشاشة غير مدعوم على ذلك الجهاز', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب',
+ rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال',
  rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
  rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
 }
@@ -2097,8 +2106,7 @@ M.UI = {
     M.bus.on('lang',()=>{ M.$('#selfCard').title=M.t('display_name'); });
     M.$('#selfCard').title=M.t('display_name');
     M.$('#btnMenu').onclick=()=>{ M.$('#sidebar').classList.add('open'); let s=M.$('#sideScrim'); if(!s){ s=M.el('div',null); s.id='sideScrim'; s.onclick=()=>{ M.$('#sidebar').classList.remove('open'); s.classList.add('hidden'); }; document.body.appendChild(s); } s.classList.remove('hidden'); };
-    if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display='';
-    addEventListener('resize',M.debounce(()=>{ if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display=''; else { M.$('#btnMenu').style.display='none'; M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden'); } M.bus.emit('resize'); },150));
+    addEventListener('resize',M.debounce(()=>{ if(!matchMedia('(max-width:900px)').matches){ M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden'); } M.bus.emit('resize'); },150));
   },
   onlineCount(){
     const on=M.Members.onlinePeers().length;
@@ -2330,7 +2338,7 @@ M.Call = {
     M.bus.on('renderCalls', ()=>M.Call.renderList());
     M.bus.on('callState', ()=>{ M.UI.badges(); M.Call.renderList(); M.bus.emit('ccRefresh'); });
     M.bus.on('foreground', ()=>M.Media.watch('video')|M.Media.watch('voice'));
-    M.$('#btnGroupCall').onclick=()=>M.Call.openGroupModal();
+    M.$('#btnGroupCall').onclick=()=>{ try{ M.Call.openGroupModal(); }catch(e){ M.toast('err',M.t('group_call'),e.message||String(e)); } };
     M.$('#icAccept').onclick=()=>M.Call.answerPending(true);
     M.$('#icReject').onclick=()=>M.Call.answerPending(false);
     setInterval(()=>{ // duration timers + quality dots
@@ -2731,7 +2739,7 @@ M.Call = {
     const go=kind=>{
       const ids=M.$$('#gcList input:checked').map(i=>i.value);
       M.$('#mGroup').classList.add('hidden');
-      if(ids.length===0) return;
+      if(ids.length===0){ M.toast('info',M.t('group_call'),M.t('select_members')); return; }
       if(ids.length===1){ M.Call.start(ids[0],kind); return; }
       if(ids.length>5) M.toast('warn','Mesh limit','Large group calls degrade — consider ≤ 6 participants.');
       M.Call.start(ids[0],kind,{group:true, targets:[...new Set(ids)]});
@@ -2781,6 +2789,7 @@ M.RC = {
     if(M.RC.admin){ M.toast('warn',M.t('rc_win_title'),'One session at a time — end the current one first.'); return; }
     const m=M.State.peers.get(peerId);
     if(!m||m.status!=='online'){ M.toast('warn',M.t('rc_win_title'),M.t('offline')); return; }
+    if(m.mob||m.os==='Android'||m.os==='iOS'){ M.toast('warn',M.t('rc_win_title'),M.t('rc_mob_na'),{ms:7000}); return; }
     M.RC.admin={peerId,status:'await',startedAt:0,stream:null};
     M.$('#rcWin').classList.remove('hidden');
     M.$('#rcTitle').textContent=m.name;
