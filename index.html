@@ -201,6 +201,8 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 /* ---------- App shell ---------- */
 #app{position:relative;z-index:2;height:100vh;height:100dvh;display:flex;flex-direction:column}
 #reconBanner{display:flex;align-items:center;gap:10px;padding:8px 18px;background:rgba(245,168,60,.12);border-bottom:1px solid rgba(245,168,60,.4);font-size:13px;color:var(--amber2)}
+#graceBanner{display:flex;align-items:center;gap:10px;padding:8px 18px;background:rgba(255,97,87,.12);border-bottom:1px solid rgba(255,97,87,.45);font-size:13px;color:var(--err);animation:msgIn .25s ease both}
+#graceTxt{font-size:14px;letter-spacing:.06em;font-weight:700}
 #topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:58px;flex:none;border-bottom:1px solid var(--line);background:var(--bar-bg);backdrop-filter:blur(8px)}
 .brand-mini{display:flex;align-items:center;gap:9px;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.04em}
 .brand-mini svg{width:27px;height:27px}
@@ -711,6 +713,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <!-- ================= APP ================= -->
 <div id="app" class="hidden">
   <div id="reconBanner" class="hidden"><span class="led warn pulse"></span><span data-i18n="reconnecting">Connection lost — recovering automatically…</span><button class="btn btn-sm" id="btnReconnNow" style="margin-inline-start:auto" data-i18n="retry_now">Retry now</button></div>
+  <div id="graceBanner" class="hidden"><span class="led err pulse"></span><span data-i18n="grace_lbl">The Admin left — this room closes in</span><b id="graceTxt" class="mono">10:00</b></div>
   <header id="topbar">
     <button class="icon-btn" id="btnMenu" title="Members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg><span id="menuBadge">0</span></button>
     <div class="brand-mini"><svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#142229"/><circle cx="10" cy="12" r="3" fill="#F5A83C"/><circle cx="23" cy="11" r="2.4" fill="#38CFB6"/><circle cx="16" cy="23" r="2.7" fill="#E9F3F4"/><path d="M10 12L23 11M10 12L16 23M23 11L16 23" stroke="#31505d" stroke-width="1.4"/></svg><span>MAJLIS</span></div>
@@ -1183,7 +1186,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.25.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.26.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1318,6 +1321,10 @@ en:{
  term_room:'Terminate', term_q:'Terminate this room?', term_q_body:'Every participant will be notified and disconnected, and the session closed. This cannot be undone.',
  timer_lbl:'Session timer', timer_sub:'Optional countdown. When it reaches zero the room terminates for everyone and all participants are notified.',
  timer_set:'Start countdown', timer_stop:'Stop', timer_started:'Session countdown started', timer_need:'Set a duration first', session_ended:'Session time is up — the room has ended',
+ grace_lbl:'The Admin left — this room closes in', grace_title:'Room closing',
+ grace_started:'The Admin left — this room closes automatically in 10 minutes',
+ grace_back:'The Admin returned — the room continues',
+ grace_ended:'Closed automatically: the Admin was away for 10 minutes',
  cc_members_sub:'Presence, device info, per-member permissions and moderation.', cc_comms_sub:'Room-wide switches. Changes apply to every member instantly.',
  room_chat:'Room chat', private_msgs:'Private messages', voice_calls:'Voice calls', video_calls:'Video calls', group_calls:'Group calls',
  member_calls:'Member-initiated calls', member_calls_sub:'When off, only the Admin can start calls.', private_calls:'Private (1-to-1) calls',
@@ -1462,6 +1469,10 @@ ar:{
  term_room:'إنهاء', term_q:'إنهاء هذه الغرفة؟', term_q_body:'سيتم إشعار جميع المشاركين وفصلهم وإغلاق الجلسة. لا يمكن التراجع.',
  timer_lbl:'مؤقت الجلسة', timer_sub:'عدّ تنازلي اختياري. عند بلوغ الصفر تُنهى الغرفة للجميع ويُخطَر جميع المشاركين.',
  timer_set:'بدء العدّ', timer_stop:'إيقاف', timer_started:'بدأ عدّ الجلسة التنازلي', timer_need:'حدّد مدة أولاً', session_ended:'انتهى وقت الجلسة — أُغلقت الغرفة',
+ grace_lbl:'غادر المشرف — تُغلق هذه الغرفة خلال', grace_title:'إغلاق الغرفة',
+ grace_started:'غادر المشرف — تُغلق الغرفة تلقائياً خلال 10 دقائق',
+ grace_back:'عاد المشرف — تستمر الغرفة',
+ grace_ended:'أُغلقت تلقائياً: غياب المشرف لمدة 10 دقائق',
  cc_members_sub:'الحضور ومعلومات الأجهزة وصلاحيات كل عضو والإشراف.', cc_comms_sub:'مفاتيح عامة للغرفة. تسري التغييرات على الجميع فوراً.',
  room_chat:'دردشة الغرفة', private_msgs:'الرسائل الخاصة', voice_calls:'المكالمات الصوتية', video_calls:'مكالمات الفيديو', group_calls:'المكالمات الجماعية',
  member_calls:'مكالمات يبدأها الأعضاء', member_calls_sub:'عند الإيقاف، المشرف فقط يبدأ المكالمات.', private_calls:'المكالمات الخاصة (ثنائية)',
@@ -2955,6 +2966,7 @@ M.UI = {
     M.$('#btnCC').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#btnTerm').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#btnBoard').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
+    M.Grace.settle=Date.now(); M.Grace.until=0; M.$('#graceBanner')?.classList.add('hidden');
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
     M.$('#selfName').textContent=M.State.self.name;
@@ -5439,6 +5451,7 @@ M.App = {
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
+    M.Grace.until=0; M.Grace.settle=0; M.$('#graceBanner')?.classList.add('hidden');
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#composer').style.display=''; M.Chat.view='thread'; M.$('#btnInbox').classList.remove('on');
@@ -5726,6 +5739,52 @@ M.Share = {
   }
 };
 
+/* ---------------- Admin-absence auto-termination -------------------------
+   A room without its Admin closes itself after 10 minutes: members detect
+   the Admin going offline, start a shared countdown, cancel it the moment
+   the Admin returns, and terminate locally at zero. Cooperative enforcement
+   over the P2P mesh — no server needed. */
+M.Grace = {
+  until:0, settle:0,
+  PERIOD:10*60*1000,
+  init(){
+    setInterval(()=>M.Grace.onTick(),1000);
+    M.bus.on('members',()=>M.Grace.eval());
+  },
+  eval(){
+    if(M.Admin.priv||M.Admin.legacy){ M.Grace.cancel(false); return; }   /* I am the Admin — nothing to enforce */
+    if(!M.State.room) return;
+    if(Date.now()-M.Grace.settle<15000) return;                          /* let the Admin's hello land on fresh joins */
+    const adminOn=[...M.State.peers.values()].some(p=>p.adm&&p.status==='online');
+    if(adminOn){ if(M.Grace.until) M.Grace.cancel(true); return; }
+    if(!M.Grace.until){
+      M.Grace.until=Date.now()+M.Grace.PERIOD;
+      M.$('#graceBanner').classList.remove('hidden');
+      M.toast('warn',M.t('grace_title'),M.t('grace_started'),{ms:6500});
+      M.log('warn','admin absent — room auto-terminates in 10 minutes');
+    }
+  },
+  cancel(announce){
+    if(!M.Grace.until) return;
+    M.Grace.until=0;
+    M.$('#graceBanner').classList.add('hidden');
+    if(announce){ M.toast('ok',M.t('grace_title'),M.t('grace_back')); M.log('info','admin returned — auto-termination canceled'); }
+  },
+  onTick(){
+    if(!M.Grace.until) return;
+    const rem=M.Grace.until-Date.now();
+    const el=M.$('#graceTxt');
+    if(el) el.textContent=M.fmt.dur(Math.max(0,Math.floor(rem/1000)));
+    if(rem<=0){
+      M.Grace.until=0;
+      M.$('#graceBanner').classList.add('hidden');
+      M.toast('err',M.t('grace_title'),M.t('grace_ended'),{ms:6000});
+      M.log('warn','room auto-terminated: admin absent for 10 minutes');
+      setTimeout(()=>M.App.backToLobby('ended'),1600);
+    }
+  }
+};
+
 /* ---------------- Theme (light default / dark optional) ---------------- */
 M.Theme = {
   t:'light',
@@ -5807,6 +5866,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     boot('board',()=>M.WB.init()); boot('ui',()=>M.UI.init()); boot('control-center',()=>M.CC.init());
     boot('share',()=>M.Share.init()); boot('recovery',()=>M.Recovery.init());
     boot('theme',()=>M.Theme.init());
+    boot('grace',()=>M.Grace.init());
     addEventListener('pointerdown',()=>{ try{ M.Notify._sndCtx?.resume?.(); }catch(e){} },{once:true});
     /* fix: direct-send file to a member from sidebar */
     const fi=M.$('#fileInput');
