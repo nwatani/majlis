@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#0B1215">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Majlis">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -412,6 +416,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 /* ---------- remote assistance ---------- */
 #rcBanner{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:130;display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,#3a1512,#2a0f0d);border:1px solid var(--red);color:#ffb9b2;border-radius:999px;padding:8px 10px 8px 16px;font-size:13px;box-shadow:0 12px 34px -10px rgba(255,97,87,.55);animation:msgIn .25s ease both;max-width:94vw}
 html[data-theme="light"] #rcBanner{background:linear-gradient(180deg,#fff3f2,#ffe7e4);color:#8c231c;border-color:#e5837b}
+#recBanner{position:fixed;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:129;display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,#3a1512,#2a0f0d);border:1px solid var(--red);color:#ffb9b2;border-radius:999px;padding:7px 18px;font-size:12.5px;box-shadow:0 12px 34px -10px rgba(255,97,87,.55);animation:msgIn .25s ease both;pointer-events:none}
+html[data-theme="light"] #recBanner{background:linear-gradient(180deg,#fff3f2,#ffe7e4);color:#8c231c}
+#recBanner b{color:#fff}
+html[data-theme="light"] #recBanner b{color:#a3271e}
 #rcBanner b{color:#fff}
 html[data-theme="light"] #rcBanner b{color:#a3271e}
 #rcBanner .rc-dot{width:10px;height:10px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
@@ -643,6 +651,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
       <div id="lobbyMsg"></div>
       <div class="lb-foot">
         <button class="btn btn-ghost btn-sm" id="langBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span id="langLbl">العربية</span></button>
+        <button class="btn btn-ghost btn-sm hidden" id="installBtn" title="Install"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="install_app">Install app</span></button>
         <button class="btn btn-ghost btn-sm" id="themeBtn2" title="Theme">
           <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
           <svg class="ico-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" stroke-linejoin="round"/></svg>
@@ -837,6 +846,11 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 </div></div>
 
 <!-- remote assistance surfaces -->
+<div id="recBanner" class="hidden">
+  <span class="rc-dot"></span>
+  <span><b data-i18n="rec_banner">This session is being recorded</b></span>
+  <span id="recTime" class="mono" style="font-size:11px;opacity:.85"></span>
+</div>
 <div id="rcBanner" class="hidden">
   <span class="rc-dot"></span>
   <span><b id="rcBannerName"></b> <span id="rcBannerMode" data-i18n="rc_banner">is viewing &amp; guiding your screen</span></span>
@@ -1038,6 +1052,12 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
       <div class="cc-card"><h4 data-i18n="rd_card_title">Native access credentials</h4>
         <div class="field"><label class="lbl" data-i18n="rd_web_lbl">RustDesk web client URL</label><input class="inp mono" id="cfgRdWeb" dir="ltr" placeholder="https://web.rustdesk.com/"></div>
         <button class="btn" id="cfgRdSave" data-i18n="save_apply">Save &amp; apply on next room</button>
+        <div class="hr"></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn" id="cfgTestIce" data-i18n="test_conn">Test connection</button>
+          <span id="iceTestOut" class="mono" style="font-size:11.5px"></span>
+        </div>
+        <p class="m-note" data-i18n="test_conn_sub">Gathers real ICE candidates with your current STUN/TURN settings and shows which paths are reachable.</p>
         <p class="m-note" data-i18n="rd_cc_note">For full help-desk use: run RustDesk’s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use “Native access” on a member to exchange IDs and connect — true OS-level control, end-to-end encrypted by RustDesk.</p>
       </div>
     </section>
@@ -1084,7 +1104,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.20.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.22.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1247,7 +1267,7 @@ en:{
  room_locked_join:'This room is locked — the Admin is not admitting new members.', banned_join:'You cannot join this room (removed or banned).',
  join_failed:'Could not connect to the room. Check the code / invite link and your network.',
  creating:'Creating room…', joining:'Joining room…', name_required:'Please enter a display name first.', invalid_code:'Enter the 6-character room code.',
- file_offer:'{n} is sending “{f}”', file_done:'“{f}” received — verified ✓', file_to_room:'to room', file_to:'to {n}', file_from:'from {n}',
+ file_offer:'{n} is sending “{f}”', file_resuming:'Resuming “{f}” where it left off', file_done:'“{f}” received — verified ✓', file_to_room:'to room', file_to:'to {n}', file_from:'from {n}',
  st_queued:'queued', st_sending:'sending', st_receiving:'receiving', st_paused:'paused', st_done:'complete', st_failed:'failed', st_canceled:'canceled', st_verify:'verifying',
  retry:'Retry', download:'Download', pause:'Pause', resume:'Resume', integrity_fail:'Integrity check failed',
  perm_denied:'Not permitted', chat_disabled:'Room chat is disabled by the Admin', dm_disabled:'Private messages are disabled by the Admin',
@@ -1285,6 +1305,9 @@ en:{
  wb_objects:'objects',
  test_paste:'Test paste pipeline', copy_log:'Copy log',
  wb_duplicated:'{n} duplicated',
+ test_conn:'Test connection', test_conn_sub:'Gathers real ICE candidates with your current STUN/TURN settings and shows which paths are reachable.',
+ test_warn:'no external path — calls will fail across networks', test_norelay:'direct + STUN OK; add TURN for strict NATs', test_ok:'full path available',
+ install_app:'Install app', installed:'Installed — launch it from your home screen',
  inbox:'Conversations', inbox_sub:'All your private threads', inbox_empty:'No private conversations yet.<br>Hover a member and tap the chat icon to start one.',
  link_recovered:'Link recovered',
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
@@ -1319,6 +1342,10 @@ en:{
  rc_banner_cam:'is viewing your camera feed', rc_cam_chip:'camera view', rc_allow_cam:'Allow \u2014 share camera',
  rc_mob_cam:'This member is on mobile \u2014 they\u2019ll be asked to share their camera instead (mobile browsers cannot capture the screen)',
  rc_cam_front:'Front camera active', rc_cam_back:'Rear camera active', rc_flip:'Flip camera',
+ rec_title:'Recording', rec_start:'Record', rec_stop:'Stop recording', rec_banner:'This session is being recorded',
+ rec_one:'One recording at a time', rec_unsup:'Recording is not supported in this browser',
+ rec_saved:'Recording saved', rec_started:'Recording started — all participants have been notified',
+ rec_peer_on:'{n} started recording this call', rec_peer_off:'Recording stopped',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1371,7 +1398,7 @@ ar:{
  room_locked_join:'الغرفة مقفلة — المشرف لا يقبل أعضاء جدد حالياً.', banned_join:'لا يمكنك الانضمام إلى هذه الغرفة (تمت إزالتك أو حظرك).',
  join_failed:'تعذّر الاتصال بالغرفة. تحقق من الرمز / رابط الدعوة ومن الشبكة.',
  creating:'جارٍ إنشاء الغرفة…', joining:'جارٍ الانضمام…', name_required:'أدخل اسماً ظاهراً أولاً.', invalid_code:'أدخل رمز الغرفة المكوّن من 6 أحرف.',
- file_offer:'يرسل {n} ملف «{f}»', file_done:'تم استلام «{f}» — تم التحقق ✓', file_to_room:'إلى الغرفة', file_to:'إلى {n}', file_from:'من {n}',
+ file_offer:'يرسل {n} ملف «{f}»', file_resuming:'استئناف «{f}» من حيث توقف', file_done:'تم استلام «{f}» — تم التحقق ✓', file_to_room:'إلى الغرفة', file_to:'إلى {n}', file_from:'من {n}',
  st_queued:'في الانتظار', st_sending:'جارٍ الإرسال', st_receiving:'جارٍ الاستلام', st_paused:'متوقف مؤقتاً', st_done:'مكتمل', st_failed:'فشل', st_canceled:'أُلغي', st_verify:'جارٍ التحقق',
  retry:'إعادة المحاولة', download:'تنزيل', pause:'إيقاف', resume:'متابعة', integrity_fail:'فشل فحص السلامة',
  perm_denied:'غير مسموح', chat_disabled:'عطّل المشرف دردشة الغرفة', dm_disabled:'عطّل المشرف الرسائل الخاصة',
@@ -1409,6 +1436,9 @@ ar:{
  wb_objects:'عنصر',
  test_paste:'اختبار خط اللصق', copy_log:'نسخ السجل',
  wb_duplicated:'كرر {n}',
+ test_conn:'اختبار الاتصال', test_conn_sub:'يجمع مرشحات ICE حقيقية بإعدادات STUN/TURN الحالية ويعرض المسارات المتاحة.',
+ test_warn:'لا مسار خارجي — ستفشل المكالمات بين الشبكات', test_norelay:'مباشر + STUN جيد؛ أضف TURN للشبكات المقيدة', test_ok:'المسار الكامل متاح',
+ install_app:'تثبيت التطبيق', installed:'تم التثبيت — شغّله من الشاشة الرئيسية',
  inbox:'المحادثات', inbox_sub:'كل محادثاتك الخاصة', inbox_empty:'لا محادثات خاصة بعد.<br>مرّر فوق عضو واضغط أيقونة الدردشة لبدء واحدة.',
  link_recovered:'عاد الاتصال',
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
@@ -1443,6 +1473,10 @@ ar:{
  rc_banner_cam:'يشاهد بث الكاميرا لديك', rc_cam_chip:'بث كاميرا', rc_allow_cam:'سماح — مشاركة الكاميرا',
  rc_mob_cam:'هذا العضو يستخدم الجوال — سيُطلب منه مشاركة الكاميرا بدلاً من الشاشة (متصفحات الجوال لا تلتقط الشاشة)',
  rc_cam_front:'الكاميرا الأمامية مفعّلة', rc_cam_back:'الكاميرا الخلفية مفعّلة', rc_flip:'تبديل الكاميرا',
+ rec_title:'تسجيل', rec_start:'تسجيل', rec_stop:'إيقاف التسجيل', rec_banner:'هذه الجلسة قيد التسجيل',
+ rec_one:'تسجيل واحد في كل مرة', rec_unsup:'التسجيل غير مدعوم في هذا المتصفح',
+ rec_saved:'حُفظ التسجيل', rec_started:'بدأ التسجيل — تم إشعار جميع المشاركين',
+ rec_peer_on:'بدأ {n} تسجيل هذه المكالمة', rec_peer_off:'توقف التسجيل',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -1651,8 +1685,9 @@ M.Net = {
     if(M.Net.onProgress) M.Net.onProgress('Connecting to relay network…');
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() } };
     if(M.Crypto.has()) cfg.password=M.Crypto.passB64||M.State.room.roomKeyB64;
-    const broker=M.Store.get('broker');
-    if(broker) cfg.relayConfig={urls:[broker]};
+    /* redundant signaling relays — if one broker dies, the others keep the room alive */
+    const custom=M.Store.get('broker');
+    cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
     const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, ts:Date.now() });
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
@@ -2199,8 +2234,14 @@ M.Chat = {
   },
   fileCard(key,{id,name,size,dir,peerName,statusLabel,url}){
     M.Chat.append(key,{id:M.uid(8),ts:Date.now(),file:{id,name,size,dir,peerName,statusLabel,url},from:M.State.self.id,name:M.State.self.name},dir==='up');
+    /* keep a handle on the canonical stored file object so status/url updates survive any re-render */
+    const th=M.Chat.threads.get(key);
+    const stored=th?.length? th[th.length-1].file : null;
+    if(stored){ M.Chat._fileRefs ??= new Map(); M.Chat._fileRefs.set(id,stored); }
   },
   updateFileCard(id,patch){
+    const f=M.Chat._fileRefs?.get(id);
+    if(f){ Object.assign(f,patch); M.Chat.persist(); }   /* the thread itself learns the final state — tab switches can no longer rewind a transfer */
     const ref=M.Chat._fileMsgEls?.get(id); if(!ref) return;
     if(patch.statusLabel) ref.st.textContent=patch.statusLabel;
     if(patch.url && !ref.row.querySelector('a')){ const a=M.el('a','btn btn-sm btn-teal',M.t('download')); a.href=patch.url; a.download=patch.name||'file'; a.style.textDecoration='none'; ref.body.appendChild(a); }
@@ -2212,6 +2253,45 @@ M.Chat = {
    offer → binary chunks (64KB, metadata {id,seq}) → receiver ACKs every
    16 chunks → sender window ≤ 64 chunks (4MB) → done + SHA-256 verify.
    ===================================================================== */
+/* ---- IndexedDB chunk store: received bytes survive refreshes & crashes,
+   enabling transfers to resume from an offset instead of restarting ---- */
+M.DB = {
+  _db:null,
+  open(){
+    if(M.DB._db) return Promise.resolve(M.DB._db);
+    return new Promise((res,rej)=>{
+      const rq=indexedDB.open('majlis-ft',1);
+      rq.onupgradeneeded=()=>{ const db=rq.result; if(!db.objectStoreNames.contains('x')) db.createObjectStore('x'); };
+      rq.onsuccess=()=>{ M.DB._db=rq.result; res(M.DB._db); };
+      rq.onerror=()=>rej(rq.error);
+    });
+  },
+  _k(id,seq){ return id+':'+String(seq).padStart(7,'0'); },
+  async putChunk(id,seq,buf){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(buf,M.DB._k(id,seq)); }catch(e){} },
+  async putMeta(id,meta){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(meta,id+':meta'); }catch(e){} },
+  async meta(id){ try{ const db=await M.DB.open(); return await new Promise(res=>{ const rq=db.transaction('x').objectStore('x').get(id+':meta'); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>res(null); }); }catch(e){ return null; } },
+  async chunks(id,count){
+    try{
+      const db=await M.DB.open();
+      return await new Promise(res=>{
+        const out=[], st=db.transaction('x').objectStore('x'); let i=0;
+        const next=()=>{ if(i>=count) return res(out);
+          const rq=st.get(M.DB._k(id,i));
+          rq.onsuccess=()=>{ if(rq.result==null) return res(out); out.push(rq.result); i++; next(); };
+          rq.onerror=()=>res(out); };
+        next();
+      });
+    }catch(e){ return []; }
+  },
+  async del(id){
+    try{
+      const db=await M.DB.open(); const st=db.transaction('x','readwrite').objectStore('x');
+      const keys=await new Promise(res=>{ const rq=st.getAllKeys(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); });
+      keys.forEach(k=>{ if(String(k).startsWith(id+':')) st.delete(k); });
+    }catch(e){}
+  }
+};
+
 M.FT = {
   sends:new Map(), recvs:new Map(),
   CHUNK:65536, ACK_EVERY:16, WINDOW:64, MAX_PARALLEL:3,
@@ -2257,11 +2337,11 @@ M.FT = {
     m.classList.remove('hidden');
   },
   sendAll(files,target){ files.forEach(f=>M.FT.start(f,target)); M.UI.setTab('files'); },
-  start(file,target){
+  start(file,target,opts){
     const isRoom=target==='*';
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
-    const id=M.uid(12);
+    const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
     const t={ id, file, name:file.name, size:file.size, type:file.type||'file', target, dir:'up',
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
     M.FT.sends.set(id,t);
@@ -2313,17 +2393,52 @@ M.FT = {
         const isRoom=!d.target;
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
-        const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', status:'receiving',
-          expected:0, recv:0, parts:[], hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
-        M.FT.recvs.set(r.id,r);
-        M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:M.t('st_receiving')});
-        M.toast('info',M.t('file_offer',{n:M.Members.name(from),f:r.name}),M.fmt.bytes(r.size));
-        M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
-        M.log('info','incoming file '+r.name+' from '+M.fmt.idShort(from));
-        M.FT.render(); M.UI.badges();
+        (async()=>{
+          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', status:'receiving',
+            expected:0, recv:0, parts:[], hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
+          /* ---- resume from persisted chunks (survives refresh / crash) ---- */
+          let resumeOff=0;
+          try{
+            const meta=await M.DB.meta(d.id);
+            if(meta && meta.size===d.size && meta.recv>0){
+              const aligned=Math.floor(meta.recv/M.FT.CHUNK)*M.FT.CHUNK;
+              if(aligned>0 && aligned<d.size){
+                const bufs=await M.DB.chunks(d.id, aligned/M.FT.CHUNK);
+                if(bufs.length*M.FT.CHUNK===aligned){
+                  r.parts=bufs; r.recv=aligned; r.expected=aligned/M.FT.CHUNK;
+                  bufs.forEach(b=>r.hash.update(new Uint8Array(b)));
+                  resumeOff=aligned;
+                  M.log('info','resuming receive '+d.name+' from '+M.fmt.bytes(aligned)+' ('+Math.round(aligned/d.size*100)+'%)');
+                }
+              }
+            }
+          }catch(e){}
+          M.FT.recvs.set(r.id,r);
+          M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving')});
+          if(resumeOff){ try{ M.Net.sendEnc('ft',{t:'resume',id:d.id,offset:resumeOff},from); }catch(e){} }
+          M.DB.putMeta(d.id,{size:d.size,name:d.name,recv:resumeOff});
+          M.toast('info',M.t(resumeOff?'file_resuming':'file_offer',{n:M.Members.name(from),f:r.name}),M.fmt.bytes(r.size));
+          M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
+          M.log('info','incoming file '+r.name+' from '+M.fmt.idShort(from));
+          M.FT.render(); M.UI.badges();
+        })();
         break;
       }
       case 'ack': { const t=M.FT.sends.get(d.id); if(t){ t.ack=Math.max(t.ack,d.seq); } break; }
+      case 'resume': {
+        /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
+        const t=M.FT.sends.get(d.id); if(!t) return;
+        (async()=>{
+          const off=Math.floor((d.offset||0)/M.FT.CHUNK)*M.FT.CHUNK;
+          let p=0;
+          try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); t.hash.update(new Uint8Array(b)); p+=M.FT.CHUNK; } }
+          catch(e){ M.FT.fail(t,'resume read failed'); return; }
+          t.seq=off/M.FT.CHUNK; t.ack=t.seq; t.sent=off; t.status='sending'; t.startedAt=t.startedAt||Date.now();
+          M.log('info','resuming send '+t.name+' from '+M.fmt.bytes(off));
+          M.FT.render(); M.FT.loop(t);
+        })();
+        break;
+      }
       case 'done': {
         const r=M.FT.recvs.get(d.id); if(!r) return;
         if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
@@ -2355,6 +2470,8 @@ M.FT = {
     const u8=new Uint8Array(buf);
     r.parts.push(u8); r.recv+=u8.length; r.expected++;
     r.hash.update(u8);
+    M.DB.putChunk(r.id,metadata.seq,buf);   /* persist as it arrives — a crash loses at most the in-flight window */
+    if(r.expected%32===0) M.DB.putMeta(r.id,{size:r.size,name:r.name,recv:r.recv});
     if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
     M.FT.tickRecv(r);
     if(r.pending && r.recv>=r.size) M.FT.finalize(r,r.pending,peerId); /* late chunks after an early 'done' */
@@ -2367,6 +2484,7 @@ M.FT = {
     if(ok){
       const blob=new Blob(r.parts,{type:r.type});
       r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
+      M.DB.del(r.id);   /* verified complete — free the persisted chunks */
       M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
       M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
       M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
@@ -2393,10 +2511,14 @@ M.FT = {
   fail(t,why){ t.status='failed'; t.err=why; M.Chat.updateFileCard(t.id,{statusLabel:'✗ '+why}); M.toast('err',t.name,why); M.Notify.beep('err'); M.FT.render(); M.FT.pump(); },
   cancelSend(id){ const t=M.FT.sends.get(id); if(!t) return; const was=t.status; t.status='canceled'; M.Net.sendEnc('ft',{t:'cancel',id},t.target==='*'?undefined:t.target); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); M.FT.pump(); M.log('info','sender canceled '+t.name); },
   cancelRecv(id){ const r=M.FT.recvs.get(id); if(!r) return; r.status='canceled'; r.parts=null; M.Net.sendEnc('ft',{t:'cancel',id},r.from); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); },
-  retry(id){ const t=M.FT.sends.get(id); if(!t) return; M.FT.sends.delete(id); M.FT.start(t.file,t.target); },
+  retry(id){
+    const t=M.FT.sends.get(id); if(!t) return;
+    M.FT.sends.delete(id);
+    M.FT.start(t.file,t.target,{reuseId:id});   /* same id → a receiver with persisted chunks resumes instead of restarting */
+  },
   onPeerGone(pid){
     M.FT.sends.forEach(t=>{ if(t.target===pid && (t.status==='sending'||t.status==='queued'||t.status==='verify')) M.FT.fail(t,M.t('sys_left',{n:M.Members.name(pid)})); });
-    M.FT.recvs.forEach(r=>{ if(r.from===pid && r.status==='receiving'){ r.status='failed'; r.err='peer offline'; r.parts=null; M.FT.render(); } });
+    M.FT.recvs.forEach(r=>{ if(r.from===pid && r.status==='receiving'){ r.status='failed'; r.err='peer offline'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('st_failed')}); M.FT.render(); } });
   },
   activeCount(){ let n=0; M.FT.sends.forEach(t=>{ if(['queued','sending','verify'].includes(t.status)) n++; }); M.FT.recvs.forEach(r=>{ if(r.status==='receiving') n++; }); return n; },
   _renderThrottled:null,
@@ -2807,6 +2929,7 @@ M.Call = {
     },1000);
     M.Call._spk=new WeakMap();                       /* §12 active-speaker indication */
     setInterval(()=>M.Call.paintSpeakers(),700);
+    setInterval(()=>M.Call.adaptQuality(),4000);     /* loss-driven adaptive bitrate */
   },
   all(){ return [...M.Call.sessions.values()]; },
   activeCount(){ let n=0; M.Call.sessions.forEach(s=>{ if(s.status==='active') n++; }); return n; },
@@ -2920,6 +3043,14 @@ M.Call = {
         const r=s.remotes.get(d.from); if(r){ r.muted=d.muted; r.camOff=d.camOff; M.Call.renderWin(s); }
         break;
       }
+      case 'rec': {
+        const s=M.Call.sessions.get(d.callId); if(!s) return;
+        M.$('#recBanner').classList.toggle('hidden',!d.on);
+        M.toast(d.on?'warn':'info',M.t('rec_title'),d.on?M.t('rec_peer_on',{n:M.Members.name(d.peerId)}):M.t('rec_peer_off'));
+        if(s) M.Call.renderWin(s);
+        M.log(d.on?'warn':'info','recording '+(d.on?'started by '+M.Members.name(d.peerId):'stopped'));
+        break;
+      }
       case 'end': {
         const s=M.Call.sessions.get(d.callId);
         if(!s) break;
@@ -3024,6 +3155,8 @@ M.Call = {
 
   teardown(callId, note, remote){
     const s=M.Call.sessions.get(callId); if(!s) return;
+    if(M.Rec.active?.callId===callId) M.Rec.stop();   /* never orphan a recording */
+    if(!M.Rec.active) M.$('#recBanner').classList.add('hidden');
     clearTimeout(s._timeout);
     if(!remote) s.peers.forEach(pid=>M.Call._repeat(pid,{t:'end',callId},3,800));
     try{ if(s.localStream) s.sentTo.forEach(pid=>M.Net.room.removeStream(s.localStream,{target:pid})); }catch(e){}
@@ -3080,11 +3213,25 @@ M.Call = {
     if(s.status==='active'&&s.startedAt) s.durEl.textContent=M.fmt.dur((Date.now()-s.startedAt)/1000);
     /* grid */
     const grid=w.querySelector('.cw-grid'); grid.innerHTML='';
-    const tiles=[];
-    if(s.kind==='video'||true) tiles.push({self:true});
-    s.peers.forEach(pid=>tiles.push({pid}));
+    /* speaker-focus: with >6 participants, only the 4 loudest get live tiles */
+    const focus=s.peers.size+1>6;
+    let shown=[...s.peers];
+    if(focus){ shown=shown.sort((a,b)=>((s._levels?.[b])||0)-((s._levels?.[a])||0)).slice(0,4); }
+    s._shownKey=[...shown].sort().join(',');
+    const tiles=[{self:true},...shown.map(pid=>({pid}))];
     grid.classList.toggle('g2', tiles.length>1 && tiles.length<=4);
     if(tiles.length>4) grid.style.gridTemplateColumns='repeat(3,1fr)';
+    if(focus && s.peers.size>shown.length){
+      const hidden=[...s.peers].filter(p=>!shown.includes(p));
+      const strip=M.el('div'); strip.style.cssText='grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding:2px 2px 0';
+      hidden.forEach(pid=>{
+        const c=M.el('span'); c.textContent=M.Members.name(pid);
+        const live=(s._levels?.[pid]||0)>0.03;
+        c.style.cssText='font-size:10.5px;font-family:var(--mono);padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:'+(live?'var(--teal)':'var(--dim)')+';background:'+(live?'rgba(56,207,182,.1)':'transparent');
+        strip.appendChild(c);
+      });
+      grid.appendChild(strip);
+    }
     for(const tl of tiles){
       const tile=M.el('div','tile');
       if(!tl.self) tile.dataset.pid=tl.pid;
@@ -3121,6 +3268,10 @@ M.Call = {
     btn(s.muted?M.Icons.micOff:M.Icons.mic, s.muted?'off':'', s.muted?M.t('unmute'):M.t('mute'), ()=>M.Call.toggleMute(s), !s.muted);
     if(s.kind==='video') btn(s.camOff?M.Icons.cam:M.Icons.cam, s.camOff?'off':'', s.camOff?M.t('cam_on'):M.t('cam_off'), ()=>M.Call.toggleCam(s), !s.camOff);
     if(!M.Platform.mobile) btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>','', s.sharing?M.t('stop_share'):M.t('screen_share'), ()=>M.Call.toggleScreen(s), s.sharing);
+    if(M.Admin.priv||M.Admin.legacy){
+      const on=M.Rec.active?.callId===s.id;
+      btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>',on?'off':'',on?M.t('rec_stop'):M.t('rec_start'),()=>on?M.Rec.stop():M.Rec.start(s.id),on);
+    }
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg>','',M.t('devices'),()=>M.Media.openDevicesModal());
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>','end',M.t('end_call'),()=>M.Call.leave(s.id));
   },
@@ -3159,9 +3310,10 @@ M.Call = {
     if(document.hidden) return;
     M.Call.sessions.forEach(s=>{
       if(s.status!=='active'||!s.win) return;
+      s._levels ??= {};
       let best=null, bestV=0.03;
       s.remotes.forEach((r,pid)=>{
-        const st=r.stream; if(!st || st.getAudioTracks().length===0 || st.getAudioTracks().every(t=>!t.enabled)) return;
+        const st=r.stream; if(!st || st.getAudioTracks().length===0 || st.getAudioTracks().every(t=>!t.enabled)) { s._levels[pid]=0; return; }
         let an=M.Call._spk.get(st);
         if(!an){
           try{
@@ -3170,16 +3322,54 @@ M.Call = {
             const src=M.Call._ac.createMediaStreamSource(st);
             an=M.Call._ac.createAnalyser(); an.fftSize=512; src.connect(an);
             M.Call._spk.set(st,an);
-          }catch(e){ return; }
+          }catch(e){ s._levels[pid]=0; return; }
         }
         const d=new Uint8Array(an.frequencyBinCount); an.getByteTimeDomainData(d);
         let sum=0; for(let i=0;i<d.length;i++){ const v=(d[i]-128)/128; sum+=v*v; }
         const rms=Math.sqrt(sum/d.length);
+        s._levels[pid]=Math.max(rms,(s._levels[pid]||0)*0.7);
         if(rms>bestV){ bestV=rms; best=pid; }
       });
       s.win.querySelectorAll('.tile').forEach(t=>{
         const tag=t.querySelector('.t-name');
         if(tag) tag.classList.toggle('spk', !!t.dataset.pid && t.dataset.pid===best);
+      });
+      /* speaker-focus: when the loud set changes among >6 participants, re-render tiles */
+      if(s.peers.size+1>6){
+        const shown=[...s.peers].sort((a,b)=>(s._levels[b]||0)-(s._levels[a]||0)).slice(0,4).sort().join(',');
+        if(s._shownKey!==undefined && shown!==s._shownKey) M.Call.renderWin(s);
+      }
+    });
+  },
+  /* adaptive quality — step bitrate/resolution with sustained packet loss */
+  _qLevels:[{label:'HD',br:1200000,sc:1},{label:'SD',br:600000,sc:1},{label:'ECO',br:250000,sc:2}],
+  adaptQuality(){
+    if(document.hidden) return;
+    const pcs=M.Net.room?.getPeers?.()||{};
+    M.Call.sessions.forEach(s=>{
+      if(s.status!=='active') return;
+      s.peers.forEach(pid=>{
+        const pc=pcs[pid]; if(!pc||!pc.getStats) return;
+        pc.getStats().then(st=>st.forEach(r=>{
+          if(r.type!=='outbound-rtp'||r.kind!=='video') return;
+          const tot=(r.packetsSent||0)+(r.packetsLost||0);
+          const loss=tot? (r.packetsLost||0)/tot : 0;
+          s._loss=(s._loss||0)*0.6+loss*0.4;
+          const cur=s._qi||0;
+          const apply=qi=>{ s._qi=qi; const lvl=M.Call._qLevels[qi];
+            pc.getSenders().forEach(sd=>{
+              if(sd.track?.kind!=='video') return;
+              const p=sd.getParameters();
+              p.encodings=[{...(p.encodings?.[0]||{}),maxBitrate:lvl.br,maxFramerate:qi===2?15:24,scaleResolutionDownBy:lvl.sc}];
+              sd.setParameters?.(p)?.catch?.(()=>{});
+            });
+            s._qLabel=lvl.label; M.Call.renderWin(s);
+            M.log('info','video quality → '+lvl.label+' (loss '+Math.round(s._loss*100)+'%)');
+          };
+          if(s._loss>0.06 && cur<2) apply(cur+1);
+          else if(s._loss<0.015 && cur>0){ s._qHold=(s._qHold||0)+1; if(s._qHold>=3){ s._qHold=0; apply(cur-1); } }
+          else s._qHold=0;
+        })).catch(()=>{});
       });
     });
   },
@@ -3530,6 +3720,93 @@ M.RC = {
   }
 };
 M.RC.init();
+
+/* =====================================================================
+   Session Recorder — admin-toggled, consent-broadcast composite capture.
+   Mixes every participant's audio and paints live video tiles to a
+   canvas; MediaRecorder muxes both into a downloadable .webm.
+   ===================================================================== */
+M.Rec = {
+  active:null,
+  supported(){ return typeof MediaRecorder!=='undefined' && HTMLCanvasElement.prototype.captureStream; },
+  start(callId){
+    const s=M.Call.sessions.get(callId);
+    if(!s||s.status!=='active'){ return; }
+    if(M.Rec.active){ M.toast('warn',M.t('rec_title'),M.t('rec_one')); return; }
+    if(!M.Rec.supported()){ M.toast('warn',M.t('rec_title'),M.t('rec_unsup')); return; }
+    const cv=document.createElement('canvas'); cv.width=960; cv.height=540;
+    const ctx=cv.getContext('2d');
+    let ac=null; try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
+    const dest=ac?ac.createMediaStreamDestination():null;
+    const wired=[];
+    const wire=st=>{ try{ if(ac&&st&&st.getAudioTracks().some(t=>t.readyState==='live')){ ac.createMediaStreamSource(st).connect(dest); wired.push(st.id); } }catch(e){} };
+    if(s.localStream) wire(s.localStream);
+    s.remotes.forEach(r=>wire(r.stream));
+    const vTrack=cv.captureStream(15).getVideoTracks()[0];
+    const mix=new MediaStream([vTrack,...(dest?dest.stream.getAudioTracks():[])]);
+    let mime='video/webm;codecs=vp8,opus';
+    if(!MediaRecorder.isTypeSupported?.(mime)) mime='video/webm';
+    const rec=new MediaRecorder(mix,{mimeType:mime,videoBitsPerSecond:1500000});
+    const chunks=[];
+    rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    rec.onstop=()=>{
+      clearInterval(M.Rec.active?.int); clearInterval(M.Rec.active?.tt);
+      try{ ac?.close(); }catch(e){}
+      vTrack.stop();
+      const blob=new Blob(chunks,{type:'video/webm'});
+      const url=URL.createObjectURL(blob);
+      const name='majlis-'+M.State.room.code+'-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.webm';
+      const a=M.el('a'); a.href=url; a.download=name; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),8000);
+      M.toast('ok',M.t('rec_title'),M.t('rec_saved')+' · '+M.fmt.bytes(blob.size),{ms:7000});
+      M.log('info','recording saved: '+name+' ('+M.fmt.bytes(blob.size)+')');
+      M.Rec.active=null;
+      M.$('#recBanner').classList.add('hidden');
+      s.peers.forEach(pid=>{ try{ M.Net.send('sig',{t:'rec',on:false,callId},pid); }catch(e){} });
+      M.Call.renderWin(s);
+    };
+    rec.start(1000);
+    /* composite painter — what the admin sees is what gets recorded */
+    const paint=()=>{
+      ctx.fillStyle='#0a1013'; ctx.fillRect(0,0,960,540);
+      const parts=[{self:true},...[...s.remotes.keys()].map(pid=>({pid}))];
+      const n=parts.length, cols=Math.ceil(Math.sqrt(n)), rows=Math.ceil(n/cols);
+      const cw=960/cols, ch=540/rows;
+      parts.forEach((p,i)=>{
+        const x=(i%cols)*cw, y=Math.floor(i/cols)*ch;
+        const st=p.self?s.localStream:s.remotes.get(p.pid)?.stream;
+        const vid=st?.getVideoTracks?.().find(t=>t.enabled&&t.readyState==='live');
+        const el=vid&&(st._vid||(st._vid=document.createElement('video'),st._vid.muted=true,st._vid.srcObject=st,st._vid.play?.().catch(()=>{}),st._vid));
+        const nm=p.self?M.State.self.name:M.Members.name(p.pid);
+        if(el&&el.readyState>=2){
+          const sc=Math.max(cw/el.videoWidth,ch/el.videoHeight);
+          const dw=el.videoWidth*sc, dh=el.videoHeight*sc;
+          try{ ctx.drawImage(el,x+(cw-dw)/2,y+(ch-dh)/2,dw,dh); }catch(e){}
+        } else {
+          ctx.fillStyle='#1B2E37'; ctx.fillRect(x+4,y+4,cw-8,ch-8);
+          ctx.fillStyle='hsl('+M.hue(nm)+' 60% 55%)';
+          ctx.beginPath(); ctx.arc(x+cw/2,y+ch/2-8,Math.min(cw,ch)*0.18,0,7); ctx.fill();
+          ctx.fillStyle='#E9F3F4'; ctx.font='600 15px "IBM Plex Sans"'; ctx.textAlign='center';
+          ctx.fillText(M.initials(nm),x+cw/2,y+ch/2-3);
+        }
+        ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(x+6,y+ch-26,Math.min(180,ctx.measureText(nm).width+20),20);
+        ctx.fillStyle='#fff'; ctx.font='600 12px "IBM Plex Sans"'; ctx.textAlign='left';
+        ctx.fillText(nm+(p.self?' (you)':''),x+14,y+ch-12);
+      });
+      ctx.fillStyle='#DE4A40'; ctx.beginPath(); ctx.arc(930,24,6+Math.sin(Date.now()/300)*2,0,7); ctx.fill();
+    };
+    const int=setInterval(paint,66);
+    M.Rec.active={callId,rec,chunks,int,startedAt:Date.now()};
+    const tt=setInterval(()=>{ const el=M.$('#recTime'); if(el&&M.Rec.active) el.textContent=M.fmt.dur((Date.now()-M.Rec.active.startedAt)/1000); },1000);
+    M.Rec.active.tt=tt;
+    M.$('#recBanner').classList.remove('hidden');
+    s.peers.forEach(pid=>{ try{ M.Net.send('sig',{t:'rec',on:true,callId},pid); }catch(e){} });
+    M.Call.renderWin(s);
+    M.toast('info',M.t('rec_title'),M.t('rec_started'));
+    M.log('warn','recording STARTED for call '+callId+' ('+wired.length+' audio sources)');
+  },
+  stop(){ if(M.Rec.active?.rec?.state!=='inactive') M.Rec.active?.rec?.stop(); }
+};
 
 /* =====================================================================
    Whiteboard — object-based collaborative canvas.
@@ -4754,6 +5031,7 @@ M.App = {
     M.Crypto.key=null; M.Crypto.passB64=null;
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
+    if(M.Chat._fileRefs) M.Chat._fileRefs.clear();
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
@@ -4819,7 +5097,10 @@ M.CC = {
     calls.forEach(s=>{
       const row=M.el('div','cc-kv');
       const names=[...s.peers].map(p=>M.Members.name(p)).join(', ');
-      row.innerHTML=`<span class="k">${s.kind==='video'?'🎥':'🎙'} ${names.replace(/</g,'&lt;')} <span class="dim">· ${M.fmt.idShort(s.id)} · ${s.peers.size+1}p · ${s.status==='active'?M.fmt.dur((Date.now()-s.startedAt)/1000):s.status}</span></span>`;
+      row.innerHTML=`<span class="k">${s.kind==='video'?'🎥':'🎙'} ${names.replace(/</g,'&lt;')} <span class="dim">· ${M.fmt.idShort(s.id)} · ${s.peers.size+1}p · ${s.status==='active'?M.fmt.dur((Date.now()-s.startedAt)/1000):s.status}${s._qLabel?' · '+s._qLabel:''}</span>${M.Rec.active?.callId===s.id?'<span style="color:var(--err);font-weight:700"> ● REC</span>':''}</span>`;
+      const rb=M.el('button','cc-mini'+(M.Rec.active?.callId===s.id?' dgr':''),M.Rec.active?.callId===s.id?'■ '+M.t('rec_stop'):'● '+M.t('rec_start'));
+      rb.onclick=()=>{ M.Rec.active?.callId===s.id ? M.Rec.stop() : M.Rec.start(s.id); };
+      row.appendChild(rb);
       const b=M.el('button','cc-mini dgr',M.t('end_call'));
       b.onclick=()=>{ s.peers.forEach(pid=>M.Net.send('sig',{t:'end',callId:s.id,byAdmin:true},pid)); M.Call.teardown(s.id,'ended by admin'); };
       row.appendChild(b); cb.appendChild(row);
@@ -4910,6 +5191,8 @@ M.CC = {
       ['selfId',M.fmt.idShort(M.State.self.id)+' ('+M.State.self.id+')'],
       ['strategy','MQTT → WebRTC mesh (per-call peer targeting)'],
       ['signaling', M.Recovery._lastOk?'connected':'<span style="color:var(--err)">reconnecting…</span>'],
+      ['relays', ((M.Store.get('broker')?[M.Store.get('broker').replace(/wss?:\/\//,'').split('/')[0]+', ']:[''])[0])+'emqx, hivemq <span style="color:var(--dim)">(redundant)</span>'],
+      ['service worker', navigator.serviceWorker?.controller?'active (shell cached)':'standby'],
       ['peers',peers.length+' ('+peers.filter(p=>p.status==='online').length+' online)'],
       ['active calls',M.Call.all().length],
       ['transfers',M.FT.activeCount()],
@@ -5135,6 +5418,25 @@ document.addEventListener('DOMContentLoaded',()=>{
     M.$$('[data-close]').forEach(b=>b.onclick=()=>b.closest('.modal').classList.add('hidden'));
     M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
     M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
+    /* live ICE/TURN health check — proves reachability before a call ever needs it */
+    M.$('#cfgTestIce').onclick=async ()=>{
+      const out=M.$('#iceTestOut'); out.textContent=M.t('testing')||'testing…';
+      let pc; try{ pc=new RTCPeerConnection({iceServers:M.Net.iceServers()}); }catch(e){ out.textContent='✗ '+e.message; return; }
+      const found={host:false,srflx:false,relay:false};
+      let done=false; const to=setTimeout(finish,6000);
+      pc.createDataChannel('mj-test');
+      pc.onicecandidate=e=>{ if(e.candidate){ const t=e.candidate.type; found[t==='host'?'host':t==='srflx'?'srflx':'relay']=true; } else finish(); };
+      function finish(){
+        if(done) return; done=true; clearTimeout(to);
+        const chip=(ok,l)=>`<span style="color:${ok?'var(--ok)':'var(--err)'};font-weight:600">${ok?'✓':'✗'} ${l}</span>`;
+        out.innerHTML=chip(found.host,'LAN')+' · '+chip(found.srflx,'STUN')+' · '+chip(found.relay,'TURN');
+        if(!found.relay&&!found.srflx) out.innerHTML+=' <span style="color:var(--warn)">— '+M.t('test_warn')+'</span>';
+        else if(!found.relay) out.innerHTML+=' <span style="color:var(--warn)">— '+M.t('test_norelay')+'</span>';
+        else out.innerHTML+=' <span style="color:var(--ok)">— '+M.t('test_ok')+'</span>';
+        try{ pc.close(); }catch(e){}
+      }
+      try{ const o=await pc.createOffer(); await pc.setLocalDescription(o); }catch(e){ out.textContent='✗ '+e.message; }
+    };
     /* lobby */
     const savedName=M.Store.get('name')||'';
     M.$('#nameInput').value=savedName;
@@ -5174,6 +5476,28 @@ document.addEventListener('DOMContentLoaded',()=>{
     const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · Developed by Naser AlWatani';
     const vt=M.$('#verTag');
     if(vt){ vt.textContent='v'+M.Version; vt.onclick=()=>{ const s='Majlis v'+M.Version+' · '+M.Platform.br+'/'+M.Platform.os+' · room '+(M.State.room?.code||'—'); M.RC._fallbackCopy(s,()=>M.toast('ok','Diagnostics',s)); }; }
+    /* ---- PWA: runtime manifest + install prompt (single-file friendly) ---- */
+    try{
+      const icon=document.querySelector('link[rel="icon"]')?.href||'';
+      const manifest={name:'Majlis مجلس — Realtime Rooms',short_name:'Majlis',start_url:'.',scope:'.',display:'standalone',
+        background_color:'#E9EEF0',theme_color:'#E9EEF0',
+        icons:[{src:icon,sizes:'any',type:'image/svg+xml',purpose:'any'},{src:icon,sizes:'192x192 512x512',type:'image/svg+xml',purpose:'maskable'}]};
+      const ml=document.createElement('link'); ml.rel='manifest';
+      ml.href=URL.createObjectURL(new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'}));
+      document.head.appendChild(ml);
+    }catch(e){}
+    /* register the shell worker — separate file by browser requirement; silent if unavailable (e.g. sandboxed previews) */
+    if('serviceWorker' in navigator && location.protocol==='https:'){
+      addEventListener('load',()=>{ navigator.serviceWorker.register('./sw.js').then(()=>M.log('info','service worker active')).catch(()=>{}); });
+    }
+    let _installEvt=null;
+    addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); _installEvt=e; M.$('#installBtn')?.classList.remove('hidden'); });
+    addEventListener('appinstalled',()=>{ M.toast('ok','Majlis',M.t('installed')); M.$('#installBtn')?.classList.add('hidden'); });
+    const ib=M.$('#installBtn');
+    if(ib){
+      ib.onclick=async ()=>{ if(!_installEvt) return; _installEvt.prompt(); const c=await _installEvt.userChoice; if(c?.outcome==='accepted') ib.classList.add('hidden'); _installEvt=null; };
+      if(matchMedia('(display-mode: standalone)').matches) ib.classList.add('hidden');
+    }
     M.log('info','Majlis v'+M.Version+' boot · '+M.Platform.br+'/'+M.Platform.os+(M.Platform.mobile?' (mobile)':''));
   }catch(err){
     console.error(err);
