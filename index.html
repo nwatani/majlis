@@ -729,7 +729,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <!-- remote assistance surfaces -->
 <div id="rcBanner" class="hidden">
   <span class="rc-dot"></span>
-  <span><b id="rcBannerName"></b> <span data-i18n="rc_banner">is viewing &amp; guiding your screen</span></span>
+  <span><b id="rcBannerName"></b> <span id="rcBannerMode" data-i18n="rc_banner">is viewing &amp; guiding your screen</span></span>
+  <button class="btn btn-sm" id="rcFlip" title="Flip camera" style="padding:5px 9px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 8h-3l-2-3H9L7 8H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z" stroke-linejoin="round"/><path d="M14.5 13.5a3 3 0 0 1-5.2 1.6M9.5 12.5a3 3 0 0 1 5.2-1.6M14.7 10v1.9h-1.9M9.3 16v-1.9h1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <button class="btn btn-sm btn-danger" id="rcRevoke" data-i18n="rc_revoke">Revoke access</button>
 </div>
 <div id="rcOverlay" class="hidden"><div id="rcCur"><span id="rcCurLbl"></span></div><div id="rcKey" class="hidden"></div></div>
@@ -737,6 +738,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div class="rc-head">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
     <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
+    <span id="rcCamChip" class="hidden" style="font-size:10.5px;font-family:var(--mono);background:rgba(245,168,60,.14);color:var(--amber2);border:1px solid rgba(245,168,60,.45);padding:2px 9px;border-radius:99px;white-space:nowrap">📷 <span data-i18n="rc_cam_chip">camera view</span></span>
     <button class="btn btn-sm btn-danger" id="rcEnd" data-i18n="end_call">End</button>
   </div>
   <div id="rcStage" data-live="0"><video id="rcVideo" autoplay playsinline muted></video><div class="rc-hint" id="rcHint" data-i18n="rc_wait">awaiting member approval…</div></div>
@@ -958,7 +960,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.9.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.9.1';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1170,6 +1172,9 @@ en:{
  rd_web_lbl:'RustDesk web client URL',
  rd_cc_note:'For full help-desk use: run RustDesk\u2019s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use \u201cNative access\u201d on a member to exchange IDs and connect \u2014 true OS-level control, encrypted by RustDesk.',
  rc_wait_cam:'awaiting member approval \u2014 they will share their phone\u2019s camera',
+ rc_banner_cam:'is viewing your camera feed', rc_cam_chip:'camera view', rc_allow_cam:'Allow \u2014 share camera',
+ rc_mob_cam:'This member is on mobile \u2014 they\u2019ll be asked to share their camera instead (mobile browsers cannot capture the screen)',
+ rc_cam_front:'Front camera active', rc_cam_back:'Rear camera active', rc_flip:'Flip camera',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1271,6 +1276,9 @@ ar:{
  rd_web_lbl:'رابط عميل RustDesk الويب',
  rd_cc_note:'لاستخدام كامل كمكتب مساعدة: شغّل وسيط RustDesk (hbbs/hbbr) عبر حاويتَي Docker أو ملفَّين تنفيذيين، وثبّت وكيل RustDesk المجاني على الأجهزة المدعومة، ثم استخدم «وصول أصيل» على العضو لتبادل المعرّفات والاتصال — تحكم حقيقي على مستوى النظام ومشفّر بواسطة RustDesk.',
  rc_wait_cam:'بانتظار موافقة العضو — سيشارك كاميرا هاتفه',
+ rc_banner_cam:'يشاهد بث الكاميرا لديك', rc_cam_chip:'بث كاميرا', rc_allow_cam:'سماح — مشاركة الكاميرا',
+ rc_mob_cam:'هذا العضو يستخدم الجوال — سيُطلب منه مشاركة الكاميرا بدلاً من الشاشة (متصفحات الجوال لا تلتقط الشاشة)',
+ rc_cam_front:'الكاميرا الأمامية مفعّلة', rc_cam_back:'الكاميرا الخلفية مفعّلة', rc_flip:'تبديل الكاميرا',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -2391,14 +2399,29 @@ M.Media = {
     const want = type==='cam'?'video':'audio';
     const old=s.getTracks().find(t=>t.kind===want); if(!old) return;
     const c = want==='video' ? {video:{deviceId:{exact:deviceId}}} : {audio:{deviceId:{exact:deviceId}}};
+    let ns;
+    try{ ns=await navigator.mediaDevices.getUserMedia(c); }
+    catch(e){
+      if(want!=='video') throw e;
+      /* phones often refuse deviceId switches — flip through facingMode instead */
+      const cur=old.getSettings?.()?.facingMode;
+      const alt=(cur==='environment')?'user':'environment';
+      M.log('warn','deviceId camera switch failed, retrying with facingMode '+alt);
+      ns=await M.Media.camStream(alt);
+    }
+    const nt=want==='video'?ns.getVideoTracks()[0]:ns.getAudioTracks()[0];
     try{
-      const ns=await navigator.mediaDevices.getUserMedia(c);
-      const nt=want==='video'?ns.getVideoTracks()[0]:ns.getAudioTracks()[0];
       if(M.Net.room?.replaceTrack) await M.Net.room.replaceTrack(old,nt);
       s.removeTrack(old); old.stop(); s.addTrack(nt); M.Media.watch(kind);
       M.toast('ok',M.t('devices'), (type==='cam'?M.t('camera'):M.t('mic'))+' ✓');
       M.log('info','switched '+type+' device');
     }catch(e){ M.toast('err',M.t('perm_denied'),e.message); }
+  },
+  /* deterministic facing camera: exact first (real back/front), ideal as graceful fallback */
+  async camStream(facing){
+    const base={width:{ideal:1280},height:{ideal:720}};
+    try{ return await navigator.mediaDevices.getUserMedia({video:{...base,facingMode:{exact:facing}},audio:false}); }
+    catch(e){ return await navigator.mediaDevices.getUserMedia({video:{...base,facingMode:{ideal:facing}},audio:false}); }
   },
   async setOutput(el,deviceId){
     if(!el.setSinkId){ M.toast('warn',M.t('sink_unsupported')); return; }
@@ -2410,6 +2433,19 @@ M.Media = {
     const dev=M.Store.get('devices')||{};
     fill(M.$('#devMic'),mic,dev.mic); fill(M.$('#devCam'),cam,dev.cam); fill(M.$('#devSpk'),spk,M.Store.get('output'));
     if(spk.length===0){ M.$('#devSpk').disabled=true; M.$('#devNote').textContent=M.t('sink_unsupported'); }
+    M.$('#devApply').onclick=async ()=>{
+      const cur=M.Store.get('devices')||{};
+      const mic=M.$('#devMic').value, cam=M.$('#devCam').value, spk=M.$('#devSpk').value;
+      M.$('#mDevices').classList.add('hidden');
+      try{
+        if(mic && mic!==cur.mic) await M.Media.switchDevice('mic',mic);
+        if(cam && cam!==cur.cam) await M.Media.switchDevice('cam',cam);
+        if(spk && spk!==M.Store.get('output')){
+          M.Store.set('output',spk);
+          M.$$('#callLayer video, #callLayer audio').forEach(el=>{ if(el.setSinkId) el.setSinkId(spk).catch(()=>{}); });
+        }
+      }catch(e){ M.toast('err',M.t('devices'),e.message||String(e)); }
+    };
     M.$('#mDevices').classList.remove('hidden');
   }
 };
@@ -2885,6 +2921,7 @@ M.RC = {
       M.RC.ev('key',{key:e.key,mods});
     });
     M.$('#rcEnd').onclick=()=>M.RC.closeAdmin();
+    M.$('#rcFlip').onclick=()=>M.RC.flipCam();
     M.$('#rcRevoke').onclick=()=>M.RC.closeMember('revoked');
     M.$('#rcReqAllow').onclick=()=>M.RC.answerReq(true);
     M.$('#rcReqDeny').onclick=()=>M.RC.answerReq(false);
@@ -3050,17 +3087,20 @@ M.RC = {
     let stream; const isCam=p.mode==='cam';
     try{
       stream = isCam
-        ? await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false})
+        ? await M.Media.camStream('environment')   /* back camera, deterministically */
         : await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false,selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'include'});
     }catch(e){
       try{ M.Net.send('rc',{t:'decline',to:p.from,reason:'canceled'},p.from); }catch(_){}
       M.toast('warn',M.t('rc_win_title'), e.name==='NotAllowedError'?M.t('rc_you_declined'):(e.message||''));
       return;
     }
+    if(isCam) M.RC._facing='environment';
     M.RC.member={adminId:p.from,stream,startedAt:Date.now(),mode:isCam?'cam':'screen'};
-    try{ M.Net.room.addStream(stream,{target:p.from,metadata:{kind:'rc'}}); }catch(e){ M.log('err','rc addStream failed: '+e.message); }
+    try{ M.Net.room.addStream(stream,{target:p.from,metadata:{kind:'rc',mode:isCam?'cam':'screen'}}); }catch(e){ M.log('err','rc addStream failed: '+e.message); }
     try{ M.Net.send('rc',{t:'accept',to:p.from,mode:isCam?'cam':'screen'},p.from); }catch(e){}
     M.$('#rcBannerName').textContent=M.Members.name(p.from);
+    const bm=M.$('#rcBannerMode'); if(bm) bm.textContent=M.t(isCam?'rc_banner_cam':'rc_banner');
+    const fb=M.$('#rcFlip'); if(fb) fb.style.display=isCam?'':'none';
     M.$('#rcBanner').classList.remove('hidden');
     M.$('#rcOverlay').classList.remove('hidden');
     M.$('#rcCurLbl').textContent=M.Members.name(p.from);
@@ -3099,6 +3139,22 @@ M.RC = {
   flashKey(txt){
     const k=M.$('#rcKey'); k.textContent=txt; k.classList.remove('hidden');
     clearTimeout(M.RC._kt); M.RC._kt=setTimeout(()=>k.classList.add('hidden'),1100);
+  },
+  /* member flips front/back camera mid-session without re-asking permission */
+  async flipCam(){
+    const m=M.RC.member; if(!m||m.mode!=='cam') return;
+    const next=(M.RC._facing==='environment')?'user':'environment';
+    try{
+      const ns=await M.Media.camStream(next);
+      const nt=ns.getVideoTracks()[0]; const old=m.stream.getVideoTracks()[0];
+      if(old && M.Net.room?.replaceTrack) await M.Net.room.replaceTrack(old,nt);
+      if(old){ m.stream.removeTrack(old); old.onended=null; old.stop(); }
+      m.stream.addTrack(nt);
+      nt.onended=()=>M.RC.closeMember('sharing stopped');
+      M.RC._facing=next;
+      M.toast('ok',M.t('rc_win_title'),M.t(next==='user'?'rc_cam_front':'rc_cam_back'));
+      M.log('info','camera flipped → '+next);
+    }catch(e){ M.toast('err',M.t('rc_win_title'),e.message||String(e)); }
   },
   resetAll(){
     if(M.RC.admin) M.RC.closeAdmin();
