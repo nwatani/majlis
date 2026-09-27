@@ -217,7 +217,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   #topStatus span.lbltxt{display:none}
   .brand-mini span{display:none}
   #btnShare .btxt,#btnCC .btxt,#btnTerm .btxt{display:none}   /* every action collapses to its icon */
-  #btnCC,#btnShare,#btnTerm{padding:9px 11px}
+  #btnCC,#btnShare,#btnTerm,#btnBoard{padding:9px 11px}
+#btnBoard.on{background:rgba(56,207,182,.16);border-color:rgba(56,207,182,.55);color:var(--teal);box-shadow:0 0 0 3px rgba(56,207,182,.12)}
+#btnBoard.on svg{color:var(--teal)}
 }
 @media (max-width:620px){
   /* compact topbar so nothing — especially Leave — ever gets pushed off-screen */
@@ -712,6 +714,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <div class="grow"></div>
     <span id="verTag" class="mono" title="Build version — if this is older than the release, hard-refresh (Ctrl+Shift+R)">…</span>
     <button class="btn btn-primary" id="btnShare"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span class="btxt" data-i18n="share_room">Share room</span></button>
+    <button class="btn hidden" id="btnBoard" title="Board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4M8 8l2.5 2.5L15 6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="btxt" data-i18n="tab_board">Board</span></button>
     <button class="btn btn-admin hidden" id="btnCC"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h10M18 8h2M4 16h4M12 16h8" stroke-linecap="round"/><circle cx="16" cy="8" r="2"/><circle cx="10" cy="16" r="2"/></svg><span class="btxt" data-i18n="control_center">Control Center</span></button>
     <button class="btn btn-danger hidden" id="btnTerm" title="Terminate room"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.4 5.6a9 9 0 1 1-12.8 0" stroke-linecap="round"/><path d="M12 2v9" stroke-linecap="round"/></svg><span class="btxt" data-i18n="term_room">Terminate</span></button>
     <span id="roomTimer" class="pill hidden" title="Session ends in">⏳ <b id="roomTimerTxt">00:00:00</b></span>
@@ -1160,7 +1163,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.24.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.25.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1346,7 +1349,7 @@ en:{
  member_s:'member', members_s:'members', view:'view', edit:'edit',
  lang_name:'العربية', dm:'DM', call:'Call', remove:'Remove', settings_saved:'Settings saved — they apply to the next room you join.',
  board_you:'You', wb_export_denied:'Export is disabled by the Admin', wb_img_denied:'Image insertion is disabled by the Admin',
- wb_place:'Place', wb_ph:'Type here… — Enter places · Shift+Enter for a new line · Esc cancels',
+ wb_place:'Place', wb_ph:'Type here… — Enter places · Shift+Enter for a new line · Esc cancels', wb_close_short:'Close whiteboard',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
  wb_custom:'Custom color',
@@ -1485,7 +1488,7 @@ ar:{
  member_s:'عضو', members_s:'أعضاء', view:'مشاهدة', edit:'تحرير',
  lang_name:'English', dm:'خاص', call:'اتصال', remove:'إزالة', settings_saved:'حُفظت الإعدادات — تسري على الغرفة القادمة.',
  board_you:'أنت', wb_export_denied:'عطّل المشرف التصدير', wb_img_denied:'عطّل المشرف إدراج الصور',
- wb_place:'وضع', wb_ph:'اكتب هنا… — Enter للوضع · Shift+Enter سطر جديد · Esc إلغاء',
+ wb_place:'وضع', wb_ph:'اكتب هنا… — Enter للوضع · Shift+Enter سطر جديد · Esc إلغاء', wb_close_short:'إغلاق السبورة',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
  wb_custom:'لون مخصّص',
@@ -1558,7 +1561,7 @@ M.applyLang = lang => {
   M.$$('[data-i18n]').forEach(n=>n.innerHTML=M.t(n.dataset.i18n));
   M.$$('[data-i18n-ph]').forEach(n=>n.placeholder=M.t(n.dataset.i18nPh));
   M.$('#langLbl').textContent=M.t('lang_name');
-  const tips={btnShare:'share_room',btnCC:'control_center',btnTerm:'term_room'};
+  const tips={btnShare:'share_room',btnCC:'control_center',btnTerm:'term_room',btnBoard:'tab_board'};
   for(const id in tips){ const el=M.$('#'+id); if(el) el.title=M.t(tips[id]); }
   M.bus.emit('lang');
 };
@@ -2830,6 +2833,7 @@ M.UI = {
     M.$('#lobby').classList.add('hidden'); M.$('#app').classList.remove('hidden');
     M.$('#btnCC').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#btnTerm').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
+    M.$('#btnBoard').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
     M.$('#selfName').textContent=M.State.self.name;
@@ -3071,7 +3075,8 @@ M.Call = {
       case 'invite': {
         if(d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
-        if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
+        if(M.Call.seenInvites.has(d.callId) || M.Call._ended?.has(d.callId)) return;   /* a canceled call must not re-ring from a late retransmission */
+        M.Call.seenInvites.add(d.callId);
         const gate=M.Perms.can('callReceive'); const kGate=M.Perms.can(d.kind==='video'?'callVideo':'callVoice');
         if(!gate.ok||!kGate.ok){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'denied'},d.peerId); return; }
         if(M.Call.findWith(d.peerId)||M.Call._pending){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'busy'},d.peerId); M.toast('warn',M.t('busy'),M.Members.name(d.peerId)); return; }
@@ -3081,7 +3086,8 @@ M.Call = {
       case 'ginvite': {
         if(d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
-        if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
+        if(M.Call.seenInvites.has(d.callId) || M.Call._ended?.has(d.callId)) return;
+        M.Call.seenInvites.add(d.callId);
         if(!M.Perms.can('callGroup').ok||!M.Perms.can('callReceive').ok){ M.Net.send('sig',{t:'greject',callId:d.callId},d.peerId); return; }
         M.Call.showIncoming({callId:d.callId, peerId:d.peerId, kind:d.kind, group:true});
         break;
@@ -3141,6 +3147,15 @@ M.Call = {
         break;
       }
       case 'end': {
+        /* caller hung up while still ringing — dismiss the receiver's incoming modal */
+        if(M.Call._pending && M.Call._pending.callId===d.callId && M.Call._pending.peerId===d.peerId){
+          M.Call._pending=null;
+          M.Call._ended ??= new Set(); M.Call._ended.add(d.callId); if(M.Call._ended.size>60) M.Call._ended.clear();
+          M.$('#mIncoming').classList.add('hidden'); M.Notify.ring(false);
+          M.toast('info',M.t('call_ended'),M.Members.name(d.peerId));
+          M.log('info','incoming call canceled by caller');
+          break;
+        }
         const s=M.Call.sessions.get(d.callId);
         if(!s) break;
         const authorized = s.peers.has(d.peerId) || d.byAdmin || M.State.peers.get(d.peerId)?.adm || d.peerId===M.State.self.id;
@@ -4873,6 +4888,8 @@ M.WB = {
   refreshUI(){
     const open=M.State.wb.open;
     M.$('#boardOff').classList.toggle('hidden',open);
+    const bb=M.$('#btnBoard');
+    if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit'].includes(b.id)) return; b.disabled = open? !edit : true; });
     M.$('#wbColor').disabled=!edit||!open; M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
@@ -5459,6 +5476,7 @@ M.CC = {
     M.$('#ccLock').onchange=e=>M.Admin.cmd('lock',{on:e.target.checked});
     M.$('#ccEndRoom').onclick=async ()=>{ if(await M.confirm(M.t('end_q'),M.t('end_q_body'))) M.Admin.cmd('end'); };
     M.$('#btnTerm').onclick=async ()=>{ if(await M.confirm(M.t('term_q'),M.t('term_q_body'))) M.Admin.cmd('end'); };
+    M.$('#btnBoard').onclick=()=>{ M.Admin.cmd('wbCtrl',{sub:'open',on:!M.State.wb.open}); };
     M.$('#ccTimerSet').onclick=()=>{
       const ms=((+M.$('#ccTH').value||0)*3600+(+M.$('#ccTM').value||0)*60+(+M.$('#ccTS').value||0))*1000;
       if(ms<1000){ M.toast('warn',M.t('timer_lbl'),M.t('timer_need')); return; }
