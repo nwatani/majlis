@@ -1404,15 +1404,41 @@ M.Net = {
 /* ---------------- Members ---------------- */
 M.Members = {
   upsert(peerId, patch){
-    let m=M.State.peers.get(peerId);
-    const isNew=!m;
-    if(isNew) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
     const early=M.Net._early?.get(peerId);
     if(early && !patch.n) patch={...early,...patch};
-    if(patch.n && patch.status==='connecting') patch.status='online';  /* identified via handshake/heartbeat → online immediately, call buttons appear at once */
+    if(patch.n && patch.status==='connecting') patch.status='online';   /* identified via handshake/heartbeat → online at once, call buttons appear immediately */
+    let m=M.State.peers.get(peerId);
+    const isNew=!m;
+    let migrated=false;
+    if(isNew && patch.fp){
+      /* ---- stable identity ----
+         The same person (same fingerprint = entered name + device) rejoining under a new
+         peer id inherits their previous entry — they are NEVER added again as a generic
+         "guest-…" duplicate. A still-active session with the same fingerprint (e.g. a
+         second tab) is kept as its own entry, also with the real name. */
+      let old=null, oldId=null;
+      M.State.peers.forEach((om,oid)=>{ if(oid!==peerId && om.fp===patch.fp && (!old || om.lastSeen>old.lastSeen)){ old=om; oldId=oid; } });
+      const lastHb=M.Net.lastHb.get(oldId);
+      const dead = old && ( old.status!=='online' || !lastHb || Date.now()-lastHb>20000 );
+      if(old && dead){
+        M.State.peers.delete(oldId); M.Net.lastHb.delete(oldId);
+        if(M.Chat.threads.has(oldId)){ M.Chat.threads.set(peerId,M.Chat.threads.get(oldId)); M.Chat.threads.delete(oldId); }
+        if(M.Chat.unread.has(oldId)){ M.Chat.unread.set(peerId,M.Chat.unread.get(oldId)); M.Chat.unread.delete(oldId); }
+        if(M.Chat.renderKey===oldId) M.Chat.renderKey=peerId;
+        if(M.State.chatTarget===oldId) M.State.chatTarget=peerId;
+        if(M.State.perms?.overrides?.[oldId]){ M.State.perms.overrides[peerId]=M.State.perms.overrides[oldId]; delete M.State.perms.overrides[oldId]; }
+        if(M.State.wb.editors[oldId]!=null){ M.State.wb.editors[peerId]=M.State.wb.editors[oldId]; delete M.State.wb.editors[oldId]; }
+        try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
+        m=old; m.id=peerId; migrated=true;
+        M.bus.emit('sysmsg',{text:M.t('sys_reconnect',{n:m.name})});
+        M.log('info','identity matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
+      }
+    }
+    if(!m) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
     Object.assign(m,patch); m.lastSeen=Date.now();
     M.State.peers.set(peerId,m);
-    if(patch.n && isNew){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
+    if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
+    if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
     M.bus.emit('members');
     return m;
   },
