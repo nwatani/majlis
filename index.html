@@ -1331,7 +1331,7 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who']) M.Net.A[n]=R.makeAction(n);
     M.bus.emit('netReady');
 
     /* presence */
@@ -1351,6 +1351,8 @@ M.Net = {
     };
 
     M.Net.A.hello.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
+    /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
+    M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
@@ -1383,6 +1385,14 @@ M.Net = {
       const now=Date.now();
       M.State.peers.forEach((m,pid)=>{ const lb=M.Net.lastHb.get(pid); if(m.status==='online' && lb && now-lb>50000){ M.log('warn','peer stale → offline: '+m.name); M.Members.offline(pid); } });
     },15000);
+    /* name patrol: nobody stays a "guest-…" — unidentified peers are asked for their real profile until they answer */
+    M.Net.namePatrol=setInterval(()=>{
+      M.State.peers.forEach((m,pid)=>{
+        if(m.status!=='offline' && (!m.name || m.name.indexOf('guest-')===0)){
+          try{ M.Net.send('who',{},pid); }catch(e){}
+        }
+      });
+    },6000);
     M.log('info','joined room '+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.State.self.id));
     return R;
   },
@@ -1429,7 +1439,7 @@ M.Net = {
       return out;
     }catch(e){ return null; }
   },
-  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); M.Net.connected=false; }
+  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); M.Net.connected=false; }
 };
 
 /* ---------------- Members ---------------- */
@@ -1920,7 +1930,7 @@ M.UI = {
   tab:'chat',
   init(){
     M.$$('.tabbtn').forEach(b=>b.onclick=()=>M.UI.setTab(b.dataset.tab));
-    M.bus.on('members',()=>{ M.UI.renderMembers(); M.UI.onlineCount(); });
+    M.bus.on('members',()=>{ M.UI.renderMembers(); M.UI.onlineCount(); if(M.Call) M.Call.rerenderNames(); M.bus.emit('ccRefresh'); });
     M.bus.on('callState',()=>{ M.UI.renderMembers(); M.UI.badges(); });
     M.bus.on('wbPeers',()=>M.UI.renderMembers());
     M.bus.on('perms',()=>{ M.Chat.refreshComposerState(); M.UI.renderMembers(); M.bus.emit('ccRefresh'); });
@@ -2417,6 +2427,7 @@ M.Call = {
     if(!s.win) return;
     const w=s.win;
     const names=[...s.peers].map(p=>M.Members.name(p)).join(', ')||M.t('participants');
+    s._nmKey=[...s.peers].map(p=>M.Members.name(p)).join(',');
     const kindIco=s.kind==='video'?M.Icons.cam:M.Icons.phone;
     w.querySelector('.cw-head').innerHTML=`
       <span style="color:${s.status==='active'?'var(--teal)':'var(--warn)'};display:flex">${kindIco.replace('<svg','<svg width="16" height="16"')}</span>
@@ -2488,6 +2499,19 @@ M.Call = {
     }
   },
   /* §12 active speaker — RMS level of each remote audio stream, highlighted per call window */
+  /* names are resolved live — call windows must never freeze a stale "guest-…" label */
+  rerenderNames(){
+    if(M.Call._pending){
+      const nm=M.Members.name(M.Call._pending.peerId);
+      const el=M.$('#icName');
+      if(el && el.textContent!==nm){ el.textContent=nm; M.$('#icAvatar').textContent=M.initials(nm); }
+    }
+    M.Call.sessions.forEach(s=>{
+      const key=[...s.peers].map(p=>M.Members.name(p)).join(',');
+      if(s._nmKey!==key){ s._nmKey=key; if(s.win) M.Call.renderWin(s); }
+    });
+    if(M.UI.tab==='calls') M.Call.renderList();
+  },
   paintSpeakers(){
     if(document.hidden) return;
     M.Call.sessions.forEach(s=>{
@@ -3241,7 +3265,7 @@ M.App = {
   resetState(){
     M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map();
     M.Net.lastHb.clear(); M.Net.rtt.clear();
-    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT);
+    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol);
     M.State.peers.clear(); M.State.perms=null; M.State.chatTarget=null;
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
