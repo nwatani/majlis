@@ -548,6 +548,8 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 
 /* ---------- Modals ---------- */
 .modal{position:fixed;inset:0;z-index:100;background:var(--overlay);backdrop-filter:blur(4px);display:grid;place-items:center;padding:20px;animation:fadeIn .18s ease}
+/* transient dialogs always sit above the docked Control Center — confirms must never hide behind it */
+#mConfirm,#mDupe,#mIncoming{z-index:190}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .m-card{width:min(480px,100%);background:linear-gradient(180deg,var(--bg2),var(--bg1));border:1px solid var(--line2);border-radius:16px;padding:24px;box-shadow:var(--sh);animation:winIn .22s ease both;max-height:88dvh;overflow-y:auto}
 .m-card.sm{width:min(400px,100%)}
@@ -1196,7 +1198,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.27.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.27.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1338,6 +1340,7 @@ en:{
  dupe_title:'Already in this room',
  dupe_body:"You're already connected to this room in another tab on this device. Only one session per member is allowed.",
  dupe_back:'Keep my other tab', dupe_take:'Use this tab', dupe_taken:'This session was closed — you continued in another tab',
+ some_member:'A member', new_member_ph:'New member…',
  cc_members_sub:'Presence, device info, per-member permissions and moderation.', cc_comms_sub:'Room-wide switches. Changes apply to every member instantly.',
  room_chat:'Room chat', private_msgs:'Private messages', voice_calls:'Voice calls', video_calls:'Video calls', group_calls:'Group calls',
  member_calls:'Member-initiated calls', member_calls_sub:'When off, only the Admin can start calls.', private_calls:'Private (1-to-1) calls',
@@ -1489,6 +1492,7 @@ ar:{
  dupe_title:'أنت في هذه الغرفة بالفعل',
  dupe_body:'أنت متصل بهذه الغرفة في تبويب آخر على هذا الجهاز. يُسمح بجلسة واحدة فقط لكل عضو.',
  dupe_back:'الاحتفاظ بالتبويب الآخر', dupe_take:'استخدام هذا التبويب', dupe_taken:'أُغلقت هذه الجلسة — تابعت في تبويب آخر',
+ some_member:'أحد الأعضاء', new_member_ph:'عضو جديد…',
  cc_members_sub:'الحضور ومعلومات الأجهزة وصلاحيات كل عضو والإشراف.', cc_comms_sub:'مفاتيح عامة للغرفة. تسري التغييرات على الجميع فوراً.',
  room_chat:'دردشة الغرفة', private_msgs:'الرسائل الخاصة', voice_calls:'المكالمات الصوتية', video_calls:'مكالمات الفيديو', group_calls:'المكالمات الجماعية',
  member_calls:'مكالمات يبدأها الأعضاء', member_calls_sub:'عند الإيقاف، المشرف فقط يبدأ المكالمات.', private_calls:'المكالمات الخاصة (ثنائية)',
@@ -2130,7 +2134,7 @@ M.Members = {
     const m=M.State.peers.get(peerId); if(!m) return;
     if(m.status==='offline') return;
     m.status='offline';
-    M.bus.emit('sysmsg',{text:M.t('sys_left',{n:m.name})});
+    M.bus.emit('sysmsg',{text:M.t('sys_left',{n:M.Members.say(m)})});
     M.bus.emit('peerOffline',peerId);
     M.bus.emit('members');
     M.log('warn',m.name+' went offline'+(graceful?' (bye)':''));
@@ -2145,7 +2149,10 @@ M.Members = {
   },
   remove(peerId){ M.State.peers.delete(peerId); M.bus.emit('members'); },
   onlinePeers(){ return [...M.State.peers.values()].filter(m=>m.status==='online').map(m=>m.id); },
-  name(peerId){ return peerId===M.State.self.id ? M.State.self.name : (M.State.peers.get(peerId)?.name||'guest-'+M.fmt.idShort(peerId)); }
+  /* display name first; if it never arrived, fall back to the UNIQUE temporary id
+     (never a bare "Member") so any person can still be identified in messages & logs */
+  name(peerId){ return peerId===M.State.self.id ? M.State.self.name : (M.State.peers.get(peerId)?.name||'guest-'+M.fmt.idShort(peerId)); },
+  say(m){ return (m && m.name) ? m.name : 'guest-'+M.fmt.idShort(m?.id); }
 };
 
 /* ---------------- Recovery ---------------- */
@@ -2943,11 +2950,13 @@ M.UI = {
       if(p.name.indexOf('guest-')===0 && early && early.n){ p.name=early.n; if(early.fp)p.fp=early.fp; if(early.v)p.v=early.v; }
       const row=M.el('div','member');
       const stColor=p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)';
-      const av=M.el('div','avatar',M.initials(p.name));
-      av.style.background=M.avatarBg(p.name);
+      const unidN=p.name.indexOf('guest-')===0;
+      const av=M.el('div','avatar',unidN?'#':M.initials(p.name));
+      av.style.background=unidN?'var(--bg3)':M.avatarBg(p.name);
       av.appendChild(M.el('span','st')); av.querySelector('.st').style.background=stColor;
       const info=M.el('div','mi');
       const nm=M.el('div','mn'); nm.textContent=p.name;
+      if(unidN) nm.style.cssText='color:var(--dim);font-family:var(--mono);font-size:11.5px;letter-spacing:.04em';  /* pending label, visibly temporary until the display name lands */
       if(p.adm) nm.insertAdjacentHTML('beforeend',M.Icons.crown);
       if(p.v && p.v!==M.Version){ const vc=M.el('span','mono'); vc.textContent='v'+p.v; vc.title='This member is running a different build (you are on v'+M.Version+') — ask them to hard-refresh the page'; vc.style.cssText='color:var(--warn);font-size:10px;border:1px solid var(--warn);border-radius:5px;padding:0 4px;opacity:.9'; nm.appendChild(vc); }
       const inds=M.el('span','ind');
@@ -5043,6 +5052,7 @@ M.WB = {
     }
     if(d.t==='del'){ if(!M.WB.peerCanEdit(from)) return; M.WB.localDel(d.id); return; }
     if(d.t==='clear'){ M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.undo=[]; M.WB.redo=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_cleared')); return; }
+    if(d.t==='close'){ if(M.State.wb.open){ M.State.wb.open=false; M.WB.refreshUI(); M.toast('warn',M.t('wb_closed_ev')); M.log('info','board session ended by admin'); } return; }
     if(d.t==='order'){
       if(!M.WB.peerCanEdit(from)) return;
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
@@ -5105,7 +5115,7 @@ M.WB = {
       case 'editors': W.editors=b.map||{}; break;
       case 'clear': if(M.Admin.priv) M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.undo=[]; M.WB.redo=[]; M.WB.hud(); M.WB.dirty=true; M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
-      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
+      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
     }
     M.WB.refreshUI(); M.bus.emit('members'); M.bus.emit('wbPeers');
   },
