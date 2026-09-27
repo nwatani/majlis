@@ -743,6 +743,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 
 <div class="modal hidden" id="mGroup"><div class="m-card">
   <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" stroke-linecap="round"/></svg><span data-i18n="start_group">Start a group call</span></h3>
+  <button class="btn btn-ghost btn-sm" id="gcAll" style="margin:-2px 0 8px">Select all</button>
   <div id="gcList" style="max-height:280px;overflow-y:auto"></div>
   <p class="m-note" data-i18n="group_note">Group calls use a peer-to-peer mesh — best with up to ~6 participants.</p>
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="cancel">Cancel</button><button class="btn" id="gcVoice"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v4" stroke-linecap="round"/></svg><span data-i18n="voice">Voice</span></button><button class="btn btn-primary" id="gcVideo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z" stroke-linejoin="round"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><span data-i18n="video">Video</span></button></div>
@@ -917,7 +918,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.7.1';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.7.2';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1108,7 +1109,7 @@ en:{
  rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
  rc_wait:'awaiting member approval…', rc_connect:'member approved — connecting…',
  rc_start_ok:'Session active — click the window, then move, click, scroll or type', rc_declined:'The member declined the request',
- rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call',
+ rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call', select_all:'Select all', clear_all:'Clear selection',
  rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
  rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
 },
@@ -1191,7 +1192,7 @@ ar:{
  rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
  rc_wait:'بانتظار موافقة العضو…', rc_connect:'وافق العضو — جارٍ الاتصال…',
  rc_start_ok:'الجلسة نشطة — انقر النافذة ثم حرّك وانقر واكتب', rc_declined:'رفض العضو الطلب',
- rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال',
+ rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال', select_all:'تحديد الكل', clear_all:'إلغاء التحديد',
  rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
  rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
 }
@@ -2730,12 +2731,25 @@ M.Call = {
     M.State.peers.forEach(p=>{
       if(p.status!=='online') return; any=true;
       const item=M.el('label','gc-item');
-      item.innerHTML=`<input type="checkbox" class="hidden" value="${p.id}"><span class="box" style="width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line2);display:grid;place-items:center;flex:none"><svg width="11" height="11" viewBox="0 0 12 10" fill="none"><path d="M1 5.2 4.2 8.4 11 1.6" stroke="var(--teal)" stroke-width="2" stroke-linecap="round"/></svg></span><div class="avatar" style="background:${M.avatarBg(p.name)}">${M.initials(p.name)}</div><b>${p.name.replace(/</g,'&lt;')}</b>`;
-      const cb=item.querySelector('input'); const box=item.querySelector('.box');
-      cb.onchange=()=>{ box.style.borderColor=cb.checked?'var(--teal)':'var(--line2)'; box.style.background=cb.checked?'rgba(56,207,182,.15)':'transparent'; };
+      item.innerHTML=`<input type="checkbox" class="hidden" value="${p.id}"><span class="box" style="width:19px;height:19px;border-radius:6px;border:1.5px solid var(--line2);display:grid;place-items:center;flex:none;background:transparent;transition:all .15s"><svg width="11" height="11" viewBox="0 0 12 10" fill="none" style="opacity:0;transform:scale(.4);transition:all .15s"><path d="M1 5.2 4.2 8.4 11 1.6" stroke="#04211c" stroke-width="2.2" stroke-linecap="round"/></svg></span><div class="avatar" style="background:${M.avatarBg(p.name)}">${M.initials(p.name)}</div><b>${p.name.replace(/</g,'&lt;')}</b>`;
+      const cb=item.querySelector('input'); const box=item.querySelector('.box'); const tick=box.querySelector('svg');
+      cb.onchange=()=>{
+        const on=cb.checked;
+        box.style.borderColor=on?'var(--teal)':'var(--line2)';
+        box.style.background=on?'var(--teal)':'transparent';
+        tick.style.opacity=on?'1':'0';
+        tick.style.transform=on?'scale(1)':'scale(.4)';
+        item.style.background=on?'rgba(56,207,182,.08)':'';
+        M.Call._gcSync?.();
+      };
       list.appendChild(item);
     });
     if(!any) list.innerHTML=`<p class="dim" style="padding:16px">${M.t('no_members')}</p>`;
+    const cbs=[...list.querySelectorAll('input')];
+    const allBtn=M.$('#gcAll');
+    const syncAll=()=>{ const allOn=cbs.length>0&&cbs.every(b=>b.checked); allBtn.textContent=M.t(allOn?'clear_all':'select_all'); allBtn.disabled=cbs.length===0; };
+    M.Call._gcSync=syncAll; syncAll();
+    allBtn.onclick=()=>{ const allOn=cbs.length>0&&cbs.every(b=>b.checked); cbs.forEach(b=>{ b.checked=!allOn; b.dispatchEvent(new Event('change')); }); };
     const go=kind=>{
       const ids=M.$$('#gcList input:checked').map(i=>i.value);
       M.$('#mGroup').classList.add('hidden');
