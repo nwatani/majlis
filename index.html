@@ -596,7 +596,6 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <button class="btn hidden" id="shNative"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="more_apps">More…</span></button>
     <button class="btn" id="shWa" style="color:#4FCE5D;border-color:rgba(79,206,93,.4)">WhatsApp</button>
     <button class="btn" id="shMail">Email</button>
-    <button class="btn" id="shSms">SMS</button>
   </div>
   <div class="m-note" id="shNote"></div>
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
@@ -1135,6 +1134,7 @@ M.Admin = {
   },
   async derivePub(priv){ const jwk=await crypto.subtle.exportKey('jwk',priv); return {kty:jwk.kty,crv:jwk.crv,x:jwk.x,y:jwk.y}; },
   pubB64(){ return M.Admin.pubJwk ? M.b64url(M.te.encode(JSON.stringify(M.Admin.pubJwk))) : ''; },
+  pubPin(){ return M.Admin.pubJwk ? M.SHA.create().update(M.te.encode(JSON.stringify(M.Admin.pubJwk))).hex().slice(0,16) : ''; },
   async cmd(name, payload={}){
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
     if(M.Admin.legacy){
@@ -1156,7 +1156,13 @@ M.Admin = {
       if(!m||!m.sig||!m.pub||m.from!==peerId) return false;
       const pubStr=JSON.stringify(m.pub);
       if(M.State.roomPubStr && pubStr!==M.State.roomPubStr) return false; // not this room's admin key
-      if(!M.State.roomPub){ M.State.roomPub=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); M.State.roomPubStr=pubStr; }
+      if(!M.State.roomPub){
+        if(M.State.roomPubPin){
+          const fp=M.SHA.create().update(M.te.encode(pubStr)).hex().slice(0,16);
+          if(fp!==M.State.roomPubPin){ M.log('warn','admin key fingerprint mismatch — command rejected'); return false; }
+        }
+        M.State.roomPub=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); M.State.roomPubStr=pubStr;
+      }
       const {sig,pub,...body}=m;
       return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(body)));
     }catch(e){ return false; }
@@ -1179,8 +1185,23 @@ M.Admin = {
 
 /* ---------------- Content encryption (AES-256-GCM, key from URL fragment) ---------------- */
 M.Crypto = {
-  key:null,
-  async importKeyB64(b){ try{ M.Crypto.key=await crypto.subtle.importKey('raw',M.unb64url(b),{name:'AES-GCM'},false,['encrypt','decrypt']); return true; }catch(e){ return false; } },
+  key:null, passB64:null,
+  async importRoomSecret(b){
+    try{
+      const raw=M.unb64url(b);
+      if(raw.length>=32){ /* legacy full-strength key in URL */
+        M.Crypto.key=await crypto.subtle.importKey('raw',raw.slice(0,32),{name:'AES-GCM'},false,['encrypt','decrypt']);
+        M.Crypto.passB64=M.b64url(raw.slice(0,32));
+        return true;
+      }
+      /* short secret (96-bit) stretched with PBKDF2 → AES-256 key */
+      const km=await crypto.subtle.importKey('raw',raw,'PBKDF2',false,['deriveBits']);
+      const bits=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:M.te.encode('majlis-room-v1'),iterations:1200,hash:'SHA-256'},km,256));
+      M.Crypto.key=await crypto.subtle.importKey('raw',bits,{name:'AES-GCM'},false,['encrypt','decrypt']);
+      M.Crypto.passB64=M.b64url(bits);
+      return true;
+    }catch(e){ M.log('warn','room key import failed: '+e.message); return false; }
+  },
   async enc(obj){ const iv=crypto.getRandomValues(new Uint8Array(12)); const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},M.Crypto.key,M.te.encode(JSON.stringify(obj)))); const out=new Uint8Array(12+ct.length); out.set(iv); out.set(ct,12); return {e:M.b64url(out)}; },
   async dec(b){ const u=M.unb64url(b); const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:u.slice(0,12)},M.Crypto.key,u.slice(12)); return JSON.parse(M.td.decode(pt)); },
   has(){ return !!M.Crypto.key; }
@@ -1212,7 +1233,7 @@ M.Net = {
   async join(code, {isCreator}){
     M.T=await M.Net.loadTrystero();
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() } };
-    if(M.Crypto.has()) cfg.password=M.State.room.roomKeyB64;
+    if(M.Crypto.has()) cfg.password=M.Crypto.passB64||M.State.room.roomKeyB64;
     const broker=M.Store.get('broker');
     if(broker) cfg.relayConfig={urls:[broker]};
     const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() });
@@ -1247,7 +1268,7 @@ M.Net = {
       M.Members.offline(peerId);
     };
 
-    M.Net.A.hello.onMessage = (d,{peerId}) => { if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
+    M.Net.A.hello.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); const m=M.State.peers.get(peerId); if(m&&m.status!=='online') M.Members.upsert(peerId,{status:'online'}); };
     M.Net.A.adm.onMessage = async (m,{peerId}) => { if(await M.Admin.verify(m,peerId)) M.Admin.dispatch(m,peerId); else M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); };
@@ -1273,7 +1294,7 @@ M.Net = {
     M.Net.heartbeat=setInterval(()=>M.Net.hbTick(),12000);
     M.Net.staleCheck=setInterval(()=>{
       const now=Date.now();
-      M.State.peers.forEach((m,pid)=>{ if(m.status==='online' && M.Net.lastHb.has(pid) && now-M.Net.lastHb.get(pid)>40000){ M.log('warn','peer stale '+m.name); } });
+      M.State.peers.forEach((m,pid)=>{ const lb=M.Net.lastHb.get(pid); if(m.status==='online' && lb && now-lb>50000){ M.log('warn','peer stale → offline: '+m.name); M.Members.offline(pid); } });
     },15000);
     M.log('info','joined room '+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.State.self.id));
     return R;
@@ -1302,7 +1323,7 @@ M.Net = {
     M.bus.emit('nudge');
     M.log('info','nudge: re-announced presence');
   },
-  leave(){ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); M.Net.connected=false; }
+  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); M.Net.connected=false; }
 };
 
 /* ---------------- Members ---------------- */
@@ -1600,7 +1621,10 @@ M.FT = {
       M.FT.tickUI(t);
       if(end>=t.size){
         t.status='verify'; M.FT.render();
-        M.Net.sendEnc('ft',{t:'done',id:t.id,hash:t.hash.hex()},isRoom?undefined:t.target);
+        const hex=t.hash.hex();
+        /* finish marker rides the SAME ordered channel as the chunks → guaranteed to arrive last */
+        try{ M.Net.A.ftbin.send(new ArrayBuffer(0),{ metadata:{id:t.id,seq:t.seq,fin:1,hash:hex}, ...(isRoom?{}:{target:t.target}) }); }catch(e){ M.log('err','fin marker failed: '+e.message); }
+        M.Net.sendEnc('ft',{t:'done',id:t.id,hash:hex},isRoom?undefined:t.target);
         M.log('info','file sent, awaiting verify: '+t.name);
         return;
       }
@@ -1629,24 +1653,8 @@ M.FT = {
       case 'ack': { const t=M.FT.sends.get(d.id); if(t){ t.ack=Math.max(t.ack,d.seq); } break; }
       case 'done': {
         const r=M.FT.recvs.get(d.id); if(!r) return;
-        r.status='verify'; M.FT.render();
-        const local=r.hash.hex();
-        const ok=local===d.hash;
-        if(ok){
-          const blob=new Blob(r.parts,{type:r.type});
-          r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
-          M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
-          M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
-          M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
-          M.log('info','file verified ✓ '+r.name);
-        } else {
-          r.status='failed'; r.err=M.t('integrity_fail');
-          M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('integrity_fail')});
-          M.toast('err',M.t('integrity_fail'),r.name); M.Notify.beep('err');
-          M.log('err','integrity mismatch '+r.name+' local '+local.slice(0,10)+' vs '+String(d.hash).slice(0,10));
-        }
-        M.Net.sendEnc('ft',{t:'result',id:d.id,ok},from);
-        M.FT.render(); M.UI.badges();
+        if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
+        else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.name); }
         break;
       }
       case 'result': {
@@ -1667,13 +1675,37 @@ M.FT = {
   },
   onChunk({peerId,metadata,buf}){
     if(!metadata?.id) return;
-    const r=M.FT.recvs.get(metadata.id); if(!r||r.status!=='receiving') return;
+    const r=M.FT.recvs.get(metadata.id); if(!r) return;
+    if(metadata.fin){ if(['receiving','verify'].includes(r.status)) M.FT.finalize(r,metadata.hash,peerId); return; }
+    if(r.status!=='receiving') return;
     if(metadata.seq!==r.expected){ M.log('warn','out-of-order chunk '+metadata.seq+' vs '+r.expected); return; }
     const u8=new Uint8Array(buf);
     r.parts.push(u8); r.recv+=u8.length; r.expected++;
     r.hash.update(u8);
     if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
     M.FT.tickRecv(r);
+    if(r.pending && r.recv>=r.size) M.FT.finalize(r,r.pending,peerId); /* late chunks after an early 'done' */
+  },
+  finalize(r,hashHex,from){
+    if(r.status==='done'||r.status==='failed'||r.status==='canceled') return;
+    r.status='verify'; M.FT.render();
+    const local=r.hash.hex();
+    const ok=(local===hashHex) && r.recv===r.size;
+    if(ok){
+      const blob=new Blob(r.parts,{type:r.type});
+      r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
+      M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
+      M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
+      M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
+      M.log('info','file verified ✓ '+r.name);
+    } else {
+      r.status='failed'; r.err=M.t('integrity_fail');
+      M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('integrity_fail')});
+      M.toast('err',M.t('integrity_fail'),r.name+' · '+M.fmt.bytes(r.recv)+'/'+M.fmt.bytes(r.size)); M.Notify.beep('err');
+      M.log('err','integrity mismatch '+r.name+' recv '+r.recv+'/'+r.size+' local '+local.slice(0,10)+' vs '+String(hashHex).slice(0,10));
+    }
+    try{ M.Net.sendEnc('ft',{t:'result',id:r.id,ok},from); }catch(e){}
+    M.FT.render(); M.UI.badges();
   },
   tickSend(t){
     const now=Date.now(); const dt=(now-t._lastT)/1000;
@@ -2881,7 +2913,8 @@ M.App = {
   inviteUrl(){
     const base=location.origin+location.pathname;
     let u=base+'?room='+M.State.room.code;
-    if(M.Admin.pubB64()) u+='&k='+M.Admin.pubB64();
+    const pin=M.Admin.pubPin() || (M.State.room.pubPin||'');
+    if(pin) u+='&k='+pin;
     if(M.State.room.roomKeyB64) u+='#rk='+M.State.room.roomKeyB64;
     return u;
   },
@@ -2903,8 +2936,8 @@ M.App = {
       await M.Admin.ensureKeys(code,true);
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
       if(M.$('#chkPrivate').checked && crypto.subtle){
-        M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));
-        await M.Crypto.importKeyB64(M.State.room.roomKeyB64);
+        M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(12)));
+        await M.Crypto.importRoomSecret(M.State.room.roomKeyB64);
       }
       history.replaceState(null,'',M.App.inviteUrl());
       await M.App.enter(code,true);
@@ -2919,9 +2952,10 @@ M.App = {
     try{
       M.State.room={code, created:Date.now(), isCreator:false};
       const qp=new URLSearchParams(location.search);
-      if(qp.get('k')){ try{ M.State.roomPubStr=M.td.decode(M.unb64url(qp.get('k'))); }catch(e){} }
-      const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/); 
-      if(frag){ await M.Crypto.importKeyB64(frag[1]); M.State.room.roomKeyB64=frag[1]; }
+      const k=qp.get('k');
+      if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
+      const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
+      if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
       await M.Admin.ensureKeys(code,false);
       if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
       history.replaceState(null,'',M.App.inviteUrl());
@@ -2951,9 +2985,12 @@ M.App = {
   },
   backToLobby(flag){
     try{ M.Call.all().forEach(s=>M.Call.teardown(s.id)); }catch(e){}
-    try{ M.Net.leave(); }catch(e){}
+    try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){}   /* announce departure… */
     if(flag) safeSet(sessionStorage,'mj.note',flag);
-    location.href=location.pathname+location.search+location.hash;
+    setTimeout(()=>{                                        /* …give it time to flush, then exit */
+      try{ M.Net.leave(); }catch(e){}
+      location.href=location.pathname+location.search+location.hash;
+    },700);
   }
 };
 M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.classList.toggle('ok',!err&&!!txt); e.style.color=err?'var(--err)':''; };
@@ -3180,7 +3217,6 @@ M.Share = {
     M.$('#shCopy').onclick=()=>M.Share.copy();
     M.$('#shWa').onclick=()=>{ const t=M.t('share_room')+' — Majlis مجلس'; open('https://wa.me/?text='+encodeURIComponent(t+'\n'+M.App.inviteUrl()),'_blank'); };
     M.$('#shMail').onclick=()=>{ location.href='mailto:?subject='+encodeURIComponent('Majlis مجلس — '+M.t('room')+' '+M.State.room.code)+'&body='+encodeURIComponent(M.App.inviteUrl()); };
-    M.$('#shSms').onclick=()=>{ location.href='sms:?&body='+encodeURIComponent('Majlis مجلس\n'+M.App.inviteUrl()); };
     M.$('#shNative').onclick=async ()=>{ try{ await navigator.share({title:'Majlis مجلس',url:M.App.inviteUrl()}); }catch(e){} };
   }
 };
