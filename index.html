@@ -3286,6 +3286,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     window.addEventListener('error',e=>M.log('err','uncaught: '+(e.message||e.error)));
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
     addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} });
+    M.__booted=true;
     M.log('info','Majlis boot · '+M.Platform.br+'/'+M.Platform.os+(M.Platform.mobile?' (mobile)':''));
   }catch(err){
     console.error(err);
@@ -3295,17 +3296,21 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 </script>
 <script>
-/* watchdog (separate tag): even a syntax error in the main script must never fail silently */
+/* watchdog (separate tag): a syntax/boot error in the main script must never fail silently.
+   Note: `const M` is a global *lexical* binding, so probe with typeof — never window.M. */
 setTimeout(function(){
   try{
-    if(!window.M || !window.M.App){
-      var d=document.getElementById('lobbyMsg');
-      if(d){ d.textContent='⚠ The app script failed to start — open the browser console (F12) for the exact error. Make sure the page is served over HTTPS (GitHub Pages) or localhost.'; d.style.color='var(--err)'; }
-      var l=document.getElementById('lblSig');
-      if(l){ l.textContent='script failed to start — see message below'; }
+    var dead = (typeof M === 'undefined') || !M.__booted;
+    if(!dead) return;
+    var d=document.getElementById('lobbyMsg');
+    if(d && !d.textContent.trim()){
+      d.textContent='⚠ The app script failed to start — open the browser console (F12) for the exact error. Serve the page over HTTPS (GitHub Pages) or localhost.';
+      d.style.color='var(--err)';
     }
+    var l=document.getElementById('lblSig');
+    if(l && l.textContent.indexOf('connected')===-1){ l.textContent='script failed to start — see message below'; }
   }catch(e){}
-},2500);
+},3000);
 </script>
 </body>
 </html>
