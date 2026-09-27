@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#0B1215">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="description" content="Majlis — serverless realtime rooms: chat, files, voice/video calls, collaborative whiteboard.">
 <title>Majlis · مجلس — Realtime Rooms</title>
 <script>
@@ -270,6 +273,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #btnMenu.pulse{animation:menuPulse 1.2s ease 3}
 @keyframes menuPulse{0%{box-shadow:0 0 0 0 rgba(245,168,60,.65)}70%{box-shadow:0 0 0 13px rgba(245,168,60,0)}100%{box-shadow:0 0 0 0 rgba(245,168,60,0)}}
 #topStatus{cursor:pointer}
+#verTag{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:2px 7px;letter-spacing:.05em;background:var(--panel-bg);white-space:nowrap;cursor:pointer;transition:color .15s,border-color .15s}
+#verTag:hover{color:var(--ink);border-color:var(--line2)}
+@media (max-width:620px){ #verTag{display:none} }
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 #tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg);overflow-x:auto;scrollbar-width:none}
@@ -406,7 +412,18 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 .btool svg{width:18px;height:18px}
 .btool:disabled{opacity:.3;pointer-events:none}
 .bsep{width:1px;height:22px;background:var(--line);margin:0 5px;flex:none}
-#wbColor{width:34px;height:31px;border:1px solid var(--line2);border-radius:8px;background:var(--bg1);padding:2px;cursor:pointer;flex:none}
+#boardBar .ctx-off{opacity:.25;pointer-events:none;transition:opacity .18s}
+#boardBar .btool b,#boardBar .btool i{line-height:1;font-family:Georgia,'IBM Plex Sans',serif}
+#boardBar .btool.on b,#boardBar .btool.on i{color:var(--amber2)}
+#wbColorDot{width:17px;height:17px;border-radius:50%;border:2px solid var(--line2);display:block;transition:background .15s}
+#wbFontN{width:52px;padding:5px 6px;border:1px solid var(--line2);border-radius:7px;background:var(--bg1);color:var(--ink);font-family:var(--mono);font-size:12px;flex:none}
+#wbFontN:focus{outline:none;border-color:var(--amber)}
+#wbPalette{position:fixed;z-index:160;background:var(--bg1);border:1px solid var(--line2);border-radius:11px;box-shadow:var(--sh);padding:10px;display:grid;grid-template-columns:repeat(7,25px);gap:6px;animation:msgIn .15s ease both}
+#wbPalette button{width:25px;height:25px;border-radius:7px;border:1.5px solid rgba(127,140,150,.35);cursor:pointer;transition:transform .12s;padding:0}
+#wbPalette button:hover{transform:scale(1.15)}
+#wbPalette button.on{outline:2px solid var(--amber);outline-offset:1px}
+.wb-pal-row{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:3px;padding-top:7px;border-top:1px dashed var(--line)}
+#wbPalette input[type=color]{width:36px;height:25px;border:1px solid var(--line2);border-radius:6px;background:var(--bg1);padding:1px;cursor:pointer}
 .brange{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--mut);flex:none}
 .brange input{width:74px;accent-color:var(--amber)}
 #wbModeBadge{position:absolute;top:60px;inset-inline-start:16px;z-index:5;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:700;pointer-events:none}
@@ -414,7 +431,37 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 #wbModeBadge.lock{background:rgba(255,97,87,.15);color:var(--red);border:1px solid rgba(255,97,87,.5)}
 #boardWrap{flex:1;position:relative;min-height:0;background:var(--board-bg);touch-action:none;overflow:hidden}
 #boardCanvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
-#wbText{position:absolute;z-index:6;min-width:160px;min-height:40px;background:var(--bg1);border:1.5px solid var(--amber);border-radius:6px;color:var(--ink);padding:6px 9px;outline:none;font-family:var(--body);resize:both;overflow:auto;box-shadow:var(--sh)}
+#wbTextWrap{position:absolute;z-index:6;display:flex;flex-direction:column;gap:6px;max-width:min(430px,82%);animation:msgIn .16s ease both}
+#wbText{min-width:216px;min-height:66px;background:var(--bg1);border:2px solid var(--amber);border-radius:8px;color:var(--ink);padding:8px 11px;outline:none;font-family:var(--body);resize:both;overflow:auto;box-shadow:var(--sh);line-height:1.45}
+#wbText:focus{box-shadow:0 0 0 4px rgba(245,168,60,.16),var(--sh)}
+.wb-tw-row{display:flex;gap:6px;justify-content:flex-end}
+.wb-tw-ok{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(180deg,#4FE3CB,var(--teal));color:#04211c;border:none;border-radius:7px;padding:7px 15px;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 5px 14px -6px rgba(56,207,182,.65);transition:transform .12s}
+.wb-tw-ok:active{transform:scale(.96)}
+.wb-tw-no{background:var(--bg2);border:1px solid var(--line2);color:var(--mut);border-radius:7px;padding:7px 12px;cursor:pointer;font-size:12.5px}
+#wbToolHint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);z-index:5;background:var(--bg1);border:1px solid var(--line2);color:var(--mut);font-size:12px;padding:6px 15px;border-radius:99px;box-shadow:var(--sh);pointer-events:none;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis}
+#wbMenu{position:absolute;z-index:22;min-width:182px;background:var(--bg1);border:1px solid var(--line2);border-radius:11px;box-shadow:0 22px 55px -18px rgba(0,0,0,.55);padding:5px;animation:menuIn .15s cubic-bezier(.2,.9,.3,1.15) both}
+@keyframes menuIn{from{opacity:0;transform:scale(.9) translateY(-4px)}to{opacity:1;transform:none}}
+#wbMenu button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);text-align:start;transition:background .12s}
+#wbMenu button:hover{background:var(--bg3)}
+#wbMenu button:active{transform:scale(.98)}
+#wbMenu button svg{width:16px;height:16px;color:var(--mut);flex:none}
+#wbMenu button.dgr{color:var(--err)}
+#wbMenu button.dgr svg{color:var(--err)}
+#wbMenu button.dgr:hover{background:rgba(255,97,87,.13)}
+.wb-menu-sep{height:1px;background:var(--line);margin:4px 7px}
+#boardCanvas{-webkit-touch-callout:none}
+#wbClipChip{display:none;width:auto;padding:0 10px;font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--dim);letter-spacing:.02em}
+#wbClipChip.on{display:inline-flex;color:var(--teal);background:rgba(56,207,182,.13);border-color:rgba(56,207,182,.45);animation:msgIn .18s ease both}
+#wbBanner{position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:25;background:var(--bg1);border:1.5px solid var(--teal);color:var(--ink);font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:11px;box-shadow:0 16px 44px -14px rgba(0,0,0,.5);animation:menuIn .18s cubic-bezier(.2,.9,.3,1.15) both;max-width:88%;text-align:center;pointer-events:none}
+#wbBanner.warn{border-color:var(--warn)}
+#wbBanner.err{border-color:var(--err);color:var(--err)}
+#wbPaste.dim{opacity:.45}
+#wbHud{position:absolute;top:12px;inset-inline-start:14px;z-index:5;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--mut);background:var(--panel-bg);border:1px solid var(--line);border-radius:99px;padding:4px 12px;pointer-events:none;backdrop-filter:blur(3px)}
+#wbHud #wbHudCount{color:var(--ink);font-weight:700}
+#wbHud #wbHudMsg{color:var(--teal);font-weight:600;opacity:0;transition:opacity .25s}
+#wbHud #wbHudMsg.show{opacity:1}
+.wb-drop{position:absolute;z-index:7;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;gap:7px;background:var(--bg1);border:1.5px solid var(--ok);color:var(--ok);font-family:var(--mono);font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;box-shadow:var(--sh);animation:menuIn .2s cubic-bezier(.2,.9,.3,1.2) both;white-space:nowrap}
+.wb-drop::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--ok);animation:ledPulse 1s infinite;flex:none}
 #boardFoot{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--line);flex:none;font-family:var(--mono);font-size:11.5px;color:var(--mut);overflow-x:auto}
 #boardFoot .grow{flex:1}
 #wbPeers{display:flex;align-items:center;gap:4px}
@@ -586,6 +633,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <button id="roomChip" title="Copy invite link"><span id="roomCodeLbl">······</span><svg id="roomLockIco" class="hidden" viewBox="0 0 24 24" fill="none" stroke="#F5A83C" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
     <div id="topStatus"><span class="led" id="sigLed"></span><span id="peersLbl">0</span><span class="lbltxt" data-i18n="online_s">online</span><span id="callsTopLbl" class="hidden" style="color:var(--red)">● <span id="callsTopN">0</span></span></div>
     <div class="grow"></div>
+    <span id="verTag" class="mono" title="Build version — if this is older than the release, hard-refresh (Ctrl+Shift+R)">…</span>
     <button class="btn btn-primary" id="btnShare"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span class="btxt" data-i18n="share_room">Share room</span></button>
     <button class="btn btn-admin hidden" id="btnCC"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h10M18 8h2M4 16h4M12 16h8" stroke-linecap="round"/><circle cx="16" cy="8" r="2"/><circle cx="10" cy="16" r="2"/></svg><span class="btxt" data-i18n="control_center">Control Center</span></button>
     <button class="icon-btn" id="langBtn2" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></button>
@@ -655,6 +703,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="pen" title="Pen (P)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7-4-4-7 7v4h4z" stroke-linejoin="round"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" stroke-linejoin="round"/></svg></button>
           <button class="btool" data-tool="hi" title="Highlighter (H)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4l8 8z" stroke-linejoin="round"/></svg></button>
           <button class="btool" data-tool="eraser" title="Eraser (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H8L3.5 15.5a2 2 0 0 1 0-2.8L13 3.2a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L13 19" stroke-linejoin="round"/></svg></button>
+          <button class="btool" data-tool="pan" title="Pan — drag to move the view (G, or hold Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11V6.5a1.5 1.5 0 0 1 3 0V11M10 11V4.5a1.5 1.5 0 0 1 3 0V11M13 11V6a1.5 1.5 0 0 1 3 0v6.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.7-2.3L3 14.6a1.7 1.7 0 0 1 2.6-2.2L7 13.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
           <button class="btool" data-tool="line" title="Line (L)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 19L19 5" stroke-linecap="round"/></svg></button>
           <button class="btool" data-tool="arrow" title="Arrow (A)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 19L19 5M19 5h-8M19 5v8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -664,22 +713,49 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="note" title="Sticky note (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v10l-6 6H4V4z" stroke-linejoin="round"/><path d="M14 20v-6h6"/></svg></button>
           <button class="btool" data-tool="image" title="Insert image (I)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
-          <input type="color" id="wbColor" value="#F5A83C" title="Color">
-          <label class="brange" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
-          <label class="brange" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
+          <button class="btool" id="wbColorBtn" title="Color palette"><span id="wbColorDot" style="background:#111111"></span></button>
+          <label class="brange" data-ctx="stroke" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <span class="bsep"></span>
-          <button class="btool" data-align="left" title="Align left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h14" stroke-linecap="round"/></svg></button>
-          <button class="btool" data-align="center" title="Align center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M5 18h14" stroke-linecap="round"/></svg></button>
-          <button class="btool" data-align="right" title="Align right — محاذاة يمين"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M10 12h10M6 18h14" stroke-linecap="round"/></svg></button>
+          <label class="brange" data-ctx="text" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
+          <input type="number" id="wbFontN" data-ctx="text" min="8" max="200" value="22" title="Text size — type a number">
+          <button class="btool" data-ctx="text" data-style="bold" title="Bold — عريض"><b style="font-size:15px;font-weight:800">B</b></button>
+          <button class="btool" data-ctx="text" data-style="italic" title="Italic — مائل"><i style="font-size:15px">I</i></button>
+          <span class="bsep"></span>
+          <button class="btool" data-ctx="text" data-align="left" title="Align left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h14" stroke-linecap="round"/></svg></button>
+          <button class="btool" data-ctx="text" data-align="center" title="Align center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M5 18h14" stroke-linecap="round"/></svg></button>
+          <button class="btool" data-ctx="text" data-align="right" title="Align right — محاذاة يمين"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M10 12h10M6 18h14" stroke-linecap="round"/></svg></button>
+          <div id="wbPalette" class="hidden"></div>
           <span class="bsep"></span>
           <button class="btool" id="wbUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="btool" id="wbRedo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="btool" id="wbDel" title="Delete selection (Del)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13M10 11v6M14 11v6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <button class="btool" id="wbDup" title="Duplicate (Ctrl+D)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg></button>
+          <button class="btool" id="wbCopy" title="Copy (Ctrl+C)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+          <button class="btool" id="wbDup" title="Duplicate (Ctrl+D)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10M14 11v6M11 14h6" stroke-linecap="round"/></svg></button>
+          <button class="btool" id="wbPaste" title="Paste (Ctrl+V)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" stroke-linejoin="round"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></button>
+          <button class="btool" id="wbClipChip" title="Clipboard"></button>
         </div>
         <div id="boardWrap">
           <canvas id="boardCanvas"></canvas>
-          <textarea id="wbText" class="hidden" dir="auto"></textarea>
+          <div id="wbTextWrap" class="hidden">
+            <textarea id="wbText" dir="auto" data-i18n-ph="wb_ph"></textarea>
+            <div class="wb-tw-row">
+              <button class="wb-tw-no" id="wbTextNo">✕</button>
+              <button class="wb-tw-ok" id="wbTextOk">✓ <span data-i18n="wb_place">Place</span></button>
+            </div>
+          </div>
+          <div id="wbToolHint" class="hidden"></div>
+          <div id="wbBanner" class="hidden"></div>
+          <div id="wbHud"><span id="wbHudCount">0</span> <span data-i18n="wb_objects">objects</span><span id="wbHudMsg"></span></div>
+          <div id="wbMenu" class="hidden">
+            <button data-act="paste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" stroke-linejoin="round"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 13l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="wb_paste">Paste</span></button>
+            <div class="wb-menu-sep"></div>
+            <button data-act="copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span data-i18n="wb_copy">Copy</span></button>
+            <button data-act="dup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10M14 11v6M11 14h6" stroke-linecap="round"/></svg><span data-i18n="wb_duplicate">Duplicate</span></button>
+            <button data-act="front"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16M12 20V9M7.5 13.5L12 9l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="wb_front">Bring to Front</span></button>
+            <button data-act="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M12 4v11M7.5 10.5L12 15l4.5-4.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="wb_back">Send to Back</span></button>
+            <div class="wb-menu-sep"></div>
+            <button data-act="del" class="dgr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13M10 11v6M14 11v6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="wb_delete">Delete</span></button>
+          </div>
           <div id="wbModeBadge" class="hidden"></div>
           <div class="board-off" id="boardOff"><div class="card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><b id="boardOffTitle" data-i18n="board_closed">Whiteboard is closed</b><p class="dim" style="margin-top:8px;font-size:13px" id="boardOffSub" data-i18n="board_closed_sub">The Admin has not opened the board for this room yet.</p></div></div>
         </div>
@@ -829,6 +905,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <div class="cc-kv"><span class="k" data-i18n="room_code">Room code</span><span class="v"><b id="ccRoomCode" style="font-size:15px;letter-spacing:.2em">······</b></span></div>
         <div class="cc-kv"><span class="k" data-i18n="invite_url">Invite URL</span><span class="v" style="max-width:60%"><span id="ccRoomUrl" style="word-break:break-all"></span></span></div>
         <div class="cc-kv"><span class="k" data-i18n="created">Created</span><span class="v" id="ccCreated">—</span></div>
+        <div class="cc-kv"><span class="k">Credits</span><span class="v" style="font-family:var(--disp);font-weight:600;color:var(--amber2);letter-spacing:.02em">Developed by Naser AlWatani</span></div>
         <div class="cc-kv"><span class="k" data-i18n="signaling">Signaling</span><span class="v"><span class="led" id="ccSigLed"></span><span id="ccSigLbl">—</span></span></div>
         <div class="cc-kv"><span class="k" data-i18n="encryption">Content encryption</span><span class="v" id="ccEncLbl">—</span></div>
         <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap"><button class="btn btn-primary" id="ccShare"><span data-i18n="share_room">Share room</span></button><button class="btn" id="ccCopyUrl"><span data-i18n="copy_link">Copy link</span></button></div>
@@ -919,7 +996,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     </section>
     <section class="cc-sec" data-sec="diag"><h2 data-i18n="cc_diag">Diagnostics</h2><p class="cc-sub" data-i18n="cc_diag_sub">Live signaling, peer and session health. Safe to ignore for normal use.</p>
       <div class="cc-card"><div id="ccDiag" class="mono" style="font-size:12px"></div>
-        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="ccPingBtn" data-i18n="ping_peers">Ping peers</button><button class="btn btn-ghost" id="ccLogClear" data-i18n="clear_log">Clear log</button></div>
+        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="ccPingBtn" data-i18n="ping_peers">Ping peers</button><button class="btn btn-teal" id="ccPasteTest" data-i18n="test_paste">Test paste pipeline</button><button class="btn" id="ccLogCopy" data-i18n="copy_log">Copy log</button><button class="btn btn-ghost" id="ccLogClear" data-i18n="clear_log">Clear log</button></div>
       </div>
       <div class="cc-card"><h4 data-i18n="event_log">Event log</h4><div id="ccLog"></div></div>
     </section>
@@ -960,7 +1037,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.9.2';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.18.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1143,6 +1220,21 @@ en:{
  member_s:'member', members_s:'members', view:'view', edit:'edit',
  lang_name:'العربية', dm:'DM', call:'Call', remove:'Remove', settings_saved:'Settings saved — they apply to the next room you join.',
  board_you:'You', wb_export_denied:'Export is disabled by the Admin', wb_img_denied:'Image insertion is disabled by the Admin',
+ wb_place:'Place', wb_ph:'Type here… — Enter places · Shift+Enter for a new line · Esc cancels',
+ wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
+ wb_hint_note:'Tap to drop a sticky note, then type inside it',
+ wb_custom:'Custom color',
+ wb_copy:'Copy', wb_paste:'Paste', wb_duplicate:'Duplicate', wb_front:'Bring to Front', wb_back:'Send to Back', wb_delete:'Delete',
+ wb_copied_short:'{n} copied',
+ wb_copy_latest:'No selection — copied your latest object',
+ wb_copied:'{n} copied — press Ctrl+V (⌘V), the Paste button, or right-click to paste',
+ wb_pasted:'{n} pasted', wb_paste_empty:'Nothing copied yet — select objects first, then Copy',
+ wb_paste_empty_sel:'Select at least one object to copy',
+ wb_copy_nothing:'Nothing selected to copy — tap an object first (anything you just drew is already selected)',
+ wb_clip_have:'Clipboard holds {n} object(s) — click to paste', wb_clip_empty:'Clipboard empty',
+ wb_objects:'objects',
+ test_paste:'Test paste pipeline', copy_log:'Copy log',
+ wb_duplicated:'{n} duplicated',
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
  screen:'Screen', quality:'quality', rtt:'ping', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
@@ -1247,6 +1339,21 @@ ar:{
  member_s:'عضو', members_s:'أعضاء', view:'مشاهدة', edit:'تحرير',
  lang_name:'English', dm:'خاص', call:'اتصال', remove:'إزالة', settings_saved:'حُفظت الإعدادات — تسري على الغرفة القادمة.',
  board_you:'أنت', wb_export_denied:'عطّل المشرف التصدير', wb_img_denied:'عطّل المشرف إدراج الصور',
+ wb_place:'وضع', wb_ph:'اكتب هنا… — Enter للوضع · Shift+Enter سطر جديد · Esc إلغاء',
+ wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
+ wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
+ wb_custom:'لون مخصّص',
+ wb_copy:'نسخ', wb_paste:'لصق', wb_duplicate:'تكرار', wb_front:'تقديم للأمام', wb_back:'إرسال للخلف', wb_delete:'حذف',
+ wb_copied_short:'نُسخ {n}',
+ wb_copy_latest:'لا يوجد تحديد — نُسخ آخر عنصر لمسته',
+ wb_copied:'نُسخ {n} — اضغط Ctrl+V (⌘V) أو زر اللصق أو الزر الأيمن للصق',
+ wb_pasted:'لُصق {n}', wb_paste_empty:'لم تنسخ شيئاً بعد — حدّد العناصر أولاً ثم اضغط نسخ',
+ wb_paste_empty_sel:'حدّد عنصراً واحداً على الأقل للنسخ',
+ wb_copy_nothing:'لا يوجد شيء محدد للنسخ — اضغط على عنصر أولاً (أي شيء رسمته للتو محدد بالفعل)',
+ wb_clip_have:'الحافظة تحتوي {n} عنصر — انقر للصق', wb_clip_empty:'الحافظة فارغة',
+ wb_objects:'عنصر',
+ test_paste:'اختبار خط اللصق', copy_log:'نسخ السجل',
+ wb_duplicated:'كرر {n}',
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
@@ -1562,7 +1669,7 @@ M.Net = {
         }
       });
     },6000);
-    M.log('info','joined room '+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.State.self.id));
+    M.log('info','joined room '+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.T.selfId));
     return R;
   },
   _early:new Map(),
@@ -1583,8 +1690,11 @@ M.Net = {
       try{ const s=M.T.getRelaySockets ? M.T.getRelaySockets() : {};
         for(const url in s){ const st=s[url]?.readyState; if(st===1){ok=true; info.push(url.replace('wss://','').split('/')[0]);} }
       }catch(e){}
-      M.bus.emit('relayStatus',{ok, info});
+      if(ok) M.Net._relaySeen=true;
+      /* before the relay has ever opened, report "unknown" — a boot-time check must never read as an outage */
+      M.bus.emit('relayStatus',{ok: ok?true:(M.Net._relaySeen?false:null), info});
     };
+    M.Net._relaySeen=false;
     check(); clearInterval(M.Net._relayT); M.Net._relayT=setInterval(check,3000);
   },
   nudge(){
@@ -1694,7 +1804,7 @@ M.Recovery = {
       const csl=M.$('#ccSigLed'); if(csl){ csl.className='led '+(ok?'ok':'err'); }
       const clb=M.$('#ccSigLbl'); if(clb) clb.textContent= ok? 'connected (MQTT over WSS)' : 'reconnecting…';
       if(was===false && ok){ M.toast('ok',M.t('reconnect_ok')); M.Net.nudge(); }
-      if(was!==false && !ok) M.log('warn','signaling relay disconnected');
+      if(ok===false && was!==false) M.log('warn','signaling relay disconnected');
     });
     M.$('#btnReconnNow').onclick=()=>{ M.Net.nudge(); M.toast('info',M.t('retry_now')); };
   },
@@ -2185,7 +2295,10 @@ M.UI = {
     M.bus.on('members',()=>{ M.UI.renderMembers(); M.UI.onlineCount(); if(M.Call) M.Call.rerenderNames(); M.bus.emit('ccRefresh'); });
     M.bus.on('callState',()=>{ M.UI.renderMembers(); M.UI.badges(); });
     M.bus.on('wbPeers',()=>M.UI.renderMembers());
-    M.bus.on('perms',()=>{ M.Chat.refreshComposerState(); M.UI.renderMembers(); M.bus.emit('ccRefresh'); });
+    M.bus.on('perms',()=>{
+      M.Chat.refreshComposerState(); M.UI.renderMembers(); M.bus.emit('ccRefresh');
+      M.$('#roomLockIco')?.classList.toggle('hidden',!M.State.perms?.roomLocked);   /* lock toggle in CC now reflects in the top bar instantly */
+    });
     M.bus.on('lang',()=>{ M.UI.renderMembers(); if(!M.$('#panel-chat').classList.contains('hidden')) M.Chat.renderAll(); M.FT.render(); });
     M.$('#selfCard').onclick=()=>M.UI.renameSelf();
     M.bus.on('lang',()=>{ M.$('#selfCard').title=M.t('display_name'); });
@@ -2344,7 +2457,7 @@ M.Media = {
   },
   async acquire(kind){
     if(!navigator.mediaDevices?.getUserMedia){
-      M.toast('err','Media unavailable','Camera & microphone require a secure context — open the site over HTTPS (GitHub Pages), not file:// or http.',{ms:8000});
+      M.toast('err','Media unavailable','Camera & microphone require a secure HTTPS context, not file:// or http.',{ms:8000});
       throw new Error('mediaDevices unavailable');
     }
     if(M.Media.streams[kind] && M.Media.streams[kind].active){ M.Media.refs[kind]=(M.Media.refs[kind]||0)+1; M.Media.watch(kind); return M.Media.streams[kind]; }
@@ -3209,6 +3322,12 @@ M.RC = {
     M.$('#mRdCard').classList.remove('hidden');
     if(M.RC._rd.id) M.RC.copyText(M.RC._rd.id,false);
   },
+  _fallbackCopy(txt,done){
+    const ta=M.el('textarea'); ta.value=txt; ta.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); done?.(); }catch(e){}
+    ta.remove();
+  },
   copyText(txt,announce){
     (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject())
       .then(()=>{ if(announce!==false) M.toast('ok',M.t('rd_copied'),txt); })
@@ -3225,8 +3344,8 @@ M.RC.init();
    rendering — never manual character reversal.
    ===================================================================== */
 M.WB = {
-  objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null,
-  tool:'pen', color:'#F5A83C', size:4, font:22, align:null,
+  objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
+  tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
   init(){
@@ -3241,24 +3360,91 @@ M.WB = {
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
-    M.$('#wbColor').oninput=e=>{ M.WB.color=e.target.value; M.WB._colorTouched=true; };
-    M.$('#wbSize').oninput=e=>{ M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value; };
-    M.$('#wbFont').oninput=e=>M.WB.font=+e.target.value;
-    /* §20 text alignment (auto by default = direction-aware; click again for auto) */
-    M.$$('#boardBar [data-align]').forEach(b=>b.onclick=()=>{
-      const v=b.dataset.align;
-      M.WB.align=(M.WB.align===v)?null:v;
-      M.$$('#boardBar [data-align]').forEach(x=>x.classList.toggle('on',x.dataset.align===M.WB.align));
-      const o=M.WB.sel && M.WB.objs.get(M.WB.sel);
-      if(o && (o.type==='text'||o.type==='note') && M.WB.canEdit()){ o.align=M.WB.align; M.WB.send({t:'up',o}); M.WB.dirty=true; }
+    /* ---- color palette ---- */
+    M.$('#wbColorBtn').onclick=e=>{
+      e.stopPropagation();
+      const pal=M.$('#wbPalette');
+      if(!pal.classList.contains('hidden')){ pal.classList.add('hidden'); return; }
+      const r=e.currentTarget.getBoundingClientRect();
+      pal.style.top=(r.bottom+8)+'px';
+      pal.style.left=Math.max(8,Math.min(r.left,innerWidth-230))+'px';
+      M.WB.renderPal();
+      pal.classList.remove('hidden');
+    };
+    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn')) M.$('#wbPalette').classList.add('hidden'); });
+    /* ---- stroke width (drawings & shapes) ---- */
+    M.$('#wbSize').oninput=e=>{
+      M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value;
+      if(M.WB.selSet.size && M.WB.canEdit()){
+        M.WB.selSet.forEach(id=>{
+          const o=M.WB.objs.get(id);
+          if(o && ['pen','hi','line','arrow','rect','ellipse'].includes(o.type)){ o.size=+e.target.value; M.WB.send({t:'up',o}); }
+        });
+        M.WB.dirty=true;
+      }
+    };
+    /* ---- text size: slider + typed number, kept in sync ---- */
+    M.$('#wbFont').oninput=e=>{ M.WB.font=+e.target.value; M.$('#wbFontN').value=e.target.value; M.WB._fontApply(); };
+    M.$('#wbFontN').oninput=e=>{
+      const v=M.clamp(Math.round(+e.target.value)||22,8,200);
+      M.WB.font=v; M.$('#wbFont').value=Math.min(72,v); M.WB._fontApply();
+    };
+    /* ---- bold / italic — live on the selection, or into the open editor without stealing focus ---- */
+    M.$$('#boardBar [data-style]').forEach(b=>{
+      b.addEventListener('pointerdown',e=>{ if(!M.$('#wbTextWrap').classList.contains('hidden')) e.preventDefault(); });
+      b.onclick=()=>{
+        const k=b.dataset.style;
+        M.WB[k]=!M.WB[k];
+        b.classList.toggle('on',M.WB[k]);
+        if(!M.$('#wbTextWrap').classList.contains('hidden')){
+          const ta=M.$('#wbText');
+          ta.style.fontWeight=M.WB.bold?'700':'400';
+          ta.style.fontStyle=M.WB.italic?'italic':'normal';
+          return;
+        }
+        if(M.WB.selSet.size && M.WB.canEdit()){
+          M.WB.selSet.forEach(id=>{
+            const o=M.WB.objs.get(id);
+            if(o && (o.type==='text'||o.type==='note')){ o.style=M.WB.styleStr(); M.WB.send({t:'up',o}); }
+          });
+          M.WB.dirty=true;
+        }
+      };
     });
+    /* §20 text alignment (auto by default = direction-aware; click again for auto) */
+    M.$$('#boardBar [data-align]').forEach(b=>{
+      b.addEventListener('pointerdown',e=>{ if(!M.$('#wbTextWrap').classList.contains('hidden')) e.preventDefault(); });
+      b.onclick=()=>{
+        const v=b.dataset.align;
+        M.WB.align=(M.WB.align===v)?null:v;
+        M.$$('#boardBar [data-align]').forEach(x=>x.classList.toggle('on',x.dataset.align===M.WB.align));
+        if(!M.$('#wbTextWrap').classList.contains('hidden')){ M.$('#wbText').style.textAlign=M.WB.align||''; return; }
+        if(M.WB.selSet.size && M.WB.canEdit()){
+          M.WB.selSet.forEach(id=>{
+            const o=M.WB.objs.get(id);
+            if(o && (o.type==='text'||o.type==='note')){ o.align=M.WB.align; M.WB.send({t:'up',o}); }
+          });
+          M.WB.dirty=true;
+        }
+      };
+    });
+    /* floating text editor — pointerdown preventDefault keeps the textarea focused
+       on touch, so Place/Cancel never lose the typed content to a blur-commit race */
+    const twOk=M.$('#wbTextOk'), twNo=M.$('#wbTextNo');
+    twOk.addEventListener('pointerdown',e=>e.preventDefault());
+    twNo.addEventListener('pointerdown',e=>e.preventDefault());
+    twOk.onclick=()=>M.WB.commitText();
+    twNo.onclick=()=>{ M.$('#wbText').value=''; M.WB.commitText(); };
     M.$('#wbUndo').onclick=()=>M.WB.doUndo();
     M.$('#wbRedo').onclick=()=>M.WB.doRedo();
     M.$('#wbDel').onclick=()=>M.WB.deleteSel();
     M.$('#wbDup').onclick=()=>M.WB.duplicateSel();
+    M.$('#wbCopy').onclick=()=>M.WB.copySel();
+    M.$('#wbPaste').onclick=()=>M.WB.paste();
+    M.$('#wbClipChip').onclick=()=>M.WB.paste();
     M.$('#wbZo').onclick=()=>M.WB.zoomBy(1/1.25);
     M.$('#wbZi').onclick=()=>M.WB.zoomBy(1.25);
-    M.$('#wbFit').onclick=()=>{ M.WB.view={x:80,y:60,s:1}; M.WB.dirty=true; M.WB.zoomLbl(); };
+    M.$('#wbFit').onclick=()=>M.WB.fitAll();   /* fits every object on screen — your safety net for "where did it go?" */
     M.$('#wbExport').onclick=()=>M.WB.exportPNG();
     M.$('#wbClear').onclick=async ()=>{ if(await M.confirm(M.t('clear_q'),M.t('clear_q_body'))) M.Admin.cmd('wbCtrl',{sub:'clear'}); };
     /* canvas pointer events */
@@ -3268,33 +3454,59 @@ M.WB = {
     cv.addEventListener('pointercancel', e=>M.WB.pUp(e));
     cv.addEventListener('dblclick', e=>M.WB.dbl(e));
     cv.addEventListener('wheel', e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); M.WB.zoomAt(Math.exp(-e.deltaY*0.0012), e.clientX-r.left, e.clientY-r.top); }, {passive:false});
+    /* object context menu — right-click on desktop */
+    cv.addEventListener('contextmenu', e=>{
+      e.preventDefault();
+      if(!M.State.wb.open) return;
+      const r=cv.getBoundingClientRect();
+      const [wx,wy]=M.WB.s2w(e.clientX-r.left,e.clientY-r.top);
+      const o=M.WB.hit(wx,wy);
+      if(o && M.WB.canEdit()){
+        if(!M.WB.selSet.has(o.id)){ M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.dirty=true; }
+        M.WB.openMenu(e.clientX-r.left, e.clientY-r.top);
+      } else if(M.WB._clip?.length && M.WB.canEdit()){
+        M.WB.sel=null; M.WB.selSet=new Set();
+        M.WB.openMenu(e.clientX-r.left, e.clientY-r.top);    /* empty canvas + clipboard → paste-only menu */
+      } else M.WB.closeMenu();
+    });
+    M.$$('#wbMenu [data-act]').forEach(b=>b.onclick=()=>M.WB.menuAct(b.dataset.act));
+    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbMenu')) M.WB.closeMenu(); });
     /* keyboard */
     window.addEventListener('keydown', e=>{
       if(M.UI.tab!=='board' || M.$('#panel-board').classList.contains('hidden')) return;
+      /* overlays own the keyboard — the board never hijacks shortcuts over the Control Center or dialogs */
+      if(M.$('#mCC')?.classList.contains('open')) return;
+      if(['mShare','mIncoming','mGroup','mDevices','mTarget','mConfirm','mRdReq','mRdCard'].some(id=>{ const m=M.$('#'+id); return m && !m.classList.contains('hidden'); })) return;
       const tag=document.activeElement?.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target.isContentEditable) return;
       if(e.metaKey||e.ctrlKey){
+        if((window.getSelection?.()?.toString()||'')) return;   /* real text is selected (e.g. the event log) — let the browser copy it normally */
         if(e.key==='z'||e.key==='Z'){ e.preventDefault(); e.shiftKey?M.WB.doRedo():M.WB.doUndo(); }
         else if(e.key==='y'){ e.preventDefault(); M.WB.doRedo(); }
         else if(e.key==='d'){ e.preventDefault(); M.WB.duplicateSel(); }
+        else if(e.key==='c'){ e.preventDefault(); M.WB.copySel(); }   /* same rule as the button: selection, or your latest object */
+        else if(e.key==='v'){ e.preventDefault(); M.WB.paste(); }
         return;
       }
       const k=e.key.toLowerCase();
-      const map={v:'select',p:'pen',h:'hi',e:'eraser',l:'line',a:'arrow',r:'rect',o:'ellipse',t:'text',n:'note',i:'image'};
-      if(map[k]) M.WB.setTool(map[k]);
-      else if(k==='delete'||k==='backspace') M.WB.deleteSel();
-      else if(k==='0'){ M.WB.view={x:80,y:60,s:1}; M.WB.dirty=true; M.WB.zoomLbl(); }
+    const map={v:'select',p:'pen',h:'hi',e:'eraser',g:'pan',l:'line',a:'arrow',r:'rect',o:'ellipse',t:'text',n:'note',i:'image'};
+    if(map[k]) M.WB.setTool(map[k]);
+    else if(k==='delete'||k==='backspace') M.WB.deleteSel();
+    else if(k==='0'){ M.WB.view={x:80,y:60,s:1}; M.WB.dirty=true; M.WB.zoomLbl(); }
+    else if(e.code==='Space'&&!e.repeat){ e.preventDefault(); if(M.WB.tool!=='pan'){ M.WB._prevTool=M.WB.tool; M.WB.setTool('pan'); } }  /* hold Space = temporary pan */
     });
+    window.addEventListener('keyup',e=>{ if(e.code==='Space' && M.WB._prevTool){ M.WB.setTool(M.WB._prevTool); M.WB._prevTool=null; } });
     /* remote cursor broadcast */
     M.WB._curSend=M.throttle(pt=>{ if(M.State.wb.open && M.Net.A.cur) M.Net.send('cur',pt); },90);
     M.bus.on('netReady',()=>{ M.Net.A.cur.onMessage=(d,{peerId})=>{ if(d&&typeof d.x==='number'){ M.WB.activePeers.set(peerId,{...d,t:Date.now()}); M.WB.dirty=true; M.WB.peersUI(); } }; });
     setInterval(()=>{ let ch=false; M.WB.activePeers.forEach((v,k)=>{ if(Date.now()-v.t>5000){ M.WB.activePeers.delete(k); ch=true; } }); if(ch){ M.WB.dirty=true; M.WB.peersUI(); } },2000);
     /* render loop */
-    const loop=()=>{ if(M.WB.dirty && !M.$('#panel-board').classList.contains('hidden')){ M.WB.dirty=false; M.WB.draw(); } requestAnimationFrame(loop); };
+    const loop=()=>{ if(M.WB.dirty && !M.$('#panel-board').classList.contains('hidden')){ M.WB.dirty=false; M.WB.syncCtx(); M.WB.draw(); } requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
     M.WB.readTheme();
     M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
     M.WB.resize();
+    M.WB.setTool('select');   /* the highlighted tool and the active tool must agree from the first frame */
   },
   /* ---------- geometry ---------- */
   readTheme(){
@@ -3307,7 +3519,8 @@ M.WB = {
   resize(){
     const cv=M.WB.cv; if(!cv) return;
     const dpr=Math.min(2.5,devicePixelRatio||1);
-    const w=cv.parentElement.clientWidth, h=cv.parentElement.clientHeight;
+    const w=cv.parentElement?.clientWidth||0, h=cv.parentElement?.clientHeight||0;
+    if(w<2||h<2) return;   /* panel hidden — draw() will heal the size when it reappears */
     if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
     M.WB.dpr=dpr; M.WB.dirty=true;
   },
@@ -3324,7 +3537,7 @@ M.WB = {
       case 'pen': case 'hi': { let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; for(const [x,y] of o.pts){ x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x);y2=Math.max(y2,y);} const p=(o.size||2)/2; return [x1-p,y1-p,x2-x1+p*2,y2-y1+p*2]; }
       case 'line': case 'arrow': { const x=Math.min(o.x1,o.x2),y=Math.min(o.y1,o.y2); return [x-6,y-6,Math.abs(o.x2-o.x1)+12,Math.abs(o.y2-o.y1)+12]; }
       case 'rect': case 'ellipse': case 'image': case 'note': return [o.x,o.y,o.w,o.h];
-      case 'text': { const s=o.size||22; const lines=String(o.text||'').split('\n'); const w=Math.max(...lines.map(l=>l.length))*(o.size||22)*0.62; return [o.x-4,o.y-4,Math.max(w,60)+8,lines.length*s*1.35+8]; }
+      case 'text': { const s=o.size||22; const lines=String(o.text||'').split('\n'); const w=(o.w&&o.w>4)?o.w:Math.max(...lines.map(l=>l.length))*s*0.62; return [o.x-4,o.y-4,Math.max(w,40)+8,lines.length*s*1.35+8]; }
       default: return [o.x||0,o.y||0,40,40];
     }
   },
@@ -3352,7 +3565,7 @@ M.WB = {
     return Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
   },
   handleAt(px,py){
-    if(!M.WB.sel) return -1;
+    if(!M.WB.sel || M.WB.selSet.size>1) return -1;   /* resize handles only for a single object */
     const o=M.WB.objs.get(M.WB.sel); if(!o) return -1;
     const [x,y,w,h]=M.WB.bbox(o);
     const hs=9/M.WB.view.s;
@@ -3364,10 +3577,76 @@ M.WB = {
   /* ---------- tools / pointer ---------- */
   setTool(t){
     if(t==='image'){ if(!M.Perms.denyToast('wbImage')) return; M.WB.pickImage(); return; }
-    M.WB.tool=t; M.WB.commitText();
+    M.WB.tool=t; M.WB.commitText(); M.WB.closeMenu();
     M.$$('#boardBar [data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===t));
     M.WB.cv.style.cursor = t==='select'?'default': t==='pan'?'grab':'crosshair';
     if(t!=='select'){ M.WB.sel=null; M.WB.dirty=true; }
+    const hint=M.$('#wbToolHint');
+    if(hint){
+      hint.classList.toggle('hidden',!(t==='text'||t==='note'));
+      if(t==='text') hint.textContent=M.t('wb_hint_text');
+      if(t==='note') hint.textContent=M.t('wb_hint_note');
+    }
+  },
+  styleStr(){ return (M.WB.bold?'bold':'')+(M.WB.italic?'italic':'')||'regular'; },
+  /* editor grows with its content — never a tiny trapped box */
+  _fitTa(ta){
+    ta.style.height='auto';
+    const maxH=Math.round((M.$('#boardWrap').clientHeight||400)*0.5);
+    ta.style.height=Math.max(66,Math.min(ta.scrollHeight+8,maxH))+'px';
+  },
+  /* controls exist only when something can use them — no dead stroke slider over text, no type tools over shapes */
+  syncCtx(){
+    const o=M.WB.sel&&M.WB.objs.get(M.WB.sel);
+    const isTextSel=!!o&&(o.type==='text'||o.type==='note');
+    const isStrokeSel=!!o&&!isTextSel;
+    const showStroke=['pen','hi','line','arrow','rect','ellipse'].includes(M.WB.tool)||isStrokeSel;
+    const showText=['text','note'].includes(M.WB.tool)||isTextSel;
+    M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
+    M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
+    const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
+    M.WB.syncChip();
+  },
+  renderPal(){
+    const pal=M.$('#wbPalette'); pal.innerHTML='';
+    ['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
+     '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'].forEach(c=>{
+      const b=M.el('button'); b.style.background=c; b.title=c;
+      b.classList.toggle('on',M.WB.color.toLowerCase()===c);
+      b.onclick=()=>M.WB.setColor(c);
+      pal.appendChild(b);
+    });
+    const row=M.el('div','wb-pal-row');
+    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(M.WB.color)?M.WB.color:'#111111';
+    ci.oninput=()=>M.WB.setColor(ci.value);
+    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=M.t('wb_custom');
+    row.append(ci,lbl); pal.appendChild(row);
+  },
+  setColor(c){
+    M.WB.color=c; M.WB._colorTouched=true;
+    M.$('#wbColorDot').style.background=c;
+    if(M.WB.selSet.size && M.WB.canEdit()){
+      M.WB.selSet.forEach(id=>{
+        const o=M.WB.objs.get(id); if(!o) return;
+        if(o.type==='note') o.bg=c; else o.color=c;
+        M.WB.send({t:'up',o});
+      });
+      M.WB.dirty=true;
+    }
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal();
+  },
+  _fontApply(){
+    if(M.WB.selSet.size && M.WB.canEdit()){
+      M.WB.selSet.forEach(id=>{
+        const o=M.WB.objs.get(id);
+        if(o && (o.type==='text'||o.type==='note')){
+          o.size=M.WB.font;
+          if(o.type==='note'){ o.h=Math.max(125,String(o.text||'').split('\n').length*o.size*1.5+34); }
+          M.WB.send({t:'up',o});
+        }
+      });
+      M.WB.dirty=true;
+    }
   },
   canEdit(){ return M.Perms.can('wbEdit').ok && M.State.wb.open; },
   pDown(e){
@@ -3381,6 +3660,7 @@ M.WB = {
     const [wx,wy]=M.WB.s2w(pt.x,pt.y);
     const edit=M.WB.canEdit();
     const tool = (!edit && M.WB.tool!=='pan' && M.WB.tool!=='select') ? 'pan' : M.WB.tool;
+    if(e.button===2 && tool==='select' && M.WB.hit(wx,wy)) return;   /* right-click on an object → the contextmenu event opens its menu */
     if(e.button===1 || tool==='pan' || (tool==='select' && e.button===2)){ M.WB.drag={mode:'pan',sx:pt.x,sy:pt.y,view:{...M.WB.view}}; return; }
     if(!edit){ M.WB.drag={mode:'pan',sx:pt.x,sy:pt.y,view:{...M.WB.view}}; return; }
     switch(tool){
@@ -3388,8 +3668,29 @@ M.WB = {
         const h=M.WB.handleAt(wx,wy);
         if(h>=0){ const o=M.WB.objs.get(M.WB.sel); M.WB.drag={mode:'resize',h,o:JSON.parse(JSON.stringify(o)),bbox:M.WB.bbox(o)}; return; }
         const o=M.WB.hit(wx,wy);
-        M.WB.sel=o?o.id:null; M.WB.dirty=true;
-        if(o) M.WB.drag={mode:'move',o:JSON.parse(JSON.stringify(o)),wx,wy,moved:false};
+        if(o){
+          if(!M.WB.selSet.has(o.id)) M.WB.selSet=new Set([o.id]);   /* clicking a new object replaces the set; clicking inside a group keeps it */
+          M.WB.sel=o.id; M.WB.dirty=true;
+          const clones=new Map();
+          M.WB.selSet.forEach(id=>{ const oo=M.WB.objs.get(id); if(oo) clones.set(id,JSON.parse(JSON.stringify(oo))); });
+          M.WB.drag={mode:'move',os:clones,wx,wy,moved:false};
+          if(e.pointerType!=='mouse'){   /* touch: hold ~half a second on an object opens its menu */
+            clearTimeout(M.WB._lpT);
+            M.WB._lp={x:pt.x,y:pt.y};
+            M.WB._lpT=setTimeout(()=>{ M.WB._lp=null; M.WB.drag=null; M.WB.openMenu(pt.x,pt.y); },520);
+          }
+        } else {
+          /* empty space → rubber-band capture (Shift adds to the current selection) */
+          const base=e.shiftKey? new Set(M.WB.selSet) : new Set();
+          M.WB.sel=null; M.WB.selSet=new Set(base);
+          M.WB.drag={mode:'marquee',sx:wx,sy:wy,cx:wx,cy:wy,base};
+          M.WB.dirty=true;
+          if(e.pointerType!=='mouse' && M.WB._clip?.length){   /* touch: holding empty canvas offers Paste here */
+            clearTimeout(M.WB._lpT);
+            M.WB._lp={x:pt.x,y:pt.y};
+            M.WB._lpT=setTimeout(()=>{ M.WB._lp=null; M.WB.drag=null; M.WB.openMenu(pt.x,pt.y); },520);
+          }
+        }
         break;
       }
       case 'pen': case 'hi':
@@ -3410,6 +3711,7 @@ M.WB = {
       case 'note': {
         const o={id:M.uid(9), type:'note', x:wx-90,y:wy-60,w:190,h:125, text:'', bg:M.WB.color, by:M.State.self.id};
         M.WB.send({t:'up',o}); M.WB.applyUp(o); M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+        M.WB._flash={ids:new Set([o.id]),t:Date.now()};
         M.WB.openText(o.x+10,o.y+10,o);
         break;
       }
@@ -3420,6 +3722,10 @@ M.WB = {
     const pt={x:e.clientX-r.left, y:e.clientY-r.top};
     if(M.WB.pointers.has(e.pointerId)) M.WB.pointers.set(e.pointerId,{...pt,id:e.pointerId});
     const [wx,wy]=M.WB.s2w(pt.x,pt.y);
+    if(M.WB._lp){   /* a real drag cancels the pending long-press */
+      const ddx=pt.x-M.WB._lp.x, ddy=pt.y-M.WB._lp.y;
+      if(ddx*ddx+ddy*ddy>100){ clearTimeout(M.WB._lpT); M.WB._lp=null; }
+    }
     if(M.State.wb.open) M.WB._curSend({x:Math.round(wx),y:Math.round(wy)});
     if(M.WB.pointers.size===2 && M.WB.pinch){
       const d=M.WB.pinchDist(), mid=M.WB.pinchMid();
@@ -3434,14 +3740,16 @@ M.WB = {
     if(d?.mode==='pan'){ M.WB.view.x=d.view.x+(pt.x-d.sx); M.WB.view.y=d.view.y+(pt.y-d.sy); M.WB.dirty=true; return; }
     if(d?.mode==='erase'){ const o=M.WB.hit(wx,wy); if(o) M.WB.eraseObj(o.id); return; }
     if(d?.mode==='move' && M.WB.sel){
-      const o=M.WB.objs.get(M.WB.sel); if(!o) return;
       const dx=wx-d.wx, dy=wy-d.wy; if(Math.abs(dx)+Math.abs(dy)>0.01) d.moved=true;
-      const src=d.o;
-      if(src.type==='pen'||src.type==='hi') o.pts=src.pts.map(p=>[p[0]+dx,p[1]+dy]);
-      else if(src.type==='line'||src.type==='arrow'){ o.x1=src.x1+dx;o.y1=src.y1+dy;o.x2=src.x2+dx;o.y2=src.y2+dy; }
-      else { o.x=src.x+dx; o.y=src.y+dy; }
-      M.WB.dirty=true; M.WB._liveUpd(o); return;
+      d.os.forEach((src,id)=>{
+        const o=M.WB.objs.get(id); if(!o) return;
+        if(src.type==='pen'||src.type==='hi') o.pts=src.pts.map(p=>[p[0]+dx,p[1]+dy]);
+        else if(src.type==='line'||src.type==='arrow'){ o.x1=src.x1+dx;o.y1=src.y1+dy;o.x2=src.x2+dx;o.y2=src.y2+dy; }
+        else { o.x=src.x+dx; o.y=src.y+dy; }
+      });
+      M.WB.dirty=true; M.WB._liveUpdSet(); return;
     }
+    if(d?.mode==='marquee'){ d.cx=wx; d.cy=wy; M.WB.dirty=true; return; }
     if(d?.mode==='resize' && M.WB.sel){
       const o=M.WB.objs.get(M.WB.sel); if(!o) return;
       const [bx,by,bw,bh]=d.bbox; const src=d.o;
@@ -3470,12 +3778,48 @@ M.WB = {
   pUp(e){
     M.WB.pointers.delete(e.pointerId);
     if(M.WB.pointers.size<2) M.WB.pinch=null;
-    if(M.WB.drag?.mode==='move' && !M.WB.drag.moved){ /* just a select click */ }
-    if(M.WB.drag?.mode==='move'||M.WB.drag?.mode==='resize'){
+    clearTimeout(M.WB._lpT); M.WB._lp=null;
+    const d2=M.WB.drag;
+    const wasTap=d2?.mode==='move' && !d2.moved;
+    if(d2?.mode==='move' && M.WB.selSet.size>0){
+      const undoU=[],undoR=[];
+      d2.os.forEach((src,id)=>{
+        const o=M.WB.objs.get(id); if(!o) return;
+        M.WB.send({t:'up',o});
+        undoU.push({t:'up',o:src}); undoR.push({t:'up',o:JSON.parse(JSON.stringify(o))});
+      });
+      if(undoU.length) M.WB.pushUndo(undoU,undoR);
+    } else if(d2?.mode==='resize' && M.WB.sel){
       const o=M.WB.objs.get(M.WB.sel);
-      if(o){ M.WB.send({t:'up',o}); M.WB.pushUndo([{t:'up',o:M.WB.drag.o}],[{t:'up',o:JSON.parse(JSON.stringify(o))}]); }
+      if(o){ M.WB.send({t:'up',o}); M.WB.pushUndo([{t:'up',o:d2.o}],[{t:'up',o:JSON.parse(JSON.stringify(o))}]); }
+    } else if(d2?.mode==='marquee'){
+      /* rubber-band: capture every object the rectangle touches */
+      const x=Math.min(d2.sx,d2.cx), y=Math.min(d2.sy,d2.cy), w=Math.abs(d2.cx-d2.sx), h=Math.abs(d2.cy-d2.sy);
+      if(w>4/M.WB.view.s || h>4/M.WB.view.s){
+        const hit=[];
+        M.WB.order.forEach(id=>{
+          const o=M.WB.objs.get(id); if(!o) return;
+          const [bx,by,bw,bh]=M.WB.bbox(o);
+          if(bx<x+w && bx+bw>x && by<y+h && by+bh>y) hit.push(id);
+        });
+        M.WB.selSet=new Set([...(d2.base||[]),...hit]);
+        M.WB.sel=hit[hit.length-1]||null;
+        if(hit.length>1) M.log('info','board: '+hit.length+' objects selected');
+      }
+      M.WB.dirty=true;
     }
     M.WB.drag=null;
+    /* tap-tap opens the editor on text/notes — dblclick is unreliable on touch */
+    if(wasTap && M.WB.sel && M.WB.canEdit()){
+      const o=M.WB.objs.get(M.WB.sel);
+      if(o && (o.type==='text'||o.type==='note')){
+        const now=Date.now();
+        if(M.WB._tap && M.WB._tap.id===o.id && now-M.WB._tap.t<500){
+          M.WB._tap=null;
+          M.WB.openText(o.type==='note'?o.x+10:o.x, o.type==='note'?o.y+10:o.y, o);
+        } else M.WB._tap={id:o.id,t:now};
+      }
+    }
     if(M.WB.drawing){
       const o=M.WB.drawing; M.WB.drawing=null;
       if((o.type==='rect'||o.type==='ellipse') && Math.abs(o.w)<4 && Math.abs(o.h)<4){ M.WB.localDel(o.id); }
@@ -3483,6 +3827,8 @@ M.WB = {
         if(o.w<0){o.x+=o.w;o.w=-o.w} if(o.h<0){o.y+=o.h;o.h=-o.h}
         M.WB.send({t:'up',o});
         M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o:JSON.parse(JSON.stringify(o))}]);
+        /* a finished drawing is immediately selected — Ctrl+C "just works" without a tool switch */
+        M.WB.selSet=new Set([o.id]); M.WB.sel=o.id;
         M.WB.dirty=true;
       }
     }
@@ -3495,54 +3841,262 @@ M.WB = {
     const r=M.WB.cv.getBoundingClientRect();
     const [wx,wy]=M.WB.s2w(e.clientX-r.left,e.clientY-r.top);
     const o=M.WB.hit(wx,wy);
-    if(o && (o.type==='text'||o.type==='note')) M.WB.openText(o.type==='text'?o.x:o.x+10, o.type==='text'?o.y:o.y+10, o);
+    if(o && (o.type==='text'||o.type==='note')){ M.WB.openText(o.type==='text'?o.x:o.x+10, o.type==='text'?o.y:o.y+10, o); return; }
+    /* empty-canvas double-click = paste the clipboard right here — the most direct gesture possible */
+    if(!o && (M.WB._clip?.length || M.Store.get('clip')?.length)) M.WB.paste({x:wx,y:wy});
   },
 
   /* ---------- text editing (native textarea = correct Arabic/RTL) ---------- */
   openText(wx,wy,obj){
-    const ta=M.$('#wbText');
-    M.WB._textTarget=obj;
-    const [sx,sy]=M.WB.w2s(wx,wy);
-    ta.style.left=sx+'px'; ta.style.top=sy+'px';
-    ta.style.fontSize=( (obj?.type==='note'? 15 : (obj?.size||M.WB.font)) * M.WB.view.s )+'px';
-    ta.style.color=obj? (obj.type==='note'?'#241d05':obj.color) : M.WB.color;
-    ta.style.background=obj?.type==='note'?'transparent':'rgba(15,25,30,.95)';
+    const ta=M.$('#wbText'); const wrap=M.$('#wbTextWrap');
+    M.WB._textTarget=obj||null;
+    let [sx,sy]=M.WB.w2s(wx,wy);
+    const bw=M.$('#boardWrap').clientWidth, bh=M.$('#boardWrap').clientHeight;
+    sx=M.clamp(sx,8,Math.max(8,bw-240));
+    sy=M.clamp(sy,8,Math.max(8,Math.min(bh*0.6,bh-160)));   /* stays clear of the mobile keyboard zone */
+    wrap.style.left=sx+'px'; wrap.style.top=sy+'px';
+    ta.style.fontSize=((obj?.size||(obj?.type==='note'?15:M.WB.font))*M.WB.view.s)+'px';   /* exact WYSIWYG size */
+    ta.style.color=obj?(obj.type==='note'?'#241d05':obj.color):M.WB.color;
+    ta.style.borderColor=obj?.type==='note'?'rgba(0,0,0,.4)':'var(--amber)';
+    ta.style.background=obj?.type==='note'?'rgba(255,255,255,.88)':'var(--bg1)';
+    const st0=obj?.style||M.WB.styleStr();
+    ta.style.fontWeight=st0.includes('bold')?'700':'400';
+    ta.style.fontStyle=st0.includes('italic')?'italic':'normal';
+    ta.style.textAlign=obj?.align||M.WB.align||'';   /* dir="auto" keeps EN→LTR / AR→RTL expansion natural */
     ta.value=obj?.text||'';
-    ta.classList.remove('hidden'); ta.focus();
+    M.WB._fitTa(ta);
+    wrap.classList.remove('hidden');
+    setTimeout(()=>{ try{ ta.focus(); }catch(e){} },30);   /* after layout — mobile keyboards attach reliably */
     ta.onkeydown=e=>{ e.stopPropagation();
       if(e.key==='Escape'){ e.preventDefault(); ta.value=''; M.WB.commitText(); }
-      else if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); M.WB.commitText(); } /* Enter commits · Shift+Enter = newline */
+      else if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); M.WB.commitText(); } /* Enter places · Shift+Enter = newline */
     };
+    ta.oninput=()=>M.WB._fitTa(ta);
     ta.onblur=()=>M.WB.commitText();
   },
   commitText(){
-    const ta=M.$('#wbText'); if(ta.classList.contains('hidden')) return;
-    const obj=M.WB._textTarget; const val=ta.value; ta.classList.add('hidden'); M.WB._textTarget=null;
+    const wrap=M.$('#wbTextWrap'); const ta=M.$('#wbText');
+    if(wrap.classList.contains('hidden')) return;
+    const obj=M.WB._textTarget; const val=ta.value;
+    wrap.classList.add('hidden'); M.WB._textTarget=null;
     if(obj){
-      if(!val.trim()){ M.WB.eraseObj(obj.id); return; }
-      const prev=JSON.parse(JSON.stringify(obj));
-      obj.text=val;
-      if(obj.type==='note'){ const lines=val.split('\n').length; obj.h=Math.max(125, lines*15*1.5+30); }
-      M.WB.send({t:'up',o:obj}); M.WB.pushUndo([{t:'up',o:prev}],[{t:'up',o:JSON.parse(JSON.stringify(obj))}]);
+      if(!val.trim()){ M.WB.eraseObj(obj.id); }
+      else {
+        const prev=JSON.parse(JSON.stringify(obj));
+        obj.text=val;
+        if(obj.type==='text'){ obj.w=Math.max(40,ta.clientWidth-22)/M.WB.view.s; }          /* keep alignment faithful to the editor box */
+        if(obj.type==='note'){ const lines=val.split('\n').length; obj.h=Math.max(125,lines*(obj.size||15)*1.5+34); }
+        M.WB.send({t:'up',o:obj}); M.WB.pushUndo([{t:'up',o:prev}],[{t:'up',o:JSON.parse(JSON.stringify(obj))}]);
+        M.WB._flash={ids:new Set([obj.id]),t:Date.now()};
+      }
     } else if(val.trim()){
-      const o={id:M.uid(9), type:'text', x:parseFloat(ta.style.left)/1, text:val, size:M.WB.font, color:M.WB.color, align:M.WB.align, by:M.State.self.id};
-      const [wx,wy]=M.WB.s2w(parseFloat(ta.style.left),parseFloat(ta.style.top));
-      o.x=wx; o.y=wy;
+      /* +13/+10 screen px = border+padding of the editor → text lands exactly where it was typed */
+      const [wx,wy]=M.WB.s2w(parseFloat(wrap.style.left)+13, parseFloat(wrap.style.top)+10);
+      const o={id:M.uid(9),type:'text',x:wx,y:wy,text:val,size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),by:M.State.self.id,
+               w:Math.max(40,ta.clientWidth-22)/M.WB.view.s};
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
-      M.WB.setTool('select'); M.WB.sel=o.id;  /* new text appears selected, ready to move/resize */
+      M.WB._flash={ids:new Set([o.id]),t:Date.now()};
+      M.WB.setTool('select'); M.WB.sel=o.id; M.WB.selSet=new Set([o.id]);   /* lands selected, ready to move/resize */
     }
     M.WB.dirty=true;
   },
 
   /* ---------- ops / sync ---------- */
   send(op){ if(M.State.wb.open) M.Net.sendEnc('wb',op); M.WB.dirty=true; },
-  localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.dirty=true; },
+  localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; },
   applyUp(o){
     const existed=M.WB.objs.has(o.id);
     M.WB.objs.set(o.id,o);
-    if(!existed) M.WB.order.push(o.id);
+    if(!existed){ M.WB.order.push(o.id); M.WB.hud(); }
     M.WB.rev++; M.WB.dirty=true;
+  },
+  /* ---------------- object context menu ---------------- */
+  openMenu(x,y){
+    const hasSel=M.WB.selSet.size>0;
+    const hasClip=!!M.WB._clip?.length;
+    if(!hasSel && !hasClip) return;                 /* nothing to offer */
+    M.WB._menuPos=M.WB.s2w(x,y);                    /* paste anchor = where the user asked */
+    const m=M.$('#wbMenu'); const w=M.$('#boardWrap');
+    const seps=m.querySelectorAll('.wb-menu-sep');
+    const pb=m.querySelector('[data-act="paste"]');
+    pb.style.display=hasClip?'':'none';
+    if(seps[0]) seps[0].style.display=(hasClip&&hasSel)?'':'none';
+    m.querySelectorAll('[data-act]:not([data-act="paste"])').forEach(b=>b.style.display=hasSel?'':'none');
+    if(seps[1]) seps[1].style.display=hasSel?'':'none';
+    m.classList.remove('hidden');
+    const mw=m.offsetWidth||184, mh=m.offsetHeight||216;
+    m.style.left=M.clamp(x,6,Math.max(6,w.clientWidth-mw-6))+'px';
+    m.style.top=M.clamp(y,6,Math.max(6,w.clientHeight-mh-6))+'px';
+  },
+  closeMenu(){ M.$('#wbMenu')?.classList.add('hidden'); },
+  menuAct(act){
+    M.WB.closeMenu();
+    if(act==='paste'){ M.WB.paste(M.WB._menuPos); return; }   /* paste needs no selection — and lands at the menu's spot */
+    if(!M.WB.canEdit()||M.WB.selSet.size===0) return;
+    switch(act){
+      case 'copy': M.WB.copySel(); break;
+      case 'dup': M.WB.duplicateSel(); break;
+      case 'front': {
+        const sel=M.WB.order.filter(id=>M.WB.selSet.has(id));
+        const rest=M.WB.order.filter(id=>!M.WB.selSet.has(id));
+        M.WB.order=[...rest,...sel];
+        M.WB.sendOrder(); break;
+      }
+      case 'back': {
+        const sel=M.WB.order.filter(id=>M.WB.selSet.has(id));
+        const rest=M.WB.order.filter(id=>!M.WB.selSet.has(id));
+        M.WB.order=[...sel,...rest];
+        M.WB.sendOrder(); break;
+      }
+      case 'del': M.WB.deleteSel(); break;
+    }
+    M.WB.dirty=true;
+  },
+  sendOrder(){ if(M.State.wb.open) M.Net.sendEnc('wb',{t:'order',ids:M.WB.order}); },
+  copySel(){
+    /* no explicit selection? copy what you touched last — the click is optional now */
+    if(!M.WB.selSet.size && M.WB.order.length){
+      const last=M.WB.order[M.WB.order.length-1];
+      M.WB.selSet=new Set([last]); M.WB.sel=last;
+      M.WB._flash={ids:new Set([last]),t:Date.now()};
+      M.WB.hud(M.t('wb_copy_latest'));
+      M.WB.dirty=true;
+    }
+    const clips=[];
+    M.WB.selSet.forEach(id=>{ const o=M.WB.objs.get(id); if(o){ const c=JSON.parse(JSON.stringify(o)); delete c._img; clips.push(c); } });
+    if(!clips.length){
+      M.WB.banner(M.t('wb_copy_nothing'),'warn');
+      M.WB.hud(M.t('wb_copy_nothing'));
+      M.WB._flash={ids:new Set(M.WB.order.slice(-3)),t:Date.now()};   /* pulse the most recent objects so the user sees what they could select */
+      M.WB.dirty=true;
+      M.log('warn','copy: nothing selected');
+      return;
+    }
+    M.WB._clip=clips; M.WB._pasteN=0;
+    M.Store.set('clip',clips);                                    /* survives refresh */
+    try{ navigator.clipboard?.writeText?.(JSON.stringify({mjwb:1,objs:clips})); }catch(e){}   /* best-effort system clipboard bridge */
+    M.WB.syncChip();
+    M.WB.hud(M.t('wb_copied_short',{n:clips.length}));
+    M.WB.dirty=true;
+    M.log('info','copied '+clips.length+' object(s) to clipboard');
+    M.toast('ok',M.t('tab_board'),M.t('wb_copied',{n:clips.length}));
+  },
+  syncChip(){
+    const chip=M.$('#wbClipChip'); if(chip){
+      const n=M.WB._clip?.length||0;
+      chip.textContent='📋 '+(n||'–');
+      chip.classList.toggle('on',n>0);
+      chip.title=n?M.t('wb_clip_have',{n}):M.t('wb_clip_empty');
+    }
+    const pb=M.$('#wbPaste'); if(pb) pb.classList.toggle('dim',!(M.WB._clip?.length));   /* dimmed, never dead — a click always explains itself */
+  },
+  restoreClip(){
+    const saved=M.Store.get('clip');
+    if(Array.isArray(saved) && saved.length){ M.WB._clip=saved; M.log('info','clipboard restored ('+saved.length+' objects)'); }
+    M.WB.syncChip();
+  },
+  hud(msg){
+    const c=M.$('#wbHudCount'); if(c) c.textContent=M.WB.objs.size;
+    const hm=M.$('#wbHudMsg');
+    if(hm && msg){ hm.textContent='· '+msg; hm.classList.add('show'); clearTimeout(M.WB._hmT); M.WB._hmT=setTimeout(()=>hm.classList.remove('show'),2600); }
+  },
+  /* zoom & center so a given group fills ~half the viewport — never a microscopic speck */
+  focusGroup(ids){
+    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+    ids.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
+    if(!isFinite(x1)) return;
+    const cv=M.WB.cv, cw=cv.clientWidth||600, ch=cv.clientHeight||400;
+    const gw=Math.max(40,x2-x1), gh=Math.max(40,y2-y1);
+    const s=M.clamp(Math.min((cw*0.5)/gw,(ch*0.5)/gh),0.5,1.6);
+    M.WB.view.s=s;
+    M.WB.view.x=cw/2-((x1+x2)/2)*s;
+    M.WB.view.y=ch/2-((y1+y2)/2)*s;
+    M.WB.zoomLbl();
+  },
+  fitAll(){
+    if(M.WB.objs.size===0){ M.WB.view={x:80,y:60,s:1}; M.WB.zoomLbl(); M.WB.dirty=true; return; }
+    M.WB.focusGroup([...M.WB.objs.keys()]);
+    M.WB.dirty=true;
+  },
+  /* on-canvas status banner — feedback that cannot be missed or scrolled away */
+  banner(msg,kind){
+    const b=M.$('#wbBanner'); if(!b) return;
+    b.textContent=msg;
+    b.classList.remove('hidden','warn','err');
+    if(kind) b.classList.add(kind);
+    clearTimeout(M.WB._bnT);
+    M.WB._bnT=setTimeout(()=>b.classList.add('hidden'),2600);
+  },
+  async paste(at){
+    try{
+      if(!M.WB.canEdit()){ M.WB.banner(M.t('perm_denied'),'err'); return; }
+      /* gather material from every source: memory → local store → system clipboard */
+      let clip=M.WB._clip;
+      if(!clip?.length){ try{ const saved=M.Store.get('clip'); if(Array.isArray(saved)&&saved.length) clip=saved; }catch(e){} }
+      if(!clip?.length){
+        try{
+          const j=JSON.parse(await navigator.clipboard.readText());
+          if(j && j.mjwb===1 && Array.isArray(j.objs) && j.objs.length) clip=j.objs;
+        }catch(e){}
+      }
+      if(!clip?.length){
+        M.WB.banner(M.t('wb_paste_empty'),'warn');
+        M.log('warn','paste: clipboard empty (memory + storage + system)');
+        return;
+      }
+      M.WB._clip=clip; try{ M.Store.set('clip',clip); }catch(e){} M.WB.syncChip();
+      if(!at){ const cv=M.WB.cv; at=M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2); }
+      M.WB._pasteN=(M.WB._pasteN||0)+1;
+      const cascade=(M.WB._pasteN-1)*16;   /* repeated pastes step aside instead of stacking */
+      let mx=Infinity,my=Infinity;
+      clip.forEach(o=>{ try{ const [bx,by]=M.WB.bbox(o); mx=Math.min(mx,bx); my=Math.min(my,by); }catch(e){} });
+      let ox=at.x+cascade, oy=at.y+cascade;
+      if(isFinite(mx)){ ox-=mx; oy-=my; }
+      /* create each object independently — one bad item can never sink the paste */
+      const fresh=new Set(),u=[],r=[];
+      clip.forEach(src=>{
+        try{
+          const o=JSON.parse(JSON.stringify(src)); o.id=M.uid(9); o.by=M.State.self.id; delete o._img;
+          if(o.type==='pen'||o.type==='hi') o.pts=(o.pts||[]).map(p=>[p[0]+ox,p[1]+oy]);
+          else if(o.type==='line'||o.type==='arrow'){o.x1+=ox;o.y1+=oy;o.x2+=ox;o.y2+=oy;}
+          else {o.x=(o.x||0)+ox;o.y=(o.y||0)+oy;}
+          M.WB.objs.set(o.id,o);
+          if(!M.WB.order.includes(o.id)) M.WB.order.push(o.id);
+          try{ M.WB.send({t:'up',o}); }catch(e){}
+          u.push({t:'del',id:o.id}); r.push({t:'up',o});
+          fresh.add(o.id);
+        }catch(e){ M.log('err','paste: object failed — '+e.message); }
+      });
+      if(fresh.size===0){ M.WB.banner(M.t('wb_paste_empty'),'err'); return; }
+      M.WB.rev++;
+      M.WB.setTool('select');
+      M.WB.pushUndo(u,r);
+      M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
+      M.WB._flash={ids:fresh,t:Date.now()};
+      /* the camera zooms to a comfortable level AND centers on the pasted group — never a speck, never off-screen */
+      M.WB.focusGroup(fresh);
+      /* a plain HTML marker at the landing spot — proof that survives any canvas repaint bug */
+      let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
+      fresh.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); gx1=Math.min(gx1,x);gy1=Math.min(gy1,y);gx2=Math.max(gx2,x+w);gy2=Math.max(gy2,y+h); });
+      if(isFinite(gx1)){
+        const [sx,sy]=M.WB.w2s((gx1+gx2)/2,(gy1+gy2)/2);
+        const mk=M.el('div','wb-drop'); mk.textContent='✓ '+M.t('wb_pasted',{n:fresh.size});
+        mk.style.left=sx+'px'; mk.style.top=sy+'px';
+        M.$('#boardWrap').appendChild(mk);
+        setTimeout(()=>mk.remove(),2800);
+        M.WB.cv.style.opacity='0.998'; requestAnimationFrame(()=>{ M.WB.cv.style.opacity=''; });  /* force a composite pass */
+        M.log('info','paste marker at screen ('+Math.round(sx)+','+Math.round(sy)+') · canvas '+M.WB.cv.width+'×'+M.WB.cv.height+' / css '+M.WB.cv.clientWidth+'×'+M.WB.cv.clientHeight);
+      }
+      M.WB.dirty=true;
+      try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
+      M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
+      M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
+      M.log('info','pasted '+fresh.size+' object(s); view focused on group');
+    }catch(err){
+      M.log('err','paste crashed: '+(err.message||err));
+      M.WB.banner('Paste error: '+(err.message||err),'err');
+    }
   },
   eraseObj(id){
     const o=M.WB.objs.get(id); if(!o) return;
@@ -3559,6 +4113,14 @@ M.WB = {
     }
     if(d.t==='del'){ if(!M.WB.peerCanEdit(from)) return; M.WB.localDel(d.id); return; }
     if(d.t==='clear'){ M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.undo=[]; M.WB.redo=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_cleared')); return; }
+    if(d.t==='order'){
+      if(!M.WB.peerCanEdit(from)) return;
+      const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
+      const missing=M.WB.order.filter(id=>!valid.includes(id));
+      M.WB.order=[...valid,...missing];
+      M.WB.dirty=true;
+      return;
+    }
     if(d.t==='req'){
       if(M.Admin.priv){ setTimeout(()=>M.WB.sendState(from),60); }
       else if(M.WB.objs.size>0){ setTimeout(()=>{ if(Math.random()<0.5) M.WB.sendState(from); },700+Math.random()*900); }
@@ -3568,6 +4130,7 @@ M.WB = {
       if(d.rev!=null && d.rev<=M.WB.rev && !d.force && M.WB.objs.size>0) return;
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
+      M.WB.hud();
       M.WB.rev=d.rev||M.WB.rev; M.WB.dirty=true;
       M.log('info','board state synced ('+M.WB.objs.size+' objects)');
       return;
@@ -3597,7 +4160,7 @@ M.WB = {
       case 'images': W.images=!!b.on; break;
       case 'export': W.export=!!b.on; break;
       case 'editors': W.editors=b.map||{}; break;
-      case 'clear': if(M.Admin.priv) M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.undo=[]; M.WB.redo=[]; M.WB.dirty=true; M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
+      case 'clear': if(M.Admin.priv) M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.undo=[]; M.WB.redo=[]; M.WB.hud(); M.WB.dirty=true; M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
       case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
     }
@@ -3653,19 +4216,34 @@ M.WB = {
     M.WB.undo.push(e);
   },
   deleteSel(){
-    if(!M.WB.sel||!M.WB.canEdit()) return;
-    M.WB.eraseObj(M.WB.sel);
+    if(!M.WB.canEdit()||M.WB.selSet.size===0) return;
+    const u=[],r=[];
+    [...M.WB.selSet].forEach(id=>{
+      const o=M.WB.objs.get(id); if(!o) return;
+      u.push({t:'up',o:JSON.parse(JSON.stringify(o))}); r.push({t:'del',id});
+      M.WB.send({t:'del',id}); M.WB.localDel(id);
+    });
+    if(u.length) M.WB.pushUndo(u,r);
   },
   duplicateSel(){
-    if(!M.WB.sel||!M.WB.canEdit()) return;
-    const src=M.WB.objs.get(M.WB.sel); if(!src) return;
-    const o=JSON.parse(JSON.stringify(src)); o.id=M.uid(9); o.by=M.State.self.id;
-    if(o.type==='pen'||o.type==='hi') o.pts=o.pts.map(p=>[p[0]+18,p[1]+18]);
-    else if(o.type==='line'||o.type==='arrow'){o.x1+=18;o.y1+=18;o.x2+=18;o.y2+=18;}
-    else {o.x+=18;o.y+=18;}
-    M.WB.send({t:'up',o}); M.WB.applyUp(o);
-    M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
-    M.WB.sel=o.id; M.WB.dirty=true;
+    if(!M.WB.canEdit()||M.WB.selSet.size===0) return;
+    const u=[],r=[],fresh=new Set();
+    [...M.WB.selSet].forEach(id=>{
+      const src=M.WB.objs.get(id); if(!src) return;
+      const o=JSON.parse(JSON.stringify(src)); o.id=M.uid(9); o.by=M.State.self.id; delete o._img;
+      if(o.type==='pen'||o.type==='hi') o.pts=o.pts.map(p=>[p[0]+18,p[1]+18]);
+      else if(o.type==='line'||o.type==='arrow'){o.x1+=18;o.y1+=18;o.x2+=18;o.y2+=18;}
+      else {o.x+=18;o.y+=18;}
+      M.WB.send({t:'up',o}); M.WB.applyUp(o);
+      u.push({t:'del',id:o.id}); r.push({t:'up',o});
+      fresh.add(o.id);
+    });
+    if(u.length) M.WB.pushUndo(u,r);
+    M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
+    M.WB._flash={ids:fresh,t:Date.now()};
+    M.WB.focusGroup(fresh);          /* zoom to the clones so duplication is always visibly confirmed */
+    M.WB.hud(M.t('wb_duplicated',{n:fresh.size}));
+    M.WB.dirty=true;
   },
   pickImage(){
     const inp=M.el('input'); inp.type='file'; inp.accept='image/*';
@@ -3708,31 +4286,62 @@ M.WB = {
   /* ---------- drawing ---------- */
   draw(){
     const ctx=M.WB.ctx, cv=M.WB.cv; if(!ctx) return;
-    const dpr=M.WB.dpr||1; const v=M.WB.view;
+    /* ---- canvas self-heal ----
+       if the backing store ever drifts from the element's real size (resize, zoom,
+       hidden tab, webview reflow) new drawing lands in invisible bitmap space.
+       Verify every frame; repaint in CSS pixels only. */
+    const dpr=Math.min(2.5,devicePixelRatio||1);
+    const cw=cv.parentElement?.clientWidth||cv.clientWidth||600;
+    const ch=cv.parentElement?.clientHeight||cv.clientHeight||400;
+    const bw=Math.max(1,Math.round(cw*dpr)), bh=Math.max(1,Math.round(ch*dpr));
+    if(cv.width!==bw||cv.height!==bh){ cv.width=bw; cv.height=bh; }
+    M.WB.dpr=dpr;
+    const v=M.WB.view;
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,cw,ch);
     ctx.translate(v.x,v.y); ctx.scale(v.s,v.s);
     /* grid (adaptive density) */
     const [wx0,wy0]=M.WB.s2w(0,0);
-    const [wx1,wy1]=M.WB.s2w(cv.clientWidth,cv.clientHeight);
+    const [wx1,wy1]=M.WB.s2w(cw,ch);
     let step=40; while(((wx1-wx0)/step)*((wy1-wy0)/step)>3600) step*=2;
     ctx.fillStyle=M.WB._grid||'rgba(140,166,174,.13)';
     const gx0=Math.floor(wx0/step)*step, gy0=Math.floor(wy0/step)*step;
     for(let gx=gx0; gx<wx1; gx+=step) for(let gy=gy0; gy<wy1; gy+=step) ctx.fillRect(gx-1,gy-1,2,2);
     /* objects */
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o) M.WB.paintObj(ctx,o,v.s); });
-    /* selection */
-    if(M.WB.sel){
-      const o=M.WB.objs.get(M.WB.sel);
-      if(o){
-        const [x,y,w,h]=M.WB.bbox(o);
-        ctx.strokeStyle='#F5A83C'; ctx.lineWidth=1.4/v.s; ctx.setLineDash([6/v.s,4/v.s]);
-        ctx.strokeRect(x-4/v.s,y-4/v.s,w+8/v.s,h+8/v.s);
-        ctx.setLineDash([]);
+    /* selection outlines — every captured object wears one */
+    M.WB.selSet.forEach(id=>{
+      const o=M.WB.objs.get(id); if(!o) return;
+      const [x,y,w,h]=M.WB.bbox(o);
+      ctx.strokeStyle='#F5A83C'; ctx.lineWidth=1.4/v.s; ctx.setLineDash([6/v.s,4/v.s]);
+      ctx.strokeRect(x-4/v.s,y-4/v.s,w+8/v.s,h+8/v.s);
+      ctx.setLineDash([]);
+      if(M.WB.selSet.size===1){
         ctx.fillStyle='#F5A83C';
         const hs=5/v.s;
         [[x,y],[x+w,y],[x+w,y+h],[x,y+h]].forEach(([hx,hy])=>ctx.fillRect(hx-hs,hy-hs,hs*2,hs*2));
       }
+    });
+    /* live rubber-band */
+    if(M.WB.drag?.mode==='marquee'){
+      const d=M.WB.drag;
+      const x=Math.min(d.sx,d.cx), y=Math.min(d.sy,d.cy), w=Math.abs(d.cx-d.sx), h=Math.abs(d.cy-d.sy);
+      ctx.fillStyle='rgba(245,168,60,.10)'; ctx.fillRect(x,y,w,h);
+      ctx.strokeStyle='#F5A83C'; ctx.lineWidth=1.2/v.s; ctx.setLineDash([7/v.s,4/v.s]);
+      ctx.strokeRect(x,y,w,h); ctx.setLineDash([]);
+    }
+    /* placement feedback — brief green ring around the object that just landed */
+    if(M.WB._flash){
+      const age=Date.now()-M.WB._flash.t;
+      if(age<650){
+        const al=(1-age/650)*0.9;
+        (M.WB._flash.ids||[]).forEach(fid=>{
+          const fo=M.WB.objs.get(fid); if(!fo) return;
+          const [x,y,w,h]=M.WB.bbox(fo);
+          ctx.save(); ctx.strokeStyle=`rgba(62,207,142,${al})`; ctx.lineWidth=2.5/v.s; ctx.strokeRect(x-6/v.s,y-6/v.s,w+12/v.s,h+12/v.s); ctx.restore();
+        });
+        M.WB.dirty=true;
+      } else M.WB._flash=null;
     }
     /* remote cursors */
     const now=Date.now();
@@ -3780,13 +4389,18 @@ M.WB = {
       case 'ellipse': { ctx.beginPath(); ctx.ellipse(o.x+o.w/2,o.y+o.h/2,Math.abs(o.w/2),Math.abs(o.h/2),0,0,7); ctx.stroke(); break; }
       case 'text': {
         const size=o.size||22;
-        ctx.font=`${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+        const stT=o.style||'';
+        ctx.font=`${stT.includes('italic')?'italic ':''}${stT.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
         const dir=M.dirOf(o.text);
         ctx.direction=dir;
         ctx.textBaseline='top';
-        ctx.textAlign=o.align||(dir==='rtl'?'right':'left');
+        const align=o.align||(dir==='rtl'?'right':'left');
+        ctx.textAlign=align;
         const lines=String(o.text||'').split('\n');
-        lines.forEach((ln,i)=>ctx.fillText(ln,o.x,o.y+i*size*1.35));
+        let maxW=0; for(const ln of lines){ const wdt=ctx.measureText(ln).width; if(wdt>maxW) maxW=wdt; }
+        const W=(o.w&&o.w>4)?o.w:maxW;   /* the editor's box width → alignment is faithful to what was typed */
+        const ax= align==='center'? o.x+W/2 : align==='right'? o.x+W : o.x;
+        lines.forEach((ln,i)=>ctx.fillText(ln,ax,o.y+i*size*1.35));
         break;
       }
       case 'note': {
@@ -3796,14 +4410,17 @@ M.WB = {
         ctx.shadowColor='transparent';
         ctx.fillStyle='rgba(0,0,0,.14)'; ctx.fillRect(o.x,o.y+o.h-14,o.w,14);
         ctx.fillStyle='#241d05';
-        ctx.font=`15px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+        const nSize=o.size||15;
+        const stN=o.style||'';
+        ctx.font=`${stN.includes('italic')?'italic ':''}${stN.includes('bold')?'700 ':'400 '}${nSize}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
         ctx.textBaseline='top';
         const dir=M.dirOf(o.text); ctx.direction=dir;
-        ctx.textAlign=o.align||(dir==='rtl'?'right':'left');
-        const ax=ctx.textAlign==='right'?o.x+o.w-10: o.x+10;
+        const nAlign=o.align||(dir==='rtl'?'right':'left');
+        ctx.textAlign=nAlign;
+        const ax= nAlign==='center'? o.x+o.w/2 : nAlign==='right'? o.x+o.w-10 : o.x+10;
         const words=String(o.text||'').split('\n');
         let y=o.y+10;
-        words.forEach(ln=>{ ctx.fillText(ln,ax,y,o.w-20); y+=15*1.45; });
+        words.forEach(ln=>{ ctx.fillText(ln,ax,y,o.w-20); y+=nSize*1.45; });
         break;
       }
       case 'image': {
@@ -3817,6 +4434,7 @@ M.WB = {
   }
 };
 M.WB._liveUpd = M.throttle(o=>{ M.WB.send({t:'up',o}); },70);
+M.WB._liveUpdSet = M.throttle(()=>{ M.WB.selSet.forEach(id=>{ const o=M.WB.objs.get(id); if(o) M.WB.send({t:'up',o}); }); },70);
 
 /* =====================================================================
    Control Center, Diagnostics, Share, App bootstrap
@@ -3894,6 +4512,7 @@ M.App = {
     M.State.self.id=M.T.selfId;
     M.Chat.restoreLocal();
     M.UI.enterApp();
+    try{ M.WB.restoreClip(); }catch(e){}
     /* ask the room to backfill anything this device missed while it was away */
     setTimeout(()=>{ try{ M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },900);
     M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Admin.priv?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
@@ -3927,12 +4546,12 @@ M.App = {
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
     M.FT.sends.clear(); M.FT.recvs.clear();
-    M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.rev=0; M.WB.activePeers.clear();
+    M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#callLayer').innerHTML=''; M.$('#memberList').innerHTML=''; M.$('#peersLbl').textContent='0';
-    M.$('#wbText').classList.add('hidden');
+    M.$('#wbTextWrap').classList.add('hidden'); M.$('#wbToolHint').classList.add('hidden');
     M.$('#mCC').classList.remove('open'); M.$('#mIncoming').classList.add('hidden');
   }
 };
@@ -4107,6 +4726,13 @@ M.CC = {
       log.appendChild(d); while(log.children.length>120) log.firstChild.remove(); log.scrollTop=log.scrollHeight;
     });
     M.$('#ccLogClear').onclick=()=>M.$('#ccLog').innerHTML='';
+    M.$('#ccLogCopy').onclick=()=>{
+      const lines=M.$$('#ccLog > div').map(d=>d.textContent.trim()).filter(Boolean);
+      const txt='Majlis v'+M.Version+' · room '+(M.State.room?.code||'?')+' · '+new Date().toLocaleString()+'\n'+(lines.join('\n')||'(empty)');
+      const done=()=>M.toast('ok',M.t('event_log'),M.t('rd_copied'));
+      if(navigator.clipboard?.writeText) navigator.clipboard.writeText(txt).then(done).catch(()=>M.RC._fallbackCopy(txt,done));
+      else M.RC._fallbackCopy(txt,done);
+    };
     /* room controls */
     M.$('#ccShare').onclick=()=>{ M.CC.close(); M.Share.open(); };
     M.$('#ccCopyUrl').onclick=()=>M.Share.copy();
@@ -4145,6 +4771,24 @@ M.CC = {
       for(const pid of M.Members.onlinePeers()) await M.Net.ping(pid);
       M.CC.renderDiag();
       M.$('#ccPingBtn').disabled=false;
+    };
+    /* paste self-test: runs the full pipeline on this machine and logs every stage */
+    M.$('#ccPasteTest').onclick=()=>{
+      try{
+        const before=M.WB.objs.size;
+        const probe={id:M.uid(9),type:'rect',x:200,y:200,w:120,h:80,color:'#e5484d',size:4,by:M.State.self.id};
+        M.WB.objs.set(probe.id,probe); M.WB.order.push(probe.id); M.WB.rev++;      /* 1 · create probe */
+        M.WB._clip=[JSON.parse(JSON.stringify(probe))]; M.Store.set('clip',M.WB._clip); M.WB.syncChip();   /* 2 · fill clipboard */
+        const mid2=M.WB.objs.size;
+        M.WB.paste();                                                                /* 3 · paste */
+        setTimeout(()=>{
+          const after=M.WB.objs.size;
+          const ok=after===before+2;
+          M.log(ok?'info':'err',`paste self-test: probe=${before}→${mid2}, paste→${after} ${ok?'✓ PASS':'✗ FAIL (expected '+(before+2)+')'}`);
+          M.WB.fitAll(); M.UI.setTab('board');
+          M.toast(ok?'ok':'err','Paste self-test', ok?'PASS — pipeline works on this device':'FAIL — check the event log');
+        },120);
+      }catch(e){ M.log('err','paste self-test crashed: '+e.message); M.toast('err','Paste self-test',e.message); }
     };
   }
 };
@@ -4191,7 +4835,7 @@ M.Theme = {
     document.documentElement.dataset.theme=M.Theme.t;
     if(save) safeSet(localStorage,'mj.theme',M.Theme.t);
     if(M.WB){
-      if(!M.WB._colorTouched){ const def=M.Theme.t==='light' ? '#C05621' : '#F5A83C'; M.WB.color=def; const c=M.$('#wbColor'); if(c) c.value=def; }
+      if(!M.WB._colorTouched){ M.WB.color=M.Theme.t==='light' ? '#111111' : '#E9F3F4'; const d=M.$('#wbColorDot'); if(d) d.style.background=M.WB.color; }
       M.WB.readTheme(); M.WB.dirty=true;
     }
     M.bus.emit('theme');
@@ -4307,7 +4951,9 @@ document.addEventListener('DOMContentLoaded',()=>{
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
     addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} });
     M.__booted=true;
-    const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · single-file · GitHub Pages ready';
+    const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · Developed by Naser AlWatani';
+    const vt=M.$('#verTag');
+    if(vt){ vt.textContent='v'+M.Version; vt.onclick=()=>{ const s='Majlis v'+M.Version+' · '+M.Platform.br+'/'+M.Platform.os+' · room '+(M.State.room?.code||'—'); M.RC._fallbackCopy(s,()=>M.toast('ok','Diagnostics',s)); }; }
     M.log('info','Majlis v'+M.Version+' boot · '+M.Platform.br+'/'+M.Platform.os+(M.Platform.mobile?' (mobile)':''));
   }catch(err){
     console.error(err);
@@ -4325,7 +4971,7 @@ setTimeout(function(){
     if(!dead) return;
     var d=document.getElementById('lobbyMsg');
     if(d && !d.textContent.trim()){
-      d.textContent='⚠ The app script failed to start — open the browser console (F12) for the exact error. Serve the page over HTTPS (GitHub Pages) or localhost.';
+      d.textContent='⚠ The app script failed to start — open the browser console (F12) for the exact error. Serve the page over HTTPS or localhost.';
       d.style.color='var(--err)';
     }
     var l=document.getElementById('lblSig');
