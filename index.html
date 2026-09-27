@@ -882,6 +882,7 @@ M.SHA = (() => {
           const merged=new Uint8Array(buf.length+u8.length); merged.set(buf); merged.set(u8,buf.length);
           let i=0; while(merged.length-i>=64){ process(merged.subarray(i,i+64)); i+=64; }
           buf=merged.slice(i); len+=u8.length;
+          return this;
         },
         hex(){
           const bitLen=len*8; let total=buf.length+1; while(total%64!==56) total++; total+=8;
