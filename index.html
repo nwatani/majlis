@@ -861,7 +861,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.5.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.6.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1332,7 +1332,7 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist']) M.Net.A[n]=R.makeAction(n);
     M.bus.emit('netReady');
 
     /* presence */
@@ -1354,6 +1354,8 @@ M.Net = {
     M.Net.A.hello.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
     M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
+    /* chat history backfill for refreshed / late-joining members (room messages only — DMs are never shared) */
+    M.Net.A.hist.onMessage = (d,{peerId}) => M.Chat.onHist(d,peerId);
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
@@ -1597,6 +1599,7 @@ M.Chat = {
     });
     M.$('#btnBackDm').onclick=()=>M.Chat.switchTarget(null);
     M.bus.on('chatIn', d=>M.Chat.onIn(d));
+    M.bus.on('members', ()=>M.Chat._tryRestoreDms());
     M.bus.on('typing', ({peerId,to})=>{
       const mine=M.State.chatTarget;
       const match = (to==null && mine==null) || (to===M.State.self.id && peerId===mine);
@@ -1631,7 +1634,79 @@ M.Chat = {
     let th=M.Chat.threads.get(key); if(!th){ th=[]; M.Chat.threads.set(key,th); }
     th.push({...msg,me:fromMe}); if(th.length>400) th.splice(0,th.length-400);
     if(M.Chat.renderKey===key || (key==='room' && M.Chat.renderKey==='room')) M.Chat.renderOne(msg,fromMe,key);
+    if(key!=='room') M.Chat._fpMap.set(key, M.State.peers.get(key)?.fp || M.Chat._fpMap.get(key));
+    M.Chat.persist();
     M.bus.emit('chatUpdated',key);
+  },
+  /* ---------- persistence + peer backfill so a refresh never loses the conversation ---------- */
+  _fpMap:new Map(),
+  persist(){ if(!M.Chat._pSave) M.Chat._pSave=M.debounce(()=>M.Chat._save(),600); M.Chat._pSave(); },
+  _save(){
+    if(!M.State.room) return;
+    try{
+      const clean=m=>{ if(!m.file) return m; const c={...m,file:{...m.file}}; delete c.file.url; return c; };  /* blob urls don't survive a refresh */
+      const room=(M.Chat.threads.get('room')||[]).slice(-250).map(clean);
+      const dms=[];
+      M.Chat.threads.forEach((th,key)=>{
+        if(key==='room'||!th.length) return;
+        const fp=M.State.peers.get(key)?.fp || M.Chat._fpMap.get(key);
+        if(fp) dms.push({fp, msgs:th.slice(-150).map(clean)});
+      });
+      safeSet(localStorage,'chat.'+M.State.room.code,{v:1,room,dms});
+    }catch(e){}
+  },
+  restoreLocal(){
+    try{
+      const data=M.Store.get('chat.'+M.State.room.code); if(!data) return;
+      if(data.room?.length) M.Chat.threads.set('room',data.room.map(m=>({...m,me:m.from===M.State.self.id})));
+      M.Chat._pendingDms=new Map((data.dms||[]).map(d=>[d.fp,d.msgs]));
+      M.Chat._tryRestoreDms();
+      M.log('info','restored local chat cache ('+(data.room?.length||0)+' room messages)');
+    }catch(e){}
+  },
+  _tryRestoreDms(){
+    if(!M.Chat._pendingDms || M.Chat._pendingDms.size===0) return;
+    M.State.peers.forEach((p,pid)=>{
+      if(p.fp && M.Chat._pendingDms.has(p.fp)){
+        const msgs=M.Chat._pendingDms.get(p.fp);
+        M.Chat._pendingDms.delete(p.fp);
+        if(!M.Chat.threads.has(pid)) M.Chat.threads.set(pid,msgs.map(m=>({...m,me:m.from===M.State.self.id})));
+        M.Chat._fpMap.set(pid,p.fp);
+        if(M.Chat.renderKey===pid) M.Chat.renderAll();
+      }
+    });
+  },
+  onHist(d,from){
+    if(!d) return;
+    if(d.t==='hreq'){
+      const th=M.Chat.threads.get('room')||[];
+      if(th.length>1){
+        setTimeout(()=>{
+          try{ M.Net.sendEnc('hist',{t:'hres',to:from,msgs:th.slice(-120).map(m=>({id:m.id,text:m.text,ts:m.ts,from:m.from,name:m.name,sys:m.sys||undefined}))},from); }catch(e){}
+        },300+Math.random()*900);
+      }
+      return;
+    }
+    if(d.t==='hres'){
+      if(d.to!==M.State.self.id) return;
+      M.Chat.mergeHistory(d.msgs||[]);
+    }
+  },
+  mergeHistory(msgs){
+    const th=M.Chat.threads.get('room')||[]; M.Chat.threads.set('room',th);
+    const ids=new Set(th.map(m=>m.id));
+    let added=0;
+    for(const m of msgs){
+      if(!m||!m.id||m.sys||ids.has(m.id)) continue;   /* room conversation only; system lines are re-created locally */
+      ids.add(m.id); th.push({...m,me:m.from===M.State.self.id}); added++;
+    }
+    if(added){
+      th.sort((a,b)=>a.ts-b.ts);
+      if(th.length>400) th.splice(0,th.length-400);
+      M.log('info','restored '+added+' messages from other members');
+      if(M.Chat.renderKey==='room' && M.UI.tab==='chat') M.Chat.renderAll();
+      M.Chat.persist();
+    }
   },
   renderKey:'room',
   switchTarget(peerId){
@@ -2208,14 +2283,15 @@ M.Call = {
     try{ return await M.Call.start(peerId,kind,opts); }
     catch(e){ M.log('err','call start failed: '+(e.message||e)); M.toast('err','Call failed',e.message||String(e)); return null; }
   },
-  /* critical signaling is retransmitted (public relays drop packets); receivers de-duplicate */
+  /* critical signaling is retransmitted (public relays drop packets); receivers de-duplicate.
+     NOTE: M.Net.send(action,obj,target) takes the peer id directly — never {target:…}. */
   _repeat(target,msg,tries,gap){
-    try{ M.Net.send('sig',msg,{target}); }catch(e){}
-    let n=1; const t=setInterval(()=>{ if(++n>tries){ clearInterval(t); return; } try{ M.Net.send('sig',msg,{target}); }catch(e){} },gap);
+    try{ M.Net.send('sig',msg,target); }catch(e){}
+    let n=1; const t=setInterval(()=>{ if(++n>tries){ clearInterval(t); return; } try{ M.Net.send('sig',msg,target); }catch(e){} },gap);
   },
   _invite(target,msg,guard){
-    try{ M.Net.send('sig',msg,{target}); }catch(e){}
-    let n=1; const t=setInterval(()=>{ if(++n>3||!guard()){ clearInterval(t); return; } try{ M.Net.send('sig',msg,{target}); }catch(e){} },1500);
+    try{ M.Net.send('sig',msg,target); }catch(e){}
+    let n=1; const t=setInterval(()=>{ if(++n>3||!guard()){ clearInterval(t); return; } try{ M.Net.send('sig',msg,target); }catch(e){} },1500);
   },
 
   async start(peerId, kind, opts={}){
@@ -2236,7 +2312,7 @@ M.Call = {
     } else {
       M.Call._invite(peerId,{t:'invite',callId,kind,to:peerId,fromName:M.State.self.name},()=>{ const x=M.Call.sessions.get(callId); return !!x && x.status==='ringing'; });
       M.log('info',kind+' invite → '+M.fmt.idShort(peerId)+' call '+callId);
-      s._timeout=setTimeout(()=>{ if(s.status==='ringing'){ M.Net.send('sig',{t:'end',callId,reason:'no_answer'},{target:peerId}); M.Call.teardown(callId,'no_answer'); } },30000);
+      s._timeout=setTimeout(()=>{ if(s.status==='ringing'){ M.Net.send('sig',{t:'end',callId,reason:'no_answer'},peerId); M.Call.teardown(callId,'no_answer'); } },30000);
     }
     M.bus.emit('callState');
     return s;
@@ -2250,8 +2326,8 @@ M.Call = {
         if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
         if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
         const gate=M.Perms.can('callReceive'); const kGate=M.Perms.can(d.kind==='video'?'callVideo':'callVoice');
-        if(!gate.ok||!kGate.ok){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'denied'},{target:d.peerId}); return; }
-        if(M.Call.findWith(d.peerId)||M.Call._pending){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'busy'},{target:d.peerId}); M.toast('warn',M.t('busy'),M.Members.name(d.peerId)); return; }
+        if(!gate.ok||!kGate.ok){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'denied'},d.peerId); return; }
+        if(M.Call.findWith(d.peerId)||M.Call._pending){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'busy'},d.peerId); M.toast('warn',M.t('busy'),M.Members.name(d.peerId)); return; }
         M.Call.showIncoming({callId:d.callId, peerId:d.peerId, kind:d.kind, group:false});
         break;
       }
@@ -2259,7 +2335,7 @@ M.Call = {
         if(d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
         if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
-        if(!M.Perms.can('callGroup').ok||!M.Perms.can('callReceive').ok){ M.Net.send('sig',{t:'greject',callId:d.callId},{target:d.peerId}); return; }
+        if(!M.Perms.can('callGroup').ok||!M.Perms.can('callReceive').ok){ M.Net.send('sig',{t:'greject',callId:d.callId},d.peerId); return; }
         M.Call.showIncoming({callId:d.callId, peerId:d.peerId, kind:d.kind, group:true});
         break;
       }
@@ -2338,7 +2414,7 @@ M.Call = {
     M.Call._pending=null; clearTimeout(inv._timeout);
     M.$('#mIncoming').classList.add('hidden'); M.Notify.ring(false);
     if(!accept){
-      M.Net.send('sig',{t: inv.group?'greject':'reject', callId:inv.callId, to:inv.peerId, reason:reason||'declined'},{target:inv.peerId});
+      M.Net.send('sig',{t: inv.group?'greject':'reject', callId:inv.callId, to:inv.peerId, reason:reason||'declined'},inv.peerId);
       if(reason==='no_answer') M.toast('info',M.Members.name(inv.peerId),M.t('no_answer'));
       return;
     }
@@ -2367,7 +2443,7 @@ M.Call = {
   },
   broadcastMembers(s){
     const peers=[M.State.self.id,...s.peers];
-    s.peers.forEach(pid=>M.Net.send('sig',{t:'members',callId:s.id,peers},{target:pid}));
+    s.peers.forEach(pid=>M.Net.send('sig',{t:'members',callId:s.id,peers},pid));
   },
 
   onPeerStream({stream,peerId,metadata}){
@@ -2384,13 +2460,13 @@ M.Call = {
   toggleMute(s){
     s.muted=!s.muted;
     s.localStream?.getAudioTracks().forEach(t=>t.enabled=!s.muted);
-    s.peers.forEach(pid=>M.Net.send('sig',{t:'state',callId:s.id,from:M.State.self.id,muted:s.muted,camOff:s.camOff},{target:pid}));
+    s.peers.forEach(pid=>M.Net.send('sig',{t:'state',callId:s.id,from:M.State.self.id,muted:s.muted,camOff:s.camOff},pid));
     M.Call.renderWin(s);
   },
   toggleCam(s){
     s.camOff=!s.camOff;
     s.localStream?.getVideoTracks().forEach(t=>t.enabled=!s.camOff);
-    s.peers.forEach(pid=>M.Net.send('sig',{t:'state',callId:s.id,from:M.State.self.id,muted:s.muted,camOff:s.camOff},{target:pid}));
+    s.peers.forEach(pid=>M.Net.send('sig',{t:'state',callId:s.id,from:M.State.self.id,muted:s.muted,camOff:s.camOff},pid));
     M.Call.renderWin(s);
   },
   async toggleScreen(s){
@@ -3274,7 +3350,10 @@ M.App = {
     M.Net.onProgress=m=>M.lobbyMsg(m);
     try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
     M.State.self.id=M.T.selfId;
+    M.Chat.restoreLocal();
     M.UI.enterApp();
+    /* ask the room to backfill anything this device missed while it was away */
+    setTimeout(()=>{ try{ M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },900);
     M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Admin.priv?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
     M.log('info','entered room '+code+' ('+(M.Crypto.has()?'E2EE':'plaintext signaling')+')');
   },
@@ -3369,7 +3448,7 @@ M.CC = {
       const names=[...s.peers].map(p=>M.Members.name(p)).join(', ');
       row.innerHTML=`<span class="k">${s.kind==='video'?'🎥':'🎙'} ${names.replace(/</g,'&lt;')} <span class="dim">· ${M.fmt.idShort(s.id)} · ${s.peers.size+1}p · ${s.status==='active'?M.fmt.dur((Date.now()-s.startedAt)/1000):s.status}</span></span>`;
       const b=M.el('button','cc-mini dgr',M.t('end_call'));
-      b.onclick=()=>{ s.peers.forEach(pid=>M.Net.send('sig',{t:'end',callId:s.id,byAdmin:true},{target:pid})); M.Call.teardown(s.id,'ended by admin'); };
+      b.onclick=()=>{ s.peers.forEach(pid=>M.Net.send('sig',{t:'end',callId:s.id,byAdmin:true},pid)); M.Call.teardown(s.id,'ended by admin'); };
       row.appendChild(b); cb.appendChild(row);
     });
     /* files monitor */
