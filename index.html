@@ -699,6 +699,33 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div id="callLayer"></div>
 </div>
 
+<!-- native access bridge (RustDesk) -->
+<div class="modal hidden" id="mRdReq"><div class="m-card sm">
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_req_title">Native remote access (RustDesk)</span></h3>
+  <p style="font-size:13.5px;line-height:1.65;color:var(--mut)" data-i18n="rd_req_body">The Admin requests full OS-level remote control of this device. Browsers cannot do that themselves, so it runs through the free open-source RustDesk agent: install or open it, then share your ID (and one-time password) below. Nothing is sent unless you press Send.</p>
+  <div class="field" style="margin-top:13px"><label class="lbl" data-i18n="rd_id_lbl">Your RustDesk ID</label><input class="inp mono" id="rdIdInp" inputmode="numeric" placeholder="123 456 789" dir="ltr"></div>
+  <div class="field"><label class="lbl" data-i18n="rd_pw_lbl">One-time password (optional)</label><input class="inp mono" id="rdPwInp" dir="ltr" placeholder="······"></div>
+  <p class="m-note"><a href="https://rustdesk.com/download" target="_blank" rel="noopener" style="color:var(--teal)">rustdesk.com/download</a> · <span data-i18n="rd_req_help">Open RustDesk — “Your ID” is in the left panel, with a password under it.</span></p>
+  <div style="display:flex;gap:11px;margin-top:16px">
+    <button class="btn btn-danger btn-big" id="rdReqDeny" style="flex:1" data-i18n="decline">Decline</button>
+    <button class="btn btn-teal btn-big" id="rdReqSend" style="flex:1" data-i18n="rd_send">Send to Admin</button>
+  </div>
+</div></div>
+<div class="modal hidden" id="mRdCard"><div class="m-card sm">
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_card_title">Native access credentials</span></h3>
+  <p style="font-size:13.5px;color:var(--mut)"><b id="rdCardName" style="color:var(--ink)">—</b> <span data-i18n="rd_card_sub">shared their RustDesk access:</span></p>
+  <div class="cc-kv" style="margin-top:10px"><span class="k">ID</span><span class="v mono" id="rdCardId" style="font-size:16px;letter-spacing:.14em">—</span></div>
+  <div class="cc-kv"><span class="k" data-i18n="rd_pw_lbl">One-time password (optional)</span><span class="v mono" id="rdCardPw">—</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:15px">
+    <button class="btn" id="rdCopyId" data-i18n="rd_copy_id">Copy ID</button>
+    <button class="btn" id="rdCopyPw" data-i18n="rd_copy_pw">Copy password</button>
+    <button class="btn btn-primary" id="rdOpenWeb" style="grid-column:1/-1" data-i18n="rd_open_web">Open RustDesk web client</button>
+    <button class="btn" id="rdOpenApp" style="grid-column:1/-1" data-i18n="rd_open_app">Open desktop app (deep link)</button>
+  </div>
+  <p class="m-note" data-i18n="rd_card_note">The ID was copied to your clipboard. In any RustDesk client: paste it under “Control Remote Desktop”, enter the password — you now have full OS-level control.</p>
+  <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
+</div></div>
+
 <!-- remote assistance surfaces -->
 <div id="rcBanner" class="hidden">
   <span class="rc-dot"></span>
@@ -712,12 +739,12 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
     <button class="btn btn-sm btn-danger" id="rcEnd" data-i18n="end_call">End</button>
   </div>
-  <div id="rcStage" data-live="0"><video id="rcVideo" autoplay playsinline muted></video><div class="rc-hint" data-i18n="rc_wait">awaiting member approval…</div></div>
-  <div class="rc-foot" data-i18n="rc_hint">Your pointer, clicks, scrolling and typing are mirrored on the member's screen as live guidance. The member can revoke access at any moment.</div>
+  <div id="rcStage" data-live="0"><video id="rcVideo" autoplay playsinline muted></video><div class="rc-hint" id="rcHint" data-i18n="rc_wait">awaiting member approval…</div></div>
+  <div class="rc-foot" id="rcFoot" data-i18n="rc_hint">Your pointer, clicks, scrolling and typing are mirrored on the member's screen as live guidance. The member can revoke access at any moment.</div>
 </div>
 <div class="modal hidden" id="mRCReq"><div class="m-card sm">
   <h3 style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 8v5M9.5 10.5L12 13l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rc_request_title">Remote control request</span></h3>
-  <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span></p>
+  <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span id="rcBodyScreen" data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span><span id="rcBodyCam" class="hidden" data-i18n="rc_request_cam_body">wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only — point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.</span></p>
   <div style="display:flex;gap:11px;margin-top:20px">
     <button class="btn btn-danger btn-big" id="rcReqDeny" style="flex:1" data-i18n="decline">Decline</button>
     <button class="btn btn-teal btn-big" id="rcReqAllow" style="flex:1" data-i18n="rc_allow">Allow</button>
@@ -882,6 +909,11 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <button class="btn btn-primary" id="cfgSave" data-i18n="save_apply">Save &amp; apply on next room</button>
         <p class="m-note" data-i18n="turn_note">Public TURN/MQTT endpoints are best-effort. For production, run coturn or a hosted TURN (Cloudflare Calls, Metered, Twilio) and a private MQTT broker (EMQX/HiveMQ).</p>
       </div>
+      <div class="cc-card"><h4 data-i18n="rd_card_title">Native access credentials</h4>
+        <div class="field"><label class="lbl" data-i18n="rd_web_lbl">RustDesk web client URL</label><input class="inp mono" id="cfgRdWeb" dir="ltr" placeholder="https://web.rustdesk.com/"></div>
+        <button class="btn" id="cfgRdSave" data-i18n="save_apply">Save &amp; apply on next room</button>
+        <p class="m-note" data-i18n="rd_cc_note">For full help-desk use: run RustDesk’s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use “Native access” on a member to exchange IDs and connect — true OS-level control, end-to-end encrypted by RustDesk.</p>
+      </div>
     </section>
     <section class="cc-sec" data-sec="diag"><h2 data-i18n="cc_diag">Diagnostics</h2><p class="cc-sub" data-i18n="cc_diag_sub">Live signaling, peer and session health. Safe to ignore for normal use.</p>
       <div class="cc-card"><div id="ccDiag" class="mono" style="font-size:12px"></div>
@@ -926,7 +958,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.7.3';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.9.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1120,6 +1152,24 @@ en:{
  rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call', select_all:'Select all', clear_all:'Clear selection',
  rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
  rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
+ rc_request_cam_body:'wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only \u2014 point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.',
+ rc_member_on_cam:'The Admin can see your camera \u2014 point it at your screen. Revoke anytime from the red banner',
+ rc_hint_cam:'The member is sharing their phone\u2019s camera \u2014 ask them to point it at their screen. Your pointer, clicks, scrolling and typing are mirrored as live guidance. They can revoke at any moment.',
+ rd_btn:'Native access', rd_req_title:'Native remote access (RustDesk)',
+ rd_req_body:'The Admin requests full OS-level remote control of this device. Browsers cannot do that themselves, so it runs through the free open-source RustDesk agent: install or open it, then share your ID (and one-time password) below. Nothing is sent unless you press Send.',
+ rd_id_lbl:'Your RustDesk ID', rd_pw_lbl:'One-time password', rd_send:'Send to Admin',
+ rd_req_help:'Open RustDesk \u2014 \u201cYour ID\u201d is in the left panel, with a password under it.',
+ rd_card_sub:'shared their RustDesk access:', rd_copy_id:'Copy ID', rd_copy_pw:'Copy password',
+ rd_open_web:'Open RustDesk web client', rd_open_app:'Open desktop app (deep link)',
+ rd_card_note:'The ID was copied to your clipboard. In any RustDesk client: paste it under \u201cControl Remote Desktop\u201d, enter the password \u2014 you now have full OS-level control.',
+ rd_copied:'Copied to clipboard', rd_need_id:'Please enter the RustDesk ID first',
+ rd_opened_web:'RustDesk web client opened \u2014 the ID is already on your clipboard',
+ rd_sent:'Access details sent to the Admin', rd_got:'{n} sent you native-access credentials',
+ rd_declined:'The member declined the native-access request',
+ rd_wait:'Request sent \u2014 the member will share their RustDesk ID',
+ rd_web_lbl:'RustDesk web client URL',
+ rd_cc_note:'For full help-desk use: run RustDesk\u2019s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use \u201cNative access\u201d on a member to exchange IDs and connect \u2014 true OS-level control, encrypted by RustDesk.',
+ rc_wait_cam:'awaiting member approval \u2014 they will share their phone\u2019s camera',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1203,6 +1253,24 @@ ar:{
  rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال', select_all:'تحديد الكل', clear_all:'إلغاء التحديد',
  rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
  rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
+ rc_request_cam_body:'يرغب في إرشادك عن بُعد. لا تستطيع الهواتف مشاركة شاشتها داخل المتصفحات، لذا ستُشارَك كاميرتك مع المشرف فقط — وجّهها نحو شاشتك. تظهر إشاراته وحروفه كطبقة حية فوق العرض. يمكنك الإلغاء في أي وقت.',
+ rc_member_on_cam:'أصبح المشرف يرى كاميرتك — وجّهها نحو شاشتك. يمكنك الإلغاء من الشريط الأحمر في أي وقت',
+ rc_hint_cam:'يشارك العضو كاميرا هاتفه — اطلب منه توجيهها نحو شاشته. تظهر حركات مؤشرك ونقراتك وكتابتك كإرشاد حي. يمكنه الإلغاء في أي لحظة.',
+ rd_btn:'وصول أصيل', rd_req_title:'تحكم أصيل عن بُعد (RustDesk)',
+ rd_req_body:'يطلب المشرف تحكماً كاملاً على مستوى النظام بهذا الجهاز. لا تستطيع المتصفحات فعل ذلك بنفسها، لذا يتم عبر وكيل RustDesk المجاني مفتوح المصدر: ثبّته أو افتحه ثم شارك معرّفك (وكلمة المرور المؤقتة) أدناه. لا يُرسَل شيء ما لم تضغط إرسال.',
+ rd_id_lbl:'معرّف RustDesk الخاص بك', rd_pw_lbl:'كلمة مرور مؤقتة', rd_send:'إرسال إلى المشرف',
+ rd_req_help:'افتح RustDesk — «Your ID» في اللوحة اليسرى وتحته كلمة المرور.',
+ rd_card_sub:'شارك بيانات الوصول الخاصة به:', rd_copy_id:'نسخ المعرّف', rd_copy_pw:'نسخ كلمة المرور',
+ rd_open_web:'فتح عميل RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
+ rd_card_note:'نُسخ المعرّف إلى الحافظة. في أي عميل RustDesk: ألصق المعرّف تحت «Control Remote Desktop» وأدخل كلمة المرور — يصبح لديك تحكم كامل على مستوى النظام.',
+ rd_copied:'نُسخ إلى الحافظة', rd_need_id:'أدخل معرّف RustDesk أولاً',
+ rd_opened_web:'فُتح عميل RustDesk الويب — المعرّف منسوخ بالفعل في الحافظة',
+ rd_sent:'أُرسلت بيانات الوصول إلى المشرف', rd_got:'أرسل لك {n} بيانات الوصول الأصيل',
+ rd_declined:'رفض العضو طلب الوصول الأصيل',
+ rd_wait:'أُرسل الطلب — سيشارك العضو معرّف RustDesk الخاص به',
+ rd_web_lbl:'رابط عميل RustDesk الويب',
+ rd_cc_note:'لاستخدام كامل كمكتب مساعدة: شغّل وسيط RustDesk (hbbs/hbbr) عبر حاويتَي Docker أو ملفَّين تنفيذيين، وثبّت وكيل RustDesk المجاني على الأجهزة المدعومة، ثم استخدم «وصول أصيل» على العضو لتبادل المعرّفات والاتصال — تحكم حقيقي على مستوى النظام ومشفّر بواسطة RustDesk.',
+ rc_wait_cam:'بانتظار موافقة العضو — سيشارك كاميرا هاتفه',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -2194,6 +2262,7 @@ M.UI = {
       }
       if(M.Admin.priv && p.id!==M.State.self.id){
         acts.appendChild(mk('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M9 8l7 3-3 1.2L11.5 15z" stroke-linejoin="round"/></svg>',M.t('rc_btn'),()=>M.RC.request(p.id)));
+        acts.appendChild(mk('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>',M.t('rd_btn'),()=>M.RC.requestNative(p.id)));
         acts.appendChild(mk(M.Icons.x,M.t('remove'),()=>M.bus.emit('kickAsk',p),true));
       }
       row.append(av,info,acts);
@@ -2819,20 +2888,47 @@ M.RC = {
     M.$('#rcRevoke').onclick=()=>M.RC.closeMember('revoked');
     M.$('#rcReqAllow').onclick=()=>M.RC.answerReq(true);
     M.$('#rcReqDeny').onclick=()=>M.RC.answerReq(false);
+    /* native access bridge wiring */
+    M.$('#rdReqDeny').onclick=()=>{
+      const f=M.RC._rdFrom; M.RC._rdFrom=null;
+      M.$('#mRdReq').classList.add('hidden');
+      if(f) try{ M.Net.send('rc',{t:'rd-decline',to:f},f); }catch(e){}
+    };
+    M.$('#rdReqSend').onclick=()=>{
+      const id=M.$('#rdIdInp').value.replace(/\D/g,'');
+      if(id.length<3){ M.toast('warn',M.t('rd_btn'),M.t('rd_need_id')); return; }
+      const f=M.RC._rdFrom; M.RC._rdFrom=null;
+      M.$('#mRdReq').classList.add('hidden');
+      if(f) try{ M.Net.send('rc',{t:'rd',to:f,id,pw:M.$('#rdPwInp').value.trim(),fromName:M.State.self.name},f); }catch(e){}
+      M.toast('ok',M.t('rd_btn'),M.t('rd_sent'));
+    };
+    M.$('#rdCopyId').onclick=()=>{ if(M.RC._rd) M.RC.copyText(M.RC._rd.id); };
+    M.$('#rdCopyPw').onclick=()=>{ if(M.RC._rd) M.RC.copyText(M.RC._rd.pw); };
+    M.$('#rdOpenWeb').onclick=()=>{
+      const base=M.Store.get('rdweb')||'https://web.rustdesk.com/';
+      if(M.RC._rd?.id) M.RC.copyText(M.RC._rd.id,false);
+      open(base,'_blank');
+      M.toast('ok',M.t('rd_btn'),M.t('rd_opened_web'));
+    };
+    M.$('#rdOpenApp').onclick=()=>{
+      if(M.RC._rd?.id){ M.RC.copyText(M.RC._rd.id,false); location.href='rustdesk://connection/new/'+M.RC._rd.id; }
+    };
   },
   /* ---------------- Admin side ---------------- */
   request(peerId){
     if(M.RC.admin){ M.toast('warn',M.t('rc_win_title'),'One session at a time — end the current one first.'); return; }
     const m=M.State.peers.get(peerId);
     if(!m||m.status!=='online'){ M.toast('warn',M.t('rc_win_title'),M.t('offline')); return; }
-    if(m.mob||m.os==='Android'||m.os==='iOS'){ M.toast('warn',M.t('rc_win_title'),M.t('rc_mob_na'),{ms:7000}); return; }
-    M.RC.admin={peerId,status:'await',startedAt:0,stream:null};
+    const mobile=m.mob||m.os==='Android'||m.os==='iOS';
+    M.RC.admin={peerId,status:'await',startedAt:0,stream:null,mode:mobile?'cam':'screen'};
     M.$('#rcWin').classList.remove('hidden');
     M.$('#rcTitle').textContent=m.name;
     M.$('#rcStat').textContent=M.t('rc_wait');
     M.$('#rcTime').textContent='';
     M.$('#rcStage').dataset.live='0';
     M.$('#rcVideo').srcObject=null;
+    M.$('#rcHint').textContent=M.t(mobile?'rc_wait_cam':'rc_wait');
+    M.$('#rcFoot').textContent=M.t(mobile?'rc_hint_cam':'rc_hint');
     const msg={t:'req',to:peerId,fromName:M.State.self.name};
     try{ M.Net.send('rc',msg,peerId); }catch(e){}
     setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1300);
@@ -2878,19 +2974,28 @@ M.RC = {
         if(d.to && d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(from,d.fromName);
         if(M.RC.member){ try{ M.Net.send('rc',{t:'decline',to:from,reason:'busy'},from); }catch(e){} return; }
-        if(!navigator.mediaDevices?.getDisplayMedia){
+        if(!navigator.mediaDevices?.getUserMedia){
           try{ M.Net.send('rc',{t:'decline',to:from,reason:'unsupported'},from); }catch(e){}
           M.toast('warn',M.t('rc_win_title'),M.t('rc_unsup')); return;
         }
-        M.RC._pendingReq={from};
+        /* phones can't screen-capture in browsers → the same consented session uses the camera instead */
+        const mode=navigator.mediaDevices.getDisplayMedia?'screen':'cam';
+        M.RC._pendingReq={from,mode};
         M.$('#rcReqName').textContent=M.Members.name(from);
+        M.$('#rcBodyScreen').classList.toggle('hidden',mode!=='screen');
+        M.$('#rcBodyCam').classList.toggle('hidden',mode!=='cam');
         M.$('#mRCReq').classList.remove('hidden');
         M.Notify.ring(true); M.Notify.push('Majlis',M.t('rc_request_title'));
         M.log('warn','remote-control requested by '+M.Members.name(from));
         break;
       }
       case 'accept': {
-        if(M.RC.admin && from===M.RC.admin.peerId && M.RC.admin.status==='await') M.$('#rcStat').textContent=M.t('rc_connect');
+        if(M.RC.admin && from===M.RC.admin.peerId && M.RC.admin.status==='await'){
+          M.RC.admin.mode=d.mode||'screen';
+          M.$('#rcStat').textContent=M.t('rc_connect');
+          M.$('#rcHint').textContent=M.t(M.RC.admin.mode==='cam'?'rc_wait_cam':'rc_wait');
+          M.$('#rcFoot').textContent=M.t(M.RC.admin.mode==='cam'?'rc_hint_cam':'rc_hint');
+        }
         break;
       }
       case 'decline': {
@@ -2908,6 +3013,29 @@ M.RC = {
         if(M.RC.member && from===M.RC.member.adminId) M.RC.paintEvent(d);
         break;
       }
+      /* native access bridge */
+      case 'rd-req': {
+        if(d.to && d.to!==M.State.self.id) return;
+        if(d.fromName) M.Members.adopt(from,d.fromName);
+        M.RC._rdFrom=from;
+        M.$('#rdIdInp').value=''; M.$('#rdPwInp').value='';
+        M.$('#mRdReq').classList.remove('hidden');
+        M.Notify.push('Majlis',M.t('rd_req_title')); M.Notify.beep('dm');
+        M.log('warn','native access requested by '+M.Members.name(from));
+        break;
+      }
+      case 'rd': {
+        if(d.to && d.to!==M.State.self.id) return;
+        if(d.fromName) M.Members.adopt(from,d.fromName);
+        M.RC.showRdCard(M.Members.name(from),d.id,d.pw);
+        M.Notify.beep('dm'); M.Notify.push('Majlis',M.t('rd_got',{n:M.Members.name(from)}));
+        M.log('info','native-access credentials received from '+M.Members.name(from));
+        break;
+      }
+      case 'rd-decline': {
+        if(M.RC._rdTarget===from) M.toast('info',M.t('rd_btn'),M.t('rd_declined'));
+        break;
+      }
     }
   },
   async answerReq(allow){
@@ -2919,23 +3047,25 @@ M.RC = {
       M.toast('info',M.t('rc_win_title'),M.t('rc_you_declined'));
       return;
     }
-    let stream;
+    let stream; const isCam=p.mode==='cam';
     try{
-      stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false,selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'include'});
+      stream = isCam
+        ? await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false})
+        : await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false,selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'include'});
     }catch(e){
       try{ M.Net.send('rc',{t:'decline',to:p.from,reason:'canceled'},p.from); }catch(_){}
       M.toast('warn',M.t('rc_win_title'), e.name==='NotAllowedError'?M.t('rc_you_declined'):(e.message||''));
       return;
     }
-    M.RC.member={adminId:p.from,stream,startedAt:Date.now()};
+    M.RC.member={adminId:p.from,stream,startedAt:Date.now(),mode:isCam?'cam':'screen'};
     try{ M.Net.room.addStream(stream,{target:p.from,metadata:{kind:'rc'}}); }catch(e){ M.log('err','rc addStream failed: '+e.message); }
-    try{ M.Net.send('rc',{t:'accept',to:p.from},p.from); }catch(e){}
+    try{ M.Net.send('rc',{t:'accept',to:p.from,mode:isCam?'cam':'screen'},p.from); }catch(e){}
     M.$('#rcBannerName').textContent=M.Members.name(p.from);
     M.$('#rcBanner').classList.remove('hidden');
     M.$('#rcOverlay').classList.remove('hidden');
     M.$('#rcCurLbl').textContent=M.Members.name(p.from);
     stream.getVideoTracks().forEach(t=>t.onended=()=>M.RC.closeMember('sharing stopped'));
-    M.toast('ok',M.t('rc_win_title'),M.t('rc_member_on'),{ms:6500});
+    M.toast('ok',M.t('rc_win_title'),M.t(isCam?'rc_member_on_cam':'rc_member_on'),{ms:6500});
     M.log('warn','remote-control GRANTED to '+M.Members.name(p.from));
   },
   closeMember(reason,remote){
@@ -2974,6 +3104,34 @@ M.RC = {
     if(M.RC.admin) M.RC.closeAdmin();
     if(M.RC.member) M.RC.closeMember('left the room');
     M.$('#mRCReq').classList.add('hidden'); M.Notify.ring(false);
+  },
+  /* ---------------- Native access bridge (RustDesk) ----------------
+     True OS-level control needs the free RustDesk agent on the supported
+     machine; Majlis orchestrates consent + credential exchange + one-click
+     connect (web client or rustdesk:// deep link). */
+  requestNative(peerId){
+    const m=M.State.peers.get(peerId);
+    if(!m||m.status!=='online'){ M.toast('warn',M.t('rd_btn'),M.t('offline')); return; }
+    M.RC._rdTarget=peerId;
+    const msg={t:'rd-req',to:peerId,fromName:M.State.self.name};
+    try{ M.Net.send('rc',msg,peerId); }catch(e){}
+    setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1200);
+    M.toast('info',M.t('rd_btn'),M.t('rd_wait'));
+    M.log('info','native access (RustDesk) requested from '+m.name);
+  },
+  showRdCard(name,id,pw){
+    M.RC._rd={id:String(id||'').trim(), pw:String(pw||'').trim()};
+    M.$('#rdCardName').textContent=name;
+    M.$('#rdCardId').textContent=M.RC._rd.id||'—';
+    M.$('#rdCardPw').textContent=M.RC._rd.pw||'—';
+    M.$('#rdCopyPw').style.display=M.RC._rd.pw?'':'none';
+    M.$('#mRdCard').classList.remove('hidden');
+    if(M.RC._rd.id) M.RC.copyText(M.RC._rd.id,false);
+  },
+  copyText(txt,announce){
+    (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject())
+      .then(()=>{ if(announce!==false) M.toast('ok',M.t('rd_copied'),txt); })
+      .catch(()=>M.toast('warn',M.t('rd_copied'),txt));
   }
 };
 M.RC.init();
@@ -3774,6 +3932,7 @@ M.CC = {
     const turn=M.Store.get('turn')||{};
     M.$('#cfgTurn').value=turn.urls||''; M.$('#cfgTurnUser').value=turn.user||''; M.$('#cfgTurnPass').value=turn.pass||'';
     M.$('#cfgBroker').value=M.Store.get('broker')||'';
+    M.$('#cfgRdWeb').value=M.Store.get('rdweb')||'';
     /* matrix */
     const mx=M.$('#ccMatrix'); const on=v=>v?'<span style="color:var(--ok)">● on</span>':'<span style="color:var(--err)">● off</span>';
     mx.innerHTML=[
@@ -3810,6 +3969,9 @@ M.CC = {
       const rc=M.el('button','cc-mini',M.t('rc_btn'));
       rc.onclick=()=>M.RC.request(p.id);
       acts.appendChild(rc);
+      const rdn=M.el('button','cc-mini',M.t('rd_btn'));
+      rdn.onclick=()=>M.RC.requestNative(p.id);
+      acts.appendChild(rdn);
       const kick=M.el('button','cc-mini dgr',M.t('remove'));
       kick.onclick=async ()=>{ if(await M.confirm(M.t('kick_q'),M.t('kick_q_body',{n:p.name}))) M.Admin.cmd('kick',{peerId:p.id,name:p.name}); };
       acts.appendChild(kick);
@@ -4026,7 +4188,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     };
     /* modals: generic close */
     M.$$('[data-close]').forEach(b=>b.onclick=()=>b.closest('.modal').classList.add('hidden'));
-    M.$$('#mShare,#mGroup,#mDevices,#mTarget').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
+    M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
+    M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
     /* lobby */
     const savedName=M.Store.get('name')||'';
     M.$('#nameInput').value=savedName;
