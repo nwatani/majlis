@@ -533,7 +533,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
           <svg class="ico-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" stroke-linejoin="round"/></svg>
         </button>
-        <span class="ver">v1.0 · single-file · GitHub Pages ready</span>
+        <span class="ver" id="verLbl">…</span>
       </div>
     </div>
   </div>
@@ -861,6 +861,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
+M.Version = '1.5.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1312,7 +1313,7 @@ M.Net = {
     if(M.Crypto.has()) cfg.password=M.Crypto.passB64||M.State.room.roomKeyB64;
     const broker=M.Store.get('broker');
     if(broker) cfg.relayConfig={urls:[broker]};
-    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() });
+    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, ts:Date.now() });
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
       onJoinError: d => {
@@ -1357,7 +1358,7 @@ M.Net = {
     M.Net.A.hb.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
       const patch={status:'online'};
-      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; }
+      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       M.Members.upsert(peerId,patch);
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => { if(await M.Admin.verify(m,peerId)) M.Admin.dispatch(m,peerId); else M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); };
@@ -1412,7 +1413,7 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp});
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp, v:M.Version});
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -1992,6 +1993,9 @@ M.UI = {
     const peers=[...M.State.peers.values()].sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
     if(peers.length===0){ list.appendChild(M.el('div','dim',`<div style="padding:18px 10px;font-size:12.5px">${M.t('no_members')}</div>`)); }
     for(const p of peers){
+      /* last-resort heal: handshake data always carried the real name */
+      const early=M.Net._early?.get(p.id);
+      if(p.name.indexOf('guest-')===0 && early && early.n){ p.name=early.n; if(early.fp)p.fp=early.fp; if(early.v)p.v=early.v; }
       const row=M.el('div','member');
       const stColor=p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)';
       const av=M.el('div','avatar',M.initials(p.name));
@@ -2000,6 +2004,7 @@ M.UI = {
       const info=M.el('div','mi');
       const nm=M.el('div','mn'); nm.textContent=p.name;
       if(p.adm) nm.insertAdjacentHTML('beforeend',M.Icons.crown);
+      if(p.v && p.v!==M.Version){ const vc=M.el('span','mono'); vc.textContent='v'+p.v; vc.title='This member is running a different build (you are on v'+M.Version+') — ask them to hard-refresh the page'; vc.style.cssText='color:var(--warn);font-size:10px;border:1px solid var(--warn);border-radius:5px;padding:0 4px;opacity:.9'; nm.appendChild(vc); }
       const inds=M.el('span','ind');
       if(M.Call && M.Call.peerInCall(p.id)) inds.innerHTML+=`<span class="${'hot'}" title="${M.t('in_call')}">${M.Icons.phone}</span>`;
       if(M.WB && M.WB.activePeers?.has(p.id)) inds.innerHTML+=`<span title="${M.t('on_board')}">${M.Icons.board}</span>`;
@@ -2012,8 +2017,8 @@ M.UI = {
       const mk=(svg,title,fn,danger)=>{ const b=M.el('button','icon-btn'+(danger?' danger':''),svg); b.title=title; b.onclick=e=>{ e.stopPropagation(); M.UI.closeDrawer(); fn(); }; return b; };
       if(p.status==='online'){
         acts.appendChild(mk(M.Icons.chat,M.t('dm'),()=>{ if(M.Perms.denyToast('dm')) M.Chat.switchTarget(p.id); }));
-        acts.appendChild(mk(M.Icons.phone,M.t('call'),()=>M.Call.start(p.id,'voice')));
-        acts.appendChild(mk(M.Icons.cam,M.t('video'),()=>M.Call.start(p.id,'video')));
+        acts.appendChild(mk(M.Icons.phone,M.t('call'),()=>M.Call.safeStart(p.id,'voice')));
+        acts.appendChild(mk(M.Icons.cam,M.t('video'),()=>M.Call.safeStart(p.id,'video')));
         acts.appendChild(mk(M.Icons.file,M.t('send_file'),()=>{ if(M.Perms.denyToast('filePriv')) M.FT._quickFile(p.id); }));
       }
       if(M.Admin.priv && p.id!==M.State.self.id){
@@ -2198,6 +2203,11 @@ M.Call = {
   peerInCall(pid){ return M.Call.all().some(s=>s.peers.has(pid)); },
   selfSessions(){ return M.Call.all(); },
   findWith(peerId){ return M.Call.all().find(s=>s.peers.has(peerId)&&(s.status==='active'||s.status==='ringing')); },
+  /* a failed call must never be silent */
+  async safeStart(peerId,kind,opts){
+    try{ return await M.Call.start(peerId,kind,opts); }
+    catch(e){ M.log('err','call start failed: '+(e.message||e)); M.toast('err','Call failed',e.message||String(e)); return null; }
+  },
   /* critical signaling is retransmitted (public relays drop packets); receivers de-duplicate */
   _repeat(target,msg,tries,gap){
     try{ M.Net.send('sig',msg,{target}); }catch(e){}
@@ -2209,6 +2219,7 @@ M.Call = {
   },
 
   async start(peerId, kind, opts={}){
+    if(!M.Net.A.sig){ M.toast('warn','Not connected yet','Signaling is still starting — try again in a few seconds.'); return null; }
     const feat = opts.group ? 'callGroup' : (kind==='video'?'callVideo':'callVoice');
     if(!M.Perms.denyToast(feat)) return null;
     if(!opts.group && M.Call.findWith(peerId)){ M.toast('warn','Already in a call with '+M.Members.name(peerId)); return null; }
@@ -3436,6 +3447,7 @@ M.CC = {
     const el=M.$('#ccDiag'); if(!el) return;
     const peers=[...M.State.peers.values()];
     const rows=[
+      ['build','v'+M.Version+' — peers on other builds show a ⚠ chip in the member list'],
       ['selfId',M.fmt.idShort(M.State.self.id)+' ('+M.State.self.id+')'],
       ['strategy','MQTT → WebRTC mesh (per-call peer targeting)'],
       ['signaling', M.Recovery._lastOk?'connected':'<span style="color:var(--err)">reconnecting…</span>'],
@@ -3665,7 +3677,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
     addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} });
     M.__booted=true;
-    M.log('info','Majlis boot · '+M.Platform.br+'/'+M.Platform.os+(M.Platform.mobile?' (mobile)':''));
+    const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · single-file · GitHub Pages ready';
+    M.log('info','Majlis v'+M.Version+' boot · '+M.Platform.br+'/'+M.Platform.os+(M.Platform.mobile?' (mobile)':''));
   }catch(err){
     console.error(err);
     M.lobbyMsg('Boot error: '+err.message,true);
