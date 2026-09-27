@@ -358,6 +358,28 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   #dropOverlay .dz{padding:34px 26px;font-size:17px;border-radius:14px}
   .m-card{padding:18px}
 }
+/* ---------- remote assistance ---------- */
+#rcBanner{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:130;display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,#3a1512,#2a0f0d);border:1px solid var(--red);color:#ffb9b2;border-radius:999px;padding:8px 10px 8px 16px;font-size:13px;box-shadow:0 12px 34px -10px rgba(255,97,87,.55);animation:msgIn .25s ease both;max-width:94vw}
+html[data-theme="light"] #rcBanner{background:linear-gradient(180deg,#fff3f2,#ffe7e4);color:#8c231c;border-color:#e5837b}
+#rcBanner b{color:#fff}
+html[data-theme="light"] #rcBanner b{color:#a3271e}
+#rcBanner .rc-dot{width:10px;height:10px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
+#rcWin{position:fixed;z-index:75;top:70px;inset-inline-end:18px;width:min(680px,94vw);background:var(--bg1);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sh);overflow:hidden;display:flex;flex-direction:column;outline:none;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+.rc-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--line)}
+#rcStage{position:relative;background:#000;aspect-ratio:16/10;cursor:crosshair;touch-action:none}
+#rcStage video{width:100%;height:100%;object-fit:contain;display:block}
+#rcStage .rc-hint{position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);font-family:var(--mono);font-size:13px;background:var(--tile-bg)}
+#rcStage[data-live="1"] .rc-hint{display:none}
+.rc-foot{padding:9px 13px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line);background:var(--bg2)}
+@media (max-width:760px){ #rcWin{inset-inline:8px;top:auto;bottom:10px;width:auto} }
+#rcOverlay{position:fixed;inset:0;z-index:120;pointer-events:none}
+#rcCur{position:absolute;width:26px;height:26px;border:2.5px solid var(--red);border-radius:50%;transform:translate(-50%,-50%);display:none;box-shadow:0 0 0 5px rgba(255,97,87,.22),0 2px 12px rgba(0,0,0,.45);transition:left .05s linear,top .05s linear}
+#rcCur::after{content:'';position:absolute;inset:8px;background:var(--red);border-radius:50%}
+#rcCurLbl{position:absolute;top:24px;left:14px;background:var(--red);color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;letter-spacing:.02em}
+.rc-ripple{position:absolute;width:14px;height:14px;border:2px solid var(--red);border-radius:50%;transform:translate(-50%,-50%);animation:rcRip .6s ease-out both}
+@keyframes rcRip{from{opacity:.9;width:12px;height:12px}to{opacity:0;width:76px;height:76px}}
+#rcKey{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(11,18,21,.88);color:var(--ink);border:1px solid var(--line2);font-family:var(--mono);font-size:13px;padding:6px 16px;border-radius:9px;box-shadow:var(--sh)}
+html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 
 /* ---------- Board ---------- */
 #panel-board{position:relative}
@@ -660,6 +682,31 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div id="callLayer"></div>
 </div>
 
+<!-- remote assistance surfaces -->
+<div id="rcBanner" class="hidden">
+  <span class="rc-dot"></span>
+  <span><b id="rcBannerName"></b> <span data-i18n="rc_banner">is viewing &amp; guiding your screen</span></span>
+  <button class="btn btn-sm btn-danger" id="rcRevoke" data-i18n="rc_revoke">Revoke access</button>
+</div>
+<div id="rcOverlay" class="hidden"><div id="rcCur"><span id="rcCurLbl"></span></div><div id="rcKey" class="hidden"></div></div>
+<div id="rcWin" class="hidden" tabindex="0">
+  <div class="rc-head">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
+    <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
+    <button class="btn btn-sm btn-danger" id="rcEnd" data-i18n="end_call">End</button>
+  </div>
+  <div id="rcStage" data-live="0"><video id="rcVideo" autoplay playsinline muted></video><div class="rc-hint" data-i18n="rc_wait">awaiting member approval…</div></div>
+  <div class="rc-foot" data-i18n="rc_hint">Your pointer, clicks, scrolling and typing are mirrored on the member's screen as live guidance. The member can revoke access at any moment.</div>
+</div>
+<div class="modal hidden" id="mRCReq"><div class="m-card sm">
+  <h3 style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 8v5M9.5 10.5L12 13l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rc_request_title">Remote control request</span></h3>
+  <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span></p>
+  <div style="display:flex;gap:11px;margin-top:20px">
+    <button class="btn btn-danger btn-big" id="rcReqDeny" style="flex:1" data-i18n="decline">Decline</button>
+    <button class="btn btn-teal btn-big" id="rcReqAllow" style="flex:1" data-i18n="rc_allow">Allow</button>
+  </div>
+</div></div>
+
 <!-- ================= MODALS ================= -->
 <div class="modal hidden" id="mShare"><div class="m-card">
   <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span data-i18n="share_room">Share room</span></h3>
@@ -861,7 +908,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.6.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.7.0';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1047,6 +1094,14 @@ en:{
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
  screen:'Screen', quality:'quality', rtt:'ping', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
+ rc_btn:'Remote control', rc_win_title:'Remote control', rc_request_title:'Remote control request',
+ rc_request_body:'wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.',
+ rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
+ rc_wait:'awaiting member approval…', rc_connect:'member approved — connecting…',
+ rc_start_ok:'Session active — click the window, then move, click, scroll or type', rc_declined:'The member declined the request',
+ rc_unsup:'Screen capture is not supported on that device', rc_ended:'Remote session ended', rc_you_declined:'Request declined',
+ rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
+ rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1122,6 +1177,14 @@ ar:{
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
+ rc_btn:'تحكم عن بُعد', rc_win_title:'تحكم عن بُعد', rc_request_title:'طلب تحكم عن بُعد',
+ rc_request_body:'يرغب في مشاهدة شاشتك وإرشادك عن بُعد. تُشارَك شاشتك مع المشرف فقط، ويظهر مؤشره ونقراته وحروفه كطبقة حية فوق شاشتك. يمكنك إلغاء الوصول في أي لحظة.',
+ rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
+ rc_wait:'بانتظار موافقة العضو…', rc_connect:'وافق العضو — جارٍ الاتصال…',
+ rc_start_ok:'الجلسة نشطة — انقر النافذة ثم حرّك وانقر واكتب', rc_declined:'رفض العضو الطلب',
+ rc_unsup:'التقاط الشاشة غير مدعوم على ذلك الجهاز', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب',
+ rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
+ rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -1332,7 +1395,7 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc']) M.Net.A[n]=R.makeAction(n);
     M.bus.emit('netReady');
 
     /* presence */
@@ -1356,6 +1419,8 @@ M.Net = {
     M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
     /* chat history backfill for refreshed / late-joining members (room messages only — DMs are never shared) */
     M.Net.A.hist.onMessage = (d,{peerId}) => M.Chat.onHist(d,peerId);
+    /* remote-assistance control channel (consent, input mirroring, teardown) */
+    M.Net.A.rc.onMessage = (d,{peerId}) => M.RC.onMsg(d,peerId);
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
@@ -2097,6 +2162,7 @@ M.UI = {
         acts.appendChild(mk(M.Icons.file,M.t('send_file'),()=>{ if(M.Perms.denyToast('filePriv')) M.FT._quickFile(p.id); }));
       }
       if(M.Admin.priv && p.id!==M.State.self.id){
+        acts.appendChild(mk('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M9 8l7 3-3 1.2L11.5 15z" stroke-linejoin="round"/></svg>',M.t('rc_btn'),()=>M.RC.request(p.id)));
         acts.appendChild(mk(M.Icons.x,M.t('remove'),()=>M.bus.emit('kickAsk',p),true));
       }
       row.append(av,info,acts);
@@ -2447,6 +2513,7 @@ M.Call = {
   },
 
   onPeerStream({stream,peerId,metadata}){
+    if(metadata?.kind==='rc'){ M.RC.onStream(stream,peerId); return; }   /* remote-assistance plane — kept fully separate from calls */
     const callId=metadata?.call;
     let s= callId ? M.Call.sessions.get(callId) : M.Call.all().find(x=>x.peers.has(peerId));
     if(!s){ M.log('warn','stream from '+M.fmt.idShort(peerId)+' with no matching session — ignored (isolation)'); return; }
@@ -2584,7 +2651,7 @@ M.Call = {
     const btn=(svg,cls,title,fn,active)=>{ const b=M.el('button','icon-btn '+cls,svg); b.title=title; if(active) b.classList.add('on'); b.onclick=fn; ctrl.appendChild(b); return b; };
     btn(s.muted?M.Icons.micOff:M.Icons.mic, s.muted?'off':'', s.muted?M.t('unmute'):M.t('mute'), ()=>M.Call.toggleMute(s), !s.muted);
     if(s.kind==='video') btn(s.camOff?M.Icons.cam:M.Icons.cam, s.camOff?'off':'', s.camOff?M.t('cam_on'):M.t('cam_off'), ()=>M.Call.toggleCam(s), !s.camOff);
-    if(s.kind==='video' && !M.Platform.mobile) btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>','', s.sharing?M.t('stop_share'):M.t('screen_share'), ()=>M.Call.toggleScreen(s), s.sharing);
+    if(!M.Platform.mobile) btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>','', s.sharing?M.t('stop_share'):M.t('screen_share'), ()=>M.Call.toggleScreen(s), s.sharing);
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg>','',M.t('devices'),()=>M.Media.openDevicesModal());
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>','end',M.t('end_call'),()=>M.Call.leave(s.id));
   },
@@ -2674,6 +2741,197 @@ M.Call = {
     M.$('#mGroup').classList.remove('hidden');
   }
 };
+
+/* =====================================================================
+   Remote Assistance (RC) — Admin-requested, member-consented screen
+   access. The member's screen streams to the Admin ONLY; the Admin's
+   pointer, clicks, scrolling and keystrokes are mirrored as a live
+   overlay on the member's display. The member keeps a persistent banner
+   and can revoke instantly. Browsers are sandboxed, so a web page cannot
+   physically drive another machine's OS cursor — this is guided
+   telestration with hard consent, and the UI says so.
+   ===================================================================== */
+M.RC = {
+  admin:null,        // {peerId,status:'await'|'active',startedAt,stream}
+  member:null,       // {adminId,stream,startedAt}
+  _pendingReq:null,
+  init(){
+    M.bus.on('peerOffline',pid=>{
+      if(M.RC.admin && M.RC.admin.peerId===pid) M.RC.closeAdmin(M.t('rc_ended'));
+      if(M.RC.member && M.RC.member.adminId===pid) M.RC.closeMember('admin offline',true);
+    });
+    const stage=M.$('#rcStage');
+    stage.addEventListener('pointermove',e=>{ if(M.RC.admin?.status!=='active') return; const p=M.RC.norm(e); M.RC.sendMove(p.x,p.y); });
+    stage.addEventListener('pointerdown',e=>{ if(M.RC.admin?.status!=='active') return; M.RC.ev('down',M.RC.norm(e)); });
+    stage.addEventListener('pointerup',e=>{ if(M.RC.admin?.status!=='active') return; M.RC.ev('click',M.RC.norm(e)); });
+    stage.addEventListener('wheel',e=>{ e.preventDefault(); if(M.RC.admin?.status==='active') M.RC.ev('scroll',{dy:Math.sign(e.deltaY)}); },{passive:false});
+    M.$('#rcWin').addEventListener('keydown',e=>{
+      if(M.RC.admin?.status!=='active') return;
+      e.preventDefault();
+      const mods=(e.ctrlKey?'Ctrl+':'')+(e.shiftKey?'Shift+':'')+(e.altKey?'Alt+':'')+(e.metaKey?'⌘+':'');
+      M.RC.ev('key',{key:e.key,mods});
+    });
+    M.$('#rcEnd').onclick=()=>M.RC.closeAdmin();
+    M.$('#rcRevoke').onclick=()=>M.RC.closeMember('revoked');
+    M.$('#rcReqAllow').onclick=()=>M.RC.answerReq(true);
+    M.$('#rcReqDeny').onclick=()=>M.RC.answerReq(false);
+  },
+  /* ---------------- Admin side ---------------- */
+  request(peerId){
+    if(M.RC.admin){ M.toast('warn',M.t('rc_win_title'),'One session at a time — end the current one first.'); return; }
+    const m=M.State.peers.get(peerId);
+    if(!m||m.status!=='online'){ M.toast('warn',M.t('rc_win_title'),M.t('offline')); return; }
+    M.RC.admin={peerId,status:'await',startedAt:0,stream:null};
+    M.$('#rcWin').classList.remove('hidden');
+    M.$('#rcTitle').textContent=m.name;
+    M.$('#rcStat').textContent=M.t('rc_wait');
+    M.$('#rcTime').textContent='';
+    M.$('#rcStage').dataset.live='0';
+    M.$('#rcVideo').srcObject=null;
+    const msg={t:'req',to:peerId,fromName:M.State.self.name};
+    try{ M.Net.send('rc',msg,peerId); }catch(e){}
+    setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1300);
+    M.log('info','remote-control requested → '+m.name);
+  },
+  onStream(stream,peerId){
+    const a=M.RC.admin;
+    if(!a || peerId!==a.peerId) { stream.getTracks().forEach(t=>t.stop()); return; }
+    a.stream=stream; a.status='active'; a.startedAt=Date.now();
+    const v=M.$('#rcVideo'); v.srcObject=stream; v.play?.().catch(()=>{});
+    M.$('#rcStat').textContent=''; M.$('#rcStage').dataset.live='1';
+    M.$('#rcWin').focus();
+    M.toast('ok',M.t('rc_win_title'),M.t('rc_start_ok'));
+    M.log('info','remote-control session active with '+M.Members.name(peerId));
+    clearInterval(M.RC._admT);
+    M.RC._admT=setInterval(()=>{ if(M.RC.admin?.startedAt) M.$('#rcTime').textContent=M.fmt.dur((Date.now()-M.RC.admin.startedAt)/1000); },1000);
+    stream.getVideoTracks().forEach(t=>t.onended=()=>M.RC.closeAdmin(M.t('rc_ended')));
+  },
+  closeAdmin(note){
+    const a=M.RC.admin; if(!a) return;
+    try{ M.Net.send('rc',{t:'end',to:a.peerId},a.peerId); }catch(e){}
+    clearInterval(M.RC._admT);
+    M.RC.admin=null;
+    M.$('#rcWin').classList.add('hidden'); M.$('#rcVideo').srcObject=null;
+    if(note) M.toast('info',M.t('rc_win_title'),note);
+    M.log('info','remote-control ended (admin side)');
+  },
+  /* input mirroring (normalized coordinates survive any screen size) */
+  ev(k,d){ const a=M.RC.admin; if(!a||a.status!=='active') return; try{ M.Net.send('rc',{t:'ev',k,...d},a.peerId); }catch(e){} },
+  sendMove(x,y){ M.RC._mv ??= M.throttle((xx,yy)=>M.RC.ev('move',{x:xx,y:yy}),33); M.RC._mv(x,y); },
+  norm(e){
+    const v=M.$('#rcVideo'); const r=v.getBoundingClientRect();
+    const vw=v.videoWidth||16, vh=v.videoHeight||9;
+    const sc=Math.min(r.width/vw,r.height/vh);
+    const ox=(r.width-vw*sc)/2, oy=(r.height-vh*sc)/2;
+    return { x:M.clamp((e.clientX-r.left-ox)/(vw*sc),0,1), y:M.clamp((e.clientY-r.top-oy)/(vh*sc),0,1) };
+  },
+  /* ---------------- Member side ---------------- */
+  onMsg(d,from){
+    if(!d||!d.t) return;
+    switch(d.t){
+      case 'req': {
+        if(d.to && d.to!==M.State.self.id) return;
+        if(d.fromName) M.Members.adopt(from,d.fromName);
+        if(M.RC.member){ try{ M.Net.send('rc',{t:'decline',to:from,reason:'busy'},from); }catch(e){} return; }
+        if(!navigator.mediaDevices?.getDisplayMedia){
+          try{ M.Net.send('rc',{t:'decline',to:from,reason:'unsupported'},from); }catch(e){}
+          M.toast('warn',M.t('rc_win_title'),M.t('rc_unsup')); return;
+        }
+        M.RC._pendingReq={from};
+        M.$('#rcReqName').textContent=M.Members.name(from);
+        M.$('#mRCReq').classList.remove('hidden');
+        M.Notify.ring(true); M.Notify.push('Majlis',M.t('rc_request_title'));
+        M.log('warn','remote-control requested by '+M.Members.name(from));
+        break;
+      }
+      case 'accept': {
+        if(M.RC.admin && from===M.RC.admin.peerId && M.RC.admin.status==='await') M.$('#rcStat').textContent=M.t('rc_connect');
+        break;
+      }
+      case 'decline': {
+        if(M.RC.admin && from===M.RC.admin.peerId){
+          const r=d.reason==='unsupported'?M.t('rc_unsup'):M.t('rc_declined');
+          M.RC.closeAdmin(r);
+        }
+        break;
+      }
+      case 'end': {
+        if(M.RC.member && from===M.RC.member.adminId) M.RC.closeMember(M.t('rc_ended'),true);
+        break;
+      }
+      case 'ev': {
+        if(M.RC.member && from===M.RC.member.adminId) M.RC.paintEvent(d);
+        break;
+      }
+    }
+  },
+  async answerReq(allow){
+    const p=M.RC._pendingReq; M.RC._pendingReq=null;
+    M.$('#mRCReq').classList.add('hidden'); M.Notify.ring(false);
+    if(!p) return;
+    if(!allow){
+      try{ M.Net.send('rc',{t:'decline',to:p.from,reason:'declined'},p.from); }catch(e){}
+      M.toast('info',M.t('rc_win_title'),M.t('rc_you_declined'));
+      return;
+    }
+    let stream;
+    try{
+      stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false,selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'include'});
+    }catch(e){
+      try{ M.Net.send('rc',{t:'decline',to:p.from,reason:'canceled'},p.from); }catch(_){}
+      M.toast('warn',M.t('rc_win_title'), e.name==='NotAllowedError'?M.t('rc_you_declined'):(e.message||''));
+      return;
+    }
+    M.RC.member={adminId:p.from,stream,startedAt:Date.now()};
+    try{ M.Net.room.addStream(stream,{target:p.from,metadata:{kind:'rc'}}); }catch(e){ M.log('err','rc addStream failed: '+e.message); }
+    try{ M.Net.send('rc',{t:'accept',to:p.from},p.from); }catch(e){}
+    M.$('#rcBannerName').textContent=M.Members.name(p.from);
+    M.$('#rcBanner').classList.remove('hidden');
+    M.$('#rcOverlay').classList.remove('hidden');
+    M.$('#rcCurLbl').textContent=M.Members.name(p.from);
+    stream.getVideoTracks().forEach(t=>t.onended=()=>M.RC.closeMember('sharing stopped'));
+    M.toast('ok',M.t('rc_win_title'),M.t('rc_member_on'),{ms:6500});
+    M.log('warn','remote-control GRANTED to '+M.Members.name(p.from));
+  },
+  closeMember(reason,remote){
+    const m=M.RC.member; if(!m) return;
+    if(!remote) try{ M.Net.send('rc',{t:'end',to:m.adminId},m.adminId); }catch(e){}
+    try{ M.Net.room.removeStream(m.stream,{target:m.adminId}); }catch(e){}
+    m.stream.getTracks().forEach(t=>{ t.onended=null; t.stop(); });
+    M.RC.member=null;
+    M.$('#rcBanner').classList.add('hidden');
+    M.$('#rcOverlay').classList.add('hidden');
+    M.$('#rcKey').classList.add('hidden');
+    M.toast('info',M.t('rc_win_title'),M.t('rc_ended')+(reason?' — '+reason:''));
+    M.log('info','remote-control closed (member side)');
+  },
+  /* member-side overlay rendering of the admin's mirrored input */
+  paintEvent(d){
+    const cur=M.$('#rcCur');
+    if(d.k==='move'||d.k==='down'||d.k==='click'){
+      cur.style.display='block';
+      cur.style.left=(d.x*innerWidth)+'px'; cur.style.top=(d.y*innerHeight)+'px';
+      if(d.k==='click'||d.k==='down'){
+        const rp=M.el('div','rc-ripple');
+        rp.style.left=(d.x*innerWidth)+'px'; rp.style.top=(d.y*innerHeight)+'px';
+        M.$('#rcOverlay').appendChild(rp); setTimeout(()=>rp.remove(),650);
+      }
+      return;
+    }
+    if(d.k==='scroll'){ M.RC.flashKey('⇅ scroll'); return; }
+    if(d.k==='key') M.RC.flashKey('⌨ '+((d.mods||'')+d.key));
+  },
+  flashKey(txt){
+    const k=M.$('#rcKey'); k.textContent=txt; k.classList.remove('hidden');
+    clearTimeout(M.RC._kt); M.RC._kt=setTimeout(()=>k.classList.add('hidden'),1100);
+  },
+  resetAll(){
+    if(M.RC.admin) M.RC.closeAdmin();
+    if(M.RC.member) M.RC.closeMember('left the room');
+    M.$('#mRCReq').classList.add('hidden'); M.Notify.ring(false);
+  }
+};
+M.RC.init();
 
 /* =====================================================================
    Whiteboard — object-based collaborative canvas.
@@ -3387,6 +3645,7 @@ M.App = {
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
+    try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#callLayer').innerHTML=''; M.$('#memberList').innerHTML=''; M.$('#peersLbl').textContent='0';
     M.$('#wbText').classList.add('hidden');
@@ -3503,6 +3762,9 @@ M.CC = {
       acts.appendChild(mini(M.t('dm'),'dm',P0.dm));
       acts.appendChild(mini(M.t('tab_files'),'files',P0.files));
       acts.appendChild(mini(M.t('tab_calls'),'calls',P0.voice||P0.video));
+      const rc=M.el('button','cc-mini',M.t('rc_btn'));
+      rc.onclick=()=>M.RC.request(p.id);
+      acts.appendChild(rc);
       const kick=M.el('button','cc-mini dgr',M.t('remove'));
       kick.onclick=async ()=>{ if(await M.confirm(M.t('kick_q'),M.t('kick_q_body',{n:p.name}))) M.Admin.cmd('kick',{peerId:p.id,name:p.name}); };
       acts.appendChild(kick);
