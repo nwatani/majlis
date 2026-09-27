@@ -154,7 +154,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .chk input:checked + .box svg{opacity:1}
 
 /* ---------- Lobby ---------- */
-#lobby{position:relative;z-index:2;height:100dvh;display:grid;grid-template-columns:1.15fr 1fr;align-items:center;gap:40px;padding:48px clamp(24px,6vw,90px);overflow:auto}
+#lobby{position:relative;z-index:2;height:100vh;height:100dvh;display:grid;grid-template-columns:1.15fr 1fr;align-items:center;gap:40px;padding:48px clamp(24px,6vw,90px);overflow:auto;overscroll-behavior:contain}
 .lb-brand{display:flex;align-items:baseline;gap:14px;margin-bottom:14px}
 .lb-brand svg{width:46px;height:46px;align-self:center}
 .lb-brand .wm{font-family:var(--disp);font-size:44px;font-weight:700;letter-spacing:.04em}
@@ -179,15 +179,20 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .field{margin-bottom:15px}
 .code-inp{font-family:var(--mono);letter-spacing:.42em;text-transform:uppercase;text-align:center;font-size:19px;font-weight:600}
 @media (max-width:960px){
-  #lobby{grid-template-columns:1fr;padding:32px 22px;align-content:center;gap:26px}
-  .lb-card{justify-self:stretch}
-  .lb-brand .wm{font-size:34px}
+  /* top-aligned so a tall lobby scrolls instead of clipping its own header */
+  #lobby{grid-template-columns:1fr;padding:28px 18px 44px;align-items:start;align-content:start;gap:24px}
+  .lb-card{justify-self:stretch;max-width:none;padding:22px}
+  .lb-brand{margin-bottom:8px}.lb-brand svg{width:36px;height:36px}
+  .lb-brand .wm{font-size:30px}.lb-brand .wm-ar{font-size:21px}
   .lb-left{order:2}.lb-right{order:1}
-  .lb-tag{margin-bottom:18px}
+  .lb-tag{margin-bottom:16px;font-size:14.5px}
+  #relayPanel{margin-bottom:18px}
+  .inp{font-size:16px}  /* prevents iOS auto-zoom on focus */
+  .code-inp{font-size:20px}
 }
 
 /* ---------- App shell ---------- */
-#app{position:relative;z-index:2;height:100dvh;display:flex;flex-direction:column}
+#app{position:relative;z-index:2;height:100vh;height:100dvh;display:flex;flex-direction:column}
 #reconBanner{display:flex;align-items:center;gap:10px;padding:8px 18px;background:rgba(245,168,60,.12);border-bottom:1px solid rgba(245,168,60,.4);font-size:13px;color:var(--amber2)}
 #topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:58px;flex:none;border-bottom:1px solid var(--line);background:var(--bar-bg);backdrop-filter:blur(8px)}
 .brand-mini{display:flex;align-items:center;gap:9px;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.04em}
@@ -205,6 +210,15 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   #btnShare .btxt{display:none}
   #btnCC .btxt{display:none}
   #btnCC,#btnShare{padding:9px 11px}
+}
+@media (max-width:620px){
+  /* compact topbar so the leave button always stays reachable */
+  .brand-mini{display:none}
+  #langBtn2,#themeBtn{display:none}
+  #topbar{gap:6px;padding:0 8px;padding-top:env(safe-area-inset-top);height:calc(54px + env(safe-area-inset-top))}
+  #roomChip{letter-spacing:.06em;padding:5px 7px 5px 10px;font-size:12px;gap:6px}
+  #topStatus{gap:5px;font-size:11px}
+  .icon-btn{width:34px;height:34px}
 }
 
 #main{flex:1;display:flex;min-height:0}
@@ -230,7 +244,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .member .ind{display:flex;gap:4px;align-items:center}
 .member .ind svg{width:13px;height:13px;color:var(--teal)}
 .member .ind svg.hot{color:var(--red);animation:ledPulse 1.2s infinite}
-#sideFoot{padding:12px 16px;border-top:1px solid var(--line)}
+#sideFoot{padding:12px 16px;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px}
+#sideFoot .grow{flex:1}
+#sideLangBtn,#sideThemeBtn{display:none}
+@media (max-width:900px){ #sideLangBtn,#sideThemeBtn{display:inline-flex} }
 @media (max-width:900px){
   #sidebar{position:fixed;inset-block:0;inset-inline-start:0;z-index:60;width:290px;background:var(--bg1);transform:translateX(-105%);transition:transform .22s ease;box-shadow:var(--sh)}
   [dir="rtl"] #sidebar{transform:translateX(105%)}
@@ -239,8 +256,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 }
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg)}
-.tabbtn{display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;color:var(--mut);border-bottom:2px solid transparent;transition:color .14s;position:relative}
+#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg);overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+.tabbtn{display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;color:var(--mut);border-bottom:2px solid transparent;transition:color .14s;position:relative;white-space:nowrap;flex:none}
 .tabbtn:hover{color:var(--ink)}
 .tabbtn.on{color:var(--ink);border-bottom-color:var(--amber)}
 .tabbtn svg{width:17px;height:17px}
@@ -270,7 +288,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .msg.file .f-ico svg{width:19px;height:19px}
 .msg.dm-tag .m-body{border-color:rgba(111,179,242,.45)}
 #typingRow{padding:2px 20px 4px;font-size:12px;color:var(--teal);font-style:italic;height:22px;flex:none}
-#composer{display:flex;align-items:flex-end;gap:9px;padding:12px 16px 16px;flex:none;border-top:1px solid var(--line)}
+#composer{display:flex;align-items:flex-end;gap:9px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex:none;border-top:1px solid var(--line)}
 #msgInput{flex:1;max-height:120px;padding:10px 14px;border-radius:12px}
 #composer[disabled]{opacity:.5;pointer-events:none}
 .comp-note{padding:14px 18px;font-size:13px;color:var(--dim);text-align:center;border-top:1px solid var(--line);flex:none}
@@ -336,7 +354,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin.ringing .cw-grid{min-height:110px}
 .callwin .ring-note{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--mut);font-family:var(--mono)}
 @media (max-width:760px){
-  .callwin{position:fixed;inset-inline:10px;bottom:76px;width:auto;max-height:56dvh}
+  .callwin{position:fixed;inset-inline:10px;bottom:76px;width:auto;max-height:56vh;max-height:56dvh}
+  #dropOverlay .dz{padding:34px 26px;font-size:17px;border-radius:14px}
+  .m-card{padding:18px}
 }
 
 /* ---------- Board ---------- */
@@ -539,9 +559,17 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   </header>
   <div id="main">
     <aside id="sidebar">
-      <div id="selfCard"><div class="avatar" id="selfAvatar">?</div><div style="min-width:0"><b id="selfName">—</b><small id="selfIdLbl">···</small></div></div>
+      <div id="selfCard" style="cursor:pointer"><div class="avatar" id="selfAvatar">?</div><div style="min-width:0"><b id="selfName">—</b> <svg id="renameIco" style="display:inline-block;vertical-align:-2px;opacity:.55" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" stroke-linejoin="round"/></svg><small id="selfIdLbl">···</small></div></div>
       <div id="memberList"></div>
-      <div id="sideFoot"><span class="pill" id="connPill"><span class="led" id="connLed"></span><span id="connLbl">connecting</span></span></div>
+      <div id="sideFoot">
+        <span class="pill" id="connPill"><span class="led" id="connLed"></span><span id="connLbl">connecting</span></span>
+        <span class="grow"></span>
+        <button class="icon-btn" id="sideLangBtn" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></button>
+        <button class="icon-btn" id="sideThemeBtn" title="Theme">
+          <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
+          <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </aside>
     <section id="content">
       <nav id="tabs">
@@ -1310,7 +1338,10 @@ M.Net = {
     R.onPeerJoin = peerId => {
       M.log('info','peer joined '+M.fmt.idShort(peerId));
       M.Members.upsert(peerId,{status:'connecting'});
-      M.Net.A.hello.send(profile(),{target:peerId});
+      /* names matter — announce ourselves redundantly so a dropped packet
+         can never leave either side stuck on a generic guest label */
+      const hi=()=>{ try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
+      hi(); setTimeout(hi,1500); setTimeout(hi,4500);
       M.Net.hbTick();
     };
     R.onPeerLeave = peerId => {
@@ -1894,13 +1925,20 @@ M.UI = {
     M.bus.on('wbPeers',()=>M.UI.renderMembers());
     M.bus.on('perms',()=>{ M.Chat.refreshComposerState(); M.UI.renderMembers(); M.bus.emit('ccRefresh'); });
     M.bus.on('lang',()=>{ M.UI.renderMembers(); if(!M.$('#panel-chat').classList.contains('hidden')) M.Chat.renderAll(); M.FT.render(); });
-    M.$('#btnMenu').onclick=()=>{ M.$('#sidebar').classList.add('open'); let s=M.$('#sideScrim'); if(!s){ s=M.el('div',null); s.id='sideScrim'; s.onclick=()=>M.$('#sidebar').classList.remove('open'); document.body.appendChild(s); } s.classList.remove('hidden'); };
+    M.$('#selfCard').onclick=()=>M.UI.renameSelf();
+    M.bus.on('lang',()=>{ M.$('#selfCard').title=M.t('display_name'); });
+    M.$('#selfCard').title=M.t('display_name');
+    M.$('#btnMenu').onclick=()=>{ M.$('#sidebar').classList.add('open'); let s=M.$('#sideScrim'); if(!s){ s=M.el('div',null); s.id='sideScrim'; s.onclick=()=>{ M.$('#sidebar').classList.remove('open'); s.classList.add('hidden'); }; document.body.appendChild(s); } s.classList.remove('hidden'); };
     if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display='';
     addEventListener('resize',M.debounce(()=>{ if(matchMedia('(max-width:900px)').matches) M.$('#btnMenu').style.display=''; else { M.$('#btnMenu').style.display='none'; M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden'); } M.bus.emit('resize'); },150));
   },
   onlineCount(){
     const on=M.Members.onlinePeers().length;
     const el=M.$('#peersLbl'); if(el){ el.textContent=on; el.title=on+' / '+M.State.peers.size+' '+M.t('members_s'); }
+  },
+  closeDrawer(){
+    M.$('#sidebar').classList.remove('open');
+    M.$('#sideScrim')?.classList.add('hidden');
   },
   setTab(tab){
     M.UI.tab=tab;
@@ -1943,7 +1981,7 @@ M.UI = {
       ms.innerHTML=`<span style="width:13px;height:13px;display:inline-flex;color:var(--dim)">${M.Icons.dev(p)}</span>${M.t(p.status)}${p.os&&p.os!=='?'?' · '+p.os:''}`;
       info.append(nm,ms);
       const acts=M.el('div','acts');
-      const mk=(svg,title,fn,danger)=>{ const b=M.el('button','icon-btn'+(danger?' danger':''),svg); b.title=title; b.onclick=e=>{ e.stopPropagation(); fn(); }; return b; };
+      const mk=(svg,title,fn,danger)=>{ const b=M.el('button','icon-btn'+(danger?' danger':''),svg); b.title=title; b.onclick=e=>{ e.stopPropagation(); M.UI.closeDrawer(); fn(); }; return b; };
       if(p.status==='online'){
         acts.appendChild(mk(M.Icons.chat,M.t('dm'),()=>{ if(M.Perms.denyToast('dm')) M.Chat.switchTarget(p.id); }));
         acts.appendChild(mk(M.Icons.phone,M.t('call'),()=>M.Call.start(p.id,'voice')));
@@ -1956,6 +1994,38 @@ M.UI = {
       row.append(av,info,acts);
       list.appendChild(row);
     }
+  },
+  renameSelf(){
+    /* the name the user chose is authoritative — edit it any time and it is
+       re-announced to every peer immediately (roster, chat, calls, board) */
+    const b=M.$('#selfName');
+    if(b.querySelector('input')) return;
+    const cur=M.State.self.name||'';
+    const inp=document.createElement('input');
+    inp.className='inp'; inp.maxLength=24; inp.value=cur;
+    inp.style.cssText='padding:3px 8px;font-size:13px;width:100%;max-width:170px';
+    b.textContent=''; b.appendChild(inp); inp.focus(); inp.select();
+    let done=false;
+    const commit=()=>{
+      if(done) return; done=true;
+      const nv=inp.value.trim();
+      b.textContent=nv||cur;
+      if(nv && nv!==cur){
+        M.Store.set('name',nv);
+        M.State.self.name=nv.slice(0,24);
+        M.State.self.fp=M.SHA.create().update(M.te.encode(nv+'|'+navigator.userAgent)).hex().slice(0,16);
+        const av=M.$('#selfAvatar'); av.textContent=M.initials(nv); av.style.background=M.avatarBg(nv);
+        try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:!!(M.Admin.priv||M.Admin.legacy), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){}
+        const again=()=>{ try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:!!(M.Admin.priv||M.Admin.legacy), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){} };
+        setTimeout(again,1200); setTimeout(again,3500);
+        M.Net.hbTick();
+        M.toast('ok',M.t('display_name'),nv);
+        M.log('info','display name changed → '+nv+' (re-announced)');
+        M.bus.emit('members');
+      }
+    };
+    inp.onblur=commit;
+    inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } if(e.key==='Escape'){ inp.value=cur; inp.blur(); } };
   },
   enterApp(){
     M.$('#lobby').classList.add('hidden'); M.$('#app').classList.remove('hidden');
@@ -3428,6 +3498,7 @@ M.Theme = {
     M.Theme.t = (document.documentElement.dataset.theme==='dark') ? 'dark' : 'light';
     M.$('#themeBtn').onclick=()=>M.Theme.toggle();
     const b2=M.$('#themeBtn2'); if(b2) b2.onclick=()=>M.Theme.toggle();
+    const bs=M.$('#sideThemeBtn'); if(bs) bs.onclick=()=>M.Theme.toggle();
     M.Theme.sync(false);
   },
   toggle(){ M.Theme.t = M.Theme.t==='light' ? 'dark' : 'light'; M.Theme.sync(true); },
@@ -3526,6 +3597,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     M.$('#nameInput').addEventListener('keydown',e=>{ if(e.key==='Enter') (M.$('#joinPane').classList.contains('hidden')?M.App.create():M.App.join()); });
     M.$('#langBtn').onclick=()=>M.toggleLang();
     M.$('#langBtn2').onclick=()=>M.toggleLang();
+    const slb=M.$('#sideLangBtn'); if(slb) slb.onclick=()=>M.toggleLang();
     M.$('#btnLeave').onclick=async ()=>{
       if(M.Call.all().length>0 && !(await M.confirm(M.t('leave_call')+'?',''))) return;
       M.App.backToLobby();
