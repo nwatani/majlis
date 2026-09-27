@@ -1011,7 +1011,7 @@ en:{
  sys_joined:'{n} joined the room', sys_left:'{n} left the room', sys_kicked:'{n} was removed by the Admin', sys_reconnect:'{n} reconnected',
  sys_room_end:'The Admin ended this room', sys_lock_on:'The room was locked — new members cannot join', sys_lock_off:'The room was unlocked',
  sys_you_kicked:'You were removed from this room by the Admin', sys_you_banned:'You have been banned from this room',
- typing:'{n} is typing…', you:'You', admin:'Admin', member:'Member', online:'online', offline:'offline', connecting:'connecting',
+ typing:'{n} is typing…', you:'You', admin:'Admin', member:'Member', online:'online', offline:'offline', connecting:'connecting', identifying:'identifying…',
  in_call:'in call', on_board:'on board', dm_with:'Private · {n}', room_chat_lbl:'Room chat',
  incoming_voice:'Incoming voice call', incoming_video:'Incoming video call', calling:'calling…', ringing:'ringing',
  call_ended:'Call ended', rejected:'declined', no_answer:'no answer', busy:'busy',
@@ -1086,7 +1086,7 @@ ar:{
  sys_joined:'انضم {n} إلى الغرفة', sys_left:'غادر {n} الغرفة', sys_kicked:'أزال المشرف {n}', sys_reconnect:'أعاد {n} الاتصال',
  sys_room_end:'أنهى المشرف هذه الغرفة', sys_lock_on:'قُفلت الغرفة — لا يمكن انضمام أعضاء جدد', sys_lock_off:'فُتحت الغرفة',
  sys_you_kicked:'أزالك المشرف من هذه الغرفة', sys_you_banned:'تم حظرك من هذه الغرفة',
- typing:'يكتب {n}…', you:'أنت', admin:'مشرف', member:'عضو', online:'متصل', offline:'غير متصل', connecting:'جارٍ الاتصال',
+ typing:'يكتب {n}…', you:'أنت', admin:'مشرف', member:'عضو', online:'متصل', offline:'غير متصل', connecting:'جارٍ الاتصال', identifying:'جارٍ التعرف…',
  in_call:'في مكالمة', on_board:'على السبورة', dm_with:'خاص · {n}', room_chat_lbl:'دردشة الغرفة',
  incoming_voice:'مكالمة صوتية واردة', incoming_video:'مكالمة فيديو واردة', calling:'جارٍ الاتصال…', ringing:'يرن',
  call_ended:'انتهت المكالمة', rejected:'رُفضت', no_answer:'لا رد', busy:'مشغول',
@@ -1337,7 +1337,7 @@ M.Net = {
     /* presence */
     R.onPeerJoin = peerId => {
       M.log('info','peer joined '+M.fmt.idShort(peerId));
-      M.Members.upsert(peerId,{status:'connecting'});
+      if(!M.State.peers.has(peerId)) M.Members.upsert(peerId,{status:'connecting'});
       /* names matter — announce ourselves redundantly so a dropped packet
          can never leave either side stuck on a generic guest label */
       const hi=()=>{ try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
@@ -1361,11 +1361,11 @@ M.Net = {
       M.Members.upsert(peerId,patch);
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => { if(await M.Admin.verify(m,peerId)) M.Admin.dispatch(m,peerId); else M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); };
-    M.Net.A.type.onMessage = (d,{peerId}) => M.bus.emit('typing',{peerId,to:d.to});
+    M.Net.A.type.onMessage = (d,{peerId}) => { if(d&&d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d&&d.to}); };
 
     /* encrypted app channels: chat / wb / ft control */
     const wrap = fn => async (d,meta)=>{ let p=d; if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){ try{ p=await M.Crypto.dec(d.e); }catch(e){ M.log('warn','decrypt failed'); return; } } fn(p,meta); };
-    M.Net.A.chat.onMessage = wrap((d,{peerId})=>M.bus.emit('chatIn',{...d,peerId}));
+    M.Net.A.chat.onMessage = wrap((d,{peerId})=>{ if(d&&d.name) M.Members.adopt(peerId,d.name); M.bus.emit('chatIn',{...d,peerId}); });
     M.Net.A.wb.onMessage   = wrap((d,{peerId})=>M.bus.emit('wbIn',{...d,peerId}));
     M.Net.A.ft.onMessage   = wrap((d,{peerId})=>M.bus.emit('ftIn',{...d,peerId}));
 
@@ -1385,11 +1385,18 @@ M.Net = {
       const now=Date.now();
       M.State.peers.forEach((m,pid)=>{ const lb=M.Net.lastHb.get(pid); if(m.status==='online' && lb && now-lb>50000){ M.log('warn','peer stale → offline: '+m.name); M.Members.offline(pid); } });
     },15000);
-    /* name patrol: nobody stays a "guest-…" — unidentified peers are asked for their real profile until they answer */
+    /* name patrol: nobody stays a "guest-…" — unidentified peers are asked for
+       their real profile; if they never answer (older client / lossy relay) we
+       also re-announce ourselves and flag them as "identifying…" */
     M.Net.namePatrol=setInterval(()=>{
       M.State.peers.forEach((m,pid)=>{
-        if(m.status!=='offline' && (!m.name || m.name.indexOf('guest-')===0)){
-          try{ M.Net.send('who',{},pid); }catch(e){}
+        if(m.status==='offline') return;
+        if(m.name && m.name.indexOf('guest-')!==0) return;
+        m._who=(m._who||0)+1;
+        try{ M.Net.send('who',{},pid); }catch(e){}
+        if(m._who>=3){
+          try{ M.Net.A.hello.send(profile(),{target:pid}); }catch(e){}
+          if(!m.identifying){ m.identifying=true; M.bus.emit('members'); M.log('warn','peer '+M.fmt.idShort(pid)+' still unidentified — it may be running an older cached build'); }
         }
       });
     },6000);
@@ -1477,6 +1484,7 @@ M.Members = {
     }
     if(!m) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
     Object.assign(m,patch); m.lastSeen=Date.now();
+    if(patch.n) m.identifying=false;
     M.State.peers.set(peerId,m);
     if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
     if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
@@ -1491,6 +1499,14 @@ M.Members = {
     M.bus.emit('peerOffline',peerId);
     M.bus.emit('members');
     M.log('warn',m.name+' went offline'+(graceful?' (bye)':''));
+  },
+  /* names are harvested from ANY application payload (chat, typing, files,
+     call invites…) — the sidebar can never stay stuck on a generic label
+     while the peer is actively using the room */
+  adopt(peerId,name,extra){
+    if(!name || typeof name!=='string') return;
+    const m=M.State.peers.get(peerId);
+    if(!m || m.name!==name) M.Members.upsert(peerId,{n:name,...(extra||{})});
   },
   remove(peerId){ M.State.peers.delete(peerId); M.bus.emit('members'); },
   onlinePeers(){ return [...M.State.peers.values()].filter(m=>m.status==='online').map(m=>m.id); },
@@ -1575,7 +1591,7 @@ M.Chat = {
     inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
     inp.addEventListener('input',()=>{
       inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px';
-      M.Chat._typingThrottled ??= M.throttle(()=>{ M.Net.send('type',{to:M.State.chatTarget}); },1400);
+      M.Chat._typingThrottled ??= M.throttle(()=>{ M.Net.send('type',{to:M.State.chatTarget,n:M.State.self.name}); },1400);
       M.Chat._typingThrottled();
     });
     M.$('#btnBackDm').onclick=()=>M.Chat.switchTarget(null);
@@ -1781,6 +1797,7 @@ M.FT = {
     switch(d.t){
       case 'offer': {
         if(d.target && d.target!==M.State.self.id) return;
+        M.Members.adopt(from,d.fromName);
         const isRoom=!d.target;
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
@@ -1988,7 +2005,8 @@ M.UI = {
       if(M.WB && M.WB.activePeers?.has(p.id)) inds.innerHTML+=`<span title="${M.t('on_board')}">${M.Icons.board}</span>`;
       nm.appendChild(inds);
       const ms=M.el('div','ms');
-      ms.innerHTML=`<span style="width:13px;height:13px;display:inline-flex;color:var(--dim)">${M.Icons.dev(p)}</span>${M.t(p.status)}${p.os&&p.os!=='?'?' · '+p.os:''}`;
+      const unid=p.name.indexOf('guest-')===0;
+      ms.innerHTML=`<span style="width:13px;height:13px;display:inline-flex;color:var(--dim)">${M.Icons.dev(p)}</span>${unid?`<span style="color:var(--warn)">${M.t('identifying')}</span>`:M.t(p.status)}${p.os&&p.os!=='?'?' · '+p.os:''}`;
       info.append(nm,ms);
       const acts=M.el('div','acts');
       const mk=(svg,title,fn,danger)=>{ const b=M.el('button','icon-btn'+(danger?' danger':''),svg); b.title=title; b.onclick=e=>{ e.stopPropagation(); M.UI.closeDrawer(); fn(); }; return b; };
@@ -2205,7 +2223,7 @@ M.Call = {
       M.bus.emit('sysmsg',{text:M.t('group_call_started',{k:M.t('kind_'+kind)})});
       M.log('info','group '+kind+' call started '+callId);
     } else {
-      M.Call._invite(peerId,{t:'invite',callId,kind,to:peerId},()=>{ const x=M.Call.sessions.get(callId); return !!x && x.status==='ringing'; });
+      M.Call._invite(peerId,{t:'invite',callId,kind,to:peerId,fromName:M.State.self.name},()=>{ const x=M.Call.sessions.get(callId); return !!x && x.status==='ringing'; });
       M.log('info',kind+' invite → '+M.fmt.idShort(peerId)+' call '+callId);
       s._timeout=setTimeout(()=>{ if(s.status==='ringing'){ M.Net.send('sig',{t:'end',callId,reason:'no_answer'},{target:peerId}); M.Call.teardown(callId,'no_answer'); } },30000);
     }
@@ -2218,6 +2236,7 @@ M.Call = {
     switch(d.t){
       case 'invite': {
         if(d.to!==M.State.self.id) return;
+        if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
         if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
         const gate=M.Perms.can('callReceive'); const kGate=M.Perms.can(d.kind==='video'?'callVideo':'callVoice');
         if(!gate.ok||!kGate.ok){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'denied'},{target:d.peerId}); return; }
@@ -2227,6 +2246,7 @@ M.Call = {
       }
       case 'ginvite': {
         if(d.to!==M.State.self.id) return;
+        if(d.fromName) M.Members.adopt(d.peerId,d.fromName);
         if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
         if(!M.Perms.can('callGroup').ok||!M.Perms.can('callReceive').ok){ M.Net.send('sig',{t:'greject',callId:d.callId},{target:d.peerId}); return; }
         M.Call.showIncoming({callId:d.callId, peerId:d.peerId, kind:d.kind, group:true});
