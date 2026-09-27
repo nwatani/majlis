@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#0B1215">
 <meta name="description" content="Majlis — serverless realtime rooms: chat, files, voice/video calls, collaborative whiteboard.">
 <title>Majlis · مجلس — Realtime Rooms</title>
+<script>
+/* apply saved theme before first paint (default: light) */
+try{ document.documentElement.dataset.theme = (localStorage.getItem('mj.theme')==='dark') ? 'dark' : 'light'; }
+catch(e){ document.documentElement.dataset.theme='light'; }
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F191E'/%3E%3Ccircle cx='10' cy='12' r='3' fill='%23F5A83C'/%3E%3Ccircle cx='23' cy='11' r='2.4' fill='%2338CFB6'/%3E%3Ccircle cx='16' cy='23' r='2.7' fill='%23E9F3F4'/%3E%3Cpath d='M10 12L23 11M10 12L16 23M23 11L16 23' stroke='%232E4855' stroke-width='1.4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,15 +31,43 @@
   --mono:'IBM Plex Mono',ui-monospace,monospace;
   --rad:10px; --rad-s:7px;
   --sh:0 18px 50px -18px rgba(0,0,0,.65);
+  --card-bg:linear-gradient(180deg,rgba(20,34,41,.94),rgba(15,25,30,.94));
+  --tile-bg:#0a1013; --tile-bg2:#1B2E37;
+  --overlay:rgba(6,11,13,.66);
+  --bar-bg:rgba(15,25,30,.86); --panel-bg:rgba(15,25,30,.5);
+  --glow1:rgba(56,207,182,.07); --glow2:rgba(245,168,60,.06);
+  --board-bg:#0D171C; --board-grid:rgba(140,166,174,.13); --board-text:#E9F3F4;
 }
+html[data-theme="light"]{
+  --bg0:#E9EEF0; --bg1:#FFFFFF; --bg2:#F2F6F7; --bg3:#E7EEF0; --bg4:#D8E3E6;
+  --line:#D5E0E3; --line2:#B7C9CF;
+  --ink:#15242B; --mut:#517079; --dim:#7E979F;
+  --amber:#DE8512; --amber2:#96590A; --teal:#0E9C84; --teal-dk:#D9F1EB;
+  --red:#DE4A40; --blue:#2F7ED0;
+  --ok:#128F66; --warn:#DE8512; --err:#DE4A40;
+  --sh:0 18px 50px -20px rgba(21,36,43,.30);
+  --card-bg:linear-gradient(180deg,#FFFFFF,#F1F5F6);
+  --tile-bg:#0F1B20; --tile-bg2:#1B2E37;
+  --overlay:rgba(21,36,43,.45);
+  --bar-bg:rgba(255,255,255,.88); --panel-bg:rgba(244,248,249,.66);
+  --glow1:rgba(14,156,132,.10); --glow2:rgba(222,133,18,.09);
+  --board-bg:#F7F5EF; --board-grid:rgba(81,112,121,.17); --board-text:#15242B;
+}
+html[data-theme="light"] .msg.me .m-body{background:linear-gradient(180deg,#DCF3EE,#CDEDE6);border-color:#8FD6C6;color:#08312A}
+html[data-theme="light"] .btn-primary{box-shadow:0 6px 18px -8px rgba(222,133,18,.45)}
+html[data-theme="light"] .ico-sun{display:none}
+html[data-theme="light"] .ico-moon{display:block}
+.ico-moon{display:none}
+html[data-theme="dark"] .ico-sun{display:block}
+html[data-theme="dark"] .ico-moon{display:none}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
 body{
   font-family:var(--body); background:var(--bg0); color:var(--ink);
   font-size:14.5px; line-height:1.55; overflow:hidden;
   background-image:
-    radial-gradient(1100px 500px at 85% -10%, rgba(56,207,182,.07), transparent 60%),
-    radial-gradient(900px 600px at -10% 110%, rgba(245,168,60,.06), transparent 60%);
+    radial-gradient(1100px 500px at 85% -10%, var(--glow1), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, var(--glow2), transparent 60%);
 }
 ::selection{background:rgba(245,168,60,.32)}
 button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
@@ -46,9 +79,9 @@ svg{display:block}
 b,strong{font-weight:600}
 
 /* scrollbars */
-*{scrollbar-width:thin;scrollbar-color:#2c4652 transparent}
+*{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
 *::-webkit-scrollbar{width:9px;height:9px}
-*::-webkit-scrollbar-thumb{background:#2c4652;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px;border:2px solid transparent;background-clip:content-box}
 *::-webkit-scrollbar-track{background:transparent}
 
 /* background network canvas */
@@ -61,7 +94,7 @@ b,strong{font-weight:600}
 .led.err{background:var(--err);box-shadow:0 0 8px rgba(255,97,87,.7)}
 .led.pulse{animation:ledPulse 1.6s ease-in-out infinite}
 @keyframes ledPulse{0%,100%{opacity:1}50%{opacity:.35}}
-.pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border:1px solid var(--line);border-radius:999px;background:rgba(15,25,30,.7);font-size:12px;color:var(--mut)}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel-bg);font-size:12px;color:var(--mut)}
 
 /* ---------- Buttons ---------- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:9px 16px;border-radius:var(--rad-s);
@@ -133,10 +166,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .rp-row b{color:var(--ink);font-weight:500}
 .rp-row .k{width:86px;color:var(--dim)}
 .lb-chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{padding:5px 12px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--mut);background:rgba(15,25,30,.6)}
+.chip{padding:5px 12px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--mut);background:var(--panel-bg)}
 .chip.t{color:var(--teal);border-color:rgba(56,207,182,.35)}
 .chip.a{color:var(--amber2);border-color:rgba(245,168,60,.35)}
-.lb-card{background:linear-gradient(180deg,rgba(20,34,41,.92),rgba(15,25,30,.92));border:1px solid var(--line2);border-radius:16px;padding:28px;box-shadow:var(--sh);backdrop-filter:blur(6px);max-width:460px;justify-self:end;width:100%}
+.lb-card{background:var(--card-bg);border:1px solid var(--line2);border-radius:16px;padding:28px;box-shadow:var(--sh);backdrop-filter:blur(6px);max-width:460px;justify-self:end;width:100%}
 .lb-card h2{font-family:var(--disp);font-size:21px;margin-bottom:18px;display:flex;align-items:center;gap:10px}
 .lb-card h2 .led{margin-inline-start:auto}
 .lb-foot{display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:1px dashed var(--line)}
@@ -156,7 +189,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 /* ---------- App shell ---------- */
 #app{position:relative;z-index:2;height:100dvh;display:flex;flex-direction:column}
 #reconBanner{display:flex;align-items:center;gap:10px;padding:8px 18px;background:rgba(245,168,60,.12);border-bottom:1px solid rgba(245,168,60,.4);font-size:13px;color:var(--amber2)}
-#topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:58px;flex:none;border-bottom:1px solid var(--line);background:rgba(15,25,30,.85);backdrop-filter:blur(8px)}
+#topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:58px;flex:none;border-bottom:1px solid var(--line);background:var(--bar-bg);backdrop-filter:blur(8px)}
 .brand-mini{display:flex;align-items:center;gap:9px;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.04em}
 .brand-mini svg{width:27px;height:27px}
 #roomChip{display:inline-flex;align-items:center;gap:9px;padding:6px 8px 6px 13px;border:1px solid var(--line2);border-radius:999px;background:var(--bg2);font-family:var(--mono);font-size:13.5px;font-weight:600;letter-spacing:.14em;transition:all .15s}
@@ -175,7 +208,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 }
 
 #main{flex:1;display:flex;min-height:0}
-#sidebar{width:262px;flex:none;border-inline-end:1px solid var(--line);background:rgba(15,25,30,.5);display:flex;flex-direction:column;min-height:0}
+#sidebar{width:262px;flex:none;border-inline-end:1px solid var(--line);background:var(--panel-bg);display:flex;flex-direction:column;min-height:0}
 #selfCard{display:flex;align-items:center;gap:11px;padding:15px 16px;border-bottom:1px solid var(--line)}
 .avatar{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:var(--disp);font-weight:700;font-size:16px;color:#08201c;background:linear-gradient(135deg,var(--teal),#7adfc9);flex:none;position:relative}
 .avatar.xl{width:74px;height:74px;font-size:30px;border-radius:20px}
@@ -206,7 +239,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 }
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:rgba(15,25,30,.4)}
+#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg)}
 .tabbtn{display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;color:var(--mut);border-bottom:2px solid transparent;transition:color .14s;position:relative}
 .tabbtn:hover{color:var(--ink)}
 .tabbtn.on{color:var(--ink);border-bottom-color:var(--amber)}
@@ -261,7 +294,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .x-stat .ok{color:var(--ok)} .x-stat .er{color:var(--err)}
 #xferEmpty,#callEmpty{padding:60px 20px;text-align:center;color:var(--dim)}
 #xferEmpty svg,#callEmpty svg{width:44px;height:44px;margin:0 auto 14px;opacity:.5}
-#dropOverlay{position:fixed;inset:0;z-index:90;background:rgba(11,18,21,.88);display:grid;place-items:center;pointer-events:none}
+#dropOverlay{position:fixed;inset:0;z-index:90;background:var(--overlay);display:grid;place-items:center;pointer-events:none}
 #dropOverlay .dz{border:2px dashed var(--teal);border-radius:20px;padding:60px 80px;text-align:center;font-family:var(--disp);font-size:22px;color:var(--teal)}
 
 /* ---------- Calls ---------- */
@@ -285,14 +318,14 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin .cw-t{flex:1;min-width:0}
 .callwin .cw-t b{font-size:13px;display:block;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .callwin .cw-t small{font-family:var(--mono);font-size:10.5px;color:var(--teal)}
-.callwin .cw-grid{display:grid;gap:6px;padding:6px;background:#0a1013;min-height:150px;grid-template-columns:1fr}
+.callwin .cw-grid{display:grid;gap:6px;padding:6px;background:var(--tile-bg);min-height:150px;grid-template-columns:1fr}
 .callwin .cw-grid.g2{grid-template-columns:1fr 1fr}
-.callwin .tile{position:relative;border-radius:9px;overflow:hidden;background:var(--bg3);aspect-ratio:4/3;display:grid;place-items:center}
+.callwin .tile{position:relative;border-radius:9px;overflow:hidden;background:var(--tile-bg2);aspect-ratio:4/3;display:grid;place-items:center}
 .callwin .tile video{width:100%;height:100%;object-fit:cover}
 .callwin .tile audio{display:none}
 .callwin .tile .t-name{position:absolute;bottom:5px;inset-inline-start:6px;font-size:10.5px;font-weight:600;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:99px;display:flex;gap:5px;align-items:center}
 .callwin .tile .t-name svg{width:11px;height:11px}
-.callwin .tile .no-vid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--dim);font-size:11px;background:var(--bg3)}
+.callwin .tile .no-vid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#8CA6AE;font-size:11px;background:inherit}
 .callwin .tile .no-vid .avatar{width:44px;height:44px;font-size:17px}
 .callwin .tile .scr-tag{position:absolute;top:5px;inset-inline-start:6px;font-size:9.5px;font-family:var(--mono);background:rgba(245,168,60,.85);color:#221503;padding:1px 7px;border-radius:99px;font-weight:600}
 .callwin .cw-ctrl{display:flex;justify-content:center;gap:7px;padding:10px;background:var(--bg2);border-top:1px solid var(--line)}
@@ -307,7 +340,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 
 /* ---------- Board ---------- */
 #panel-board{position:relative}
-#boardBar{display:flex;align-items:center;gap:5px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;overflow-x:auto;background:rgba(15,25,30,.5)}
+#boardBar{display:flex;align-items:center;gap:5px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;overflow-x:auto;background:var(--panel-bg)}
 .btool{width:37px;height:35px;border-radius:8px;display:grid;place-items:center;color:var(--mut);border:1px solid transparent;flex:none;transition:all .12s}
 .btool:hover{background:var(--bg3);color:var(--ink)}
 .btool.on{background:rgba(245,168,60,.15);color:var(--amber2);border-color:rgba(245,168,60,.45)}
@@ -320,19 +353,19 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #wbModeBadge{position:absolute;top:60px;inset-inline-start:16px;z-index:5;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:700;pointer-events:none}
 #wbModeBadge.view{background:rgba(111,179,242,.15);color:var(--blue);border:1px solid rgba(111,179,242,.5)}
 #wbModeBadge.lock{background:rgba(255,97,87,.15);color:var(--red);border:1px solid rgba(255,97,87,.5)}
-#boardWrap{flex:1;position:relative;min-height:0;background:#0D171C;touch-action:none;overflow:hidden}
+#boardWrap{flex:1;position:relative;min-height:0;background:var(--board-bg);touch-action:none;overflow:hidden}
 #boardCanvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
-#wbText{position:absolute;z-index:6;min-width:120px;min-height:34px;background:rgba(15,25,30,.95);border:1.5px solid var(--amber);border-radius:6px;color:var(--ink);padding:5px 8px;outline:none;font-family:var(--body);resize:both;overflow:auto}
+#wbText{position:absolute;z-index:6;min-width:160px;min-height:40px;background:var(--bg1);border:1.5px solid var(--amber);border-radius:6px;color:var(--ink);padding:6px 9px;outline:none;font-family:var(--body);resize:both;overflow:auto;box-shadow:var(--sh)}
 #boardFoot{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--line);flex:none;font-family:var(--mono);font-size:11.5px;color:var(--mut);overflow-x:auto}
 #boardFoot .grow{flex:1}
 #wbPeers{display:flex;align-items:center;gap:4px}
 #wbPeers .avatar{width:23px;height:23px;font-size:10px;border-radius:7px;margin-inline-start:-7px;border:2px solid var(--bg1)}
-.board-off{position:absolute;inset:0;display:grid;place-items:center;z-index:4;background:rgba(11,18,21,.7);backdrop-filter:blur(3px)}
+.board-off{position:absolute;inset:0;display:grid;place-items:center;z-index:4;background:var(--overlay);backdrop-filter:blur(3px)}
 .board-off .card{max-width:380px;text-align:center;padding:34px;background:var(--bg1);border:1px solid var(--line2);border-radius:15px}
 .board-off svg{width:46px;height:46px;margin:0 auto 14px;color:var(--dim)}
 
 /* ---------- Modals ---------- */
-.modal{position:fixed;inset:0;z-index:100;background:rgba(6,11,13,.66);backdrop-filter:blur(4px);display:grid;place-items:center;padding:20px;animation:fadeIn .18s ease}
+.modal{position:fixed;inset:0;z-index:100;background:var(--overlay);backdrop-filter:blur(4px);display:grid;place-items:center;padding:20px;animation:fadeIn .18s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .m-card{width:min(480px,100%);background:linear-gradient(180deg,var(--bg2),var(--bg1));border:1px solid var(--line2);border-radius:16px;padding:24px;box-shadow:var(--sh);animation:winIn .22s ease both;max-height:88dvh;overflow-y:auto}
 .m-card.sm{width:min(400px,100%)}
@@ -385,7 +418,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .cc-mini.on{color:var(--teal);border-color:rgba(56,207,182,.5);background:rgba(56,207,182,.09)}
 .cc-mini.dgr{color:#ff8d85;border-color:rgba(255,97,87,.4)}
 .preset-row{display:flex;gap:9px;flex-wrap:wrap}
-#ccLog{font-family:var(--mono);font-size:11.5px;background:#0a1013;border:1px solid var(--line);border-radius:10px;padding:13px 15px;max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+#ccLog{font-family:var(--mono);font-size:11.5px;background:var(--tile-bg);color:#C7D8DC;border:1px solid var(--line);border-radius:10px;padding:13px 15px;max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
 #ccLog .t{color:var(--dim)}
 #ccLog .w{color:var(--warn)} #ccLog .e{color:var(--err)} #ccLog .g{color:var(--ok)}
 .seg3{display:flex;gap:8px;flex-wrap:wrap}
@@ -475,6 +508,10 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
       <div id="lobbyMsg"></div>
       <div class="lb-foot">
         <button class="btn btn-ghost btn-sm" id="langBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span id="langLbl">العربية</span></button>
+        <button class="btn btn-ghost btn-sm" id="themeBtn2" title="Theme">
+          <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
+          <svg class="ico-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" stroke-linejoin="round"/></svg>
+        </button>
         <span class="ver">v1.0 · single-file · GitHub Pages ready</span>
       </div>
     </div>
@@ -493,6 +530,10 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <button class="btn btn-primary" id="btnShare"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span class="btxt" data-i18n="share_room">Share room</span></button>
     <button class="btn btn-admin hidden" id="btnCC"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h10M18 8h2M4 16h4M12 16h8" stroke-linecap="round"/><circle cx="16" cy="8" r="2"/><circle cx="10" cy="16" r="2"/></svg><span class="btxt" data-i18n="control_center">Control Center</span></button>
     <button class="icon-btn" id="langBtn2" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></button>
+    <button class="icon-btn" id="themeBtn" title="Theme">
+      <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
+      <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" stroke-linejoin="round"/></svg>
+    </button>
     <button class="icon-btn danger" id="btnLeave" title="Leave room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </header>
   <div id="main">
@@ -1231,7 +1272,9 @@ M.Net = {
     return s;
   },
   async join(code, {isCreator}){
+    if(M.Net.onProgress) M.Net.onProgress('Loading signaling module…');
     M.T=await M.Net.loadTrystero();
+    if(M.Net.onProgress) M.Net.onProgress('Connecting to relay network…');
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() } };
     if(M.Crypto.has()) cfg.password=M.Crypto.passB64||M.State.room.roomKeyB64;
     const broker=M.Store.get('broker');
@@ -1239,7 +1282,11 @@ M.Net = {
     const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() });
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
-      onJoinError: d => { M.log('err','join error: '+(d.error?.message||'failed')); if(!M.Net.connected){ M.bus.emit('joinFail', d.error?.message||'failed'); } },
+      onJoinError: d => {
+        M.log('err','join error: '+(d.error?.message||'failed'));
+        if(!M.Net.connected){ M.bus.emit('joinFail', d.error?.message||'failed'); }
+        else if(Date.now()-(M.Net._jeT||0)>10000){ M.Net._jeT=Date.now(); M.toast('warn','Peer link failed','A direct path to some peer could not be established. If calls fail, add a TURN server in Control Center → Security.'); }
+      },
       onPeerHandshake: async (peerId, send, receive) => {
         await send(profile());
         const {data}=await receive();
@@ -1260,7 +1307,6 @@ M.Net = {
       M.Members.upsert(peerId,{status:'connecting'});
       M.Net.A.hello.send(profile(),{target:peerId});
       M.Net.hbTick();
-      M.Members.onlinePeers().forEach(pid=>{ const pm=M.State.peers.get(pid); if(pm) M.Net.A.hello.send(profile(),{target:peerId}); });
     };
     R.onPeerLeave = peerId => {
       M.log('warn','peer left '+M.fmt.idShort(peerId));
@@ -1270,7 +1316,12 @@ M.Net = {
 
     M.Net.A.hello.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
-    M.Net.A.hb.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); const m=M.State.peers.get(peerId); if(m&&m.status!=='online') M.Members.upsert(peerId,{status:'online'}); };
+    M.Net.A.hb.onMessage = (d,{peerId}) => {
+      M.Net.lastHb.set(peerId,Date.now());
+      const patch={status:'online'};
+      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; }
+      M.Members.upsert(peerId,patch);
+    };
     M.Net.A.adm.onMessage = async (m,{peerId}) => { if(await M.Admin.verify(m,peerId)) M.Admin.dispatch(m,peerId); else M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); };
     M.Net.A.type.onMessage = (d,{peerId}) => M.bus.emit('typing',{peerId,to:d.to});
 
@@ -1305,7 +1356,11 @@ M.Net = {
     if(M.Crypto.has()){ M.Crypto.enc(obj).then(e=>M.Net.send(action,e,target)).catch(err=>M.log('err','enc send failed '+err.message)); }
     else M.Net.send(action,obj,target);
   },
-  hbTick(){ if(M.Net.connected) M.Net.send('hb',{ts:Date.now()}); },
+  hbTick(){
+    if(!M.Net.connected) return;
+    /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp});
+  },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
     const check=()=>{
@@ -1519,7 +1574,8 @@ M.Chat = {
       row.appendChild(body);
       M.Chat._fileMsgEls ??= new Map(); M.Chat._fileMsgEls.set(m.file.id,{st,row,body,meta});
     } else {
-      const body=M.el('div','m-body'); body.textContent=m.sys? m.text : m.text; body.dir=M.dirOf(m.text);
+      const body=M.el('div','m-body'); body.textContent=m.text;
+      body.setAttribute('dir','auto');  /* browser-native bidi: Arabic, English and mixed render correctly */
       row.appendChild(body);
     }
     list.appendChild(row);
@@ -1964,6 +2020,7 @@ M.Media = {
    ===================================================================== */
 M.Call = {
   sessions:new Map(),   // callId -> session
+  seenInvites:new Set(),
   _pending:null,        // queued incoming invite
   _winCascade:0,
   init(){
@@ -1985,6 +2042,15 @@ M.Call = {
   peerInCall(pid){ return M.Call.all().some(s=>s.peers.has(pid)); },
   selfSessions(){ return M.Call.all(); },
   findWith(peerId){ return M.Call.all().find(s=>s.peers.has(peerId)&&(s.status==='active'||s.status==='ringing')); },
+  /* critical signaling is retransmitted (public relays drop packets); receivers de-duplicate */
+  _repeat(target,msg,tries,gap){
+    try{ M.Net.send('sig',msg,{target}); }catch(e){}
+    let n=1; const t=setInterval(()=>{ if(++n>tries){ clearInterval(t); return; } try{ M.Net.send('sig',msg,{target}); }catch(e){} },gap);
+  },
+  _invite(target,msg,guard){
+    try{ M.Net.send('sig',msg,{target}); }catch(e){}
+    let n=1; const t=setInterval(()=>{ if(++n>3||!guard()){ clearInterval(t); return; } try{ M.Net.send('sig',msg,{target}); }catch(e){} },1500);
+  },
 
   async start(peerId, kind, opts={}){
     const feat = opts.group ? 'callGroup' : (kind==='video'?'callVideo':'callVoice');
@@ -1996,12 +2062,12 @@ M.Call = {
     M.Call.sessions.set(callId,s);
     M.Call.makeWin(s);
     if(opts.group){
-      (opts.targets||[]).forEach(t=>M.Net.send('sig',{t:'ginvite',callId,kind,to:t,fromName:M.State.self.name},{target:t}));
+      (opts.targets||[]).forEach(t=>M.Call._repeat(t,{t:'ginvite',callId,kind,to:t,fromName:M.State.self.name},2,1400));
       s.status='active'; s.startedAt=Date.now();
       M.bus.emit('sysmsg',{text:M.t('group_call_started',{k:M.t('kind_'+kind)})});
       M.log('info','group '+kind+' call started '+callId);
     } else {
-      M.Net.send('sig',{t:'invite',callId,kind,to:peerId},{target:peerId});
+      M.Call._invite(peerId,{t:'invite',callId,kind,to:peerId},()=>{ const x=M.Call.sessions.get(callId); return !!x && x.status==='ringing'; });
       M.log('info',kind+' invite → '+M.fmt.idShort(peerId)+' call '+callId);
       s._timeout=setTimeout(()=>{ if(s.status==='ringing'){ M.Net.send('sig',{t:'end',callId,reason:'no_answer'},{target:peerId}); M.Call.teardown(callId,'no_answer'); } },30000);
     }
@@ -2014,6 +2080,7 @@ M.Call = {
     switch(d.t){
       case 'invite': {
         if(d.to!==M.State.self.id) return;
+        if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
         const gate=M.Perms.can('callReceive'); const kGate=M.Perms.can(d.kind==='video'?'callVideo':'callVoice');
         if(!gate.ok||!kGate.ok){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'denied'},{target:d.peerId}); return; }
         if(M.Call.findWith(d.peerId)||M.Call._pending){ M.Net.send('sig',{t:'reject',callId:d.callId,to:d.peerId,reason:'busy'},{target:d.peerId}); M.toast('warn',M.t('busy'),M.Members.name(d.peerId)); return; }
@@ -2022,6 +2089,7 @@ M.Call = {
       }
       case 'ginvite': {
         if(d.to!==M.State.self.id) return;
+        if(M.Call.seenInvites.has(d.callId)) return; M.Call.seenInvites.add(d.callId);
         if(!M.Perms.can('callGroup').ok||!M.Perms.can('callReceive').ok){ M.Net.send('sig',{t:'greject',callId:d.callId},{target:d.peerId}); return; }
         M.Call.showIncoming({callId:d.callId, peerId:d.peerId, kind:d.kind, group:true});
         break;
@@ -2110,7 +2178,7 @@ M.Call = {
       status:'active', direction:'in', startedAt:Date.now(), muted:false, camOff:false, sharing:false, remotes:new Map() };
     M.Call.sessions.set(callId,s);
     try{ await M.Call.sendLocal(s,[inv.peerId]); }catch(e){ M.Call.teardown(callId,M.t('perm_denied')); return; }
-    M.Net.send('sig',{t: inv.group?'gaccept':'accept', callId, to:inv.peerId},{target:inv.peerId});
+    M.Call._repeat(inv.peerId,{t: inv.group?'gaccept':'accept', callId, to:inv.peerId},2,1000);
     M.Call.makeWin(s);
     M.bus.emit('callState');
     M.log('info','accepted '+inv.kind+' call '+callId);
@@ -2176,7 +2244,7 @@ M.Call = {
   teardown(callId, note, remote){
     const s=M.Call.sessions.get(callId); if(!s) return;
     clearTimeout(s._timeout);
-    if(!remote) s.peers.forEach(pid=>{ try{ M.Net.send('sig',{t:'end',callId},{target:pid}); }catch(e){} });
+    if(!remote) s.peers.forEach(pid=>M.Call._repeat(pid,{t:'end',callId},3,800));
     try{ if(s.localStream) s.sentTo.forEach(pid=>M.Net.room.removeStream(s.localStream,{target:pid})); }catch(e){}
     try{ if(s.screenStream){ M.Net.room.removeStream(s.screenStream); s.screenStream.getTracks().forEach(t=>t.stop()); } }catch(e){}
     if(s.localKind) M.Media.release(s.localKind);
@@ -2188,13 +2256,7 @@ M.Call = {
     M.log('info','call ended '+callId);
     M.bus.emit('callState'); M.bus.emit('members');
   },
-  leave(callId){
-    const s=M.Call.sessions.get(callId); if(!s) return;
-    if(s.group){
-      s.peers.forEach(pid=>M.Net.send('sig',{t:'end',callId},{target:pid}));
-      M.Call.teardown(callId);
-    } else M.Call.teardown(callId);
-  },
+  leave(callId){ if(M.Call.sessions.has(callId)) M.Call.teardown(callId); },
   onPeerGone(pid){
     M.Call.sessions.forEach(s=>{
       if(!s.peers.has(pid)) return;
@@ -2348,7 +2410,7 @@ M.WB = {
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
-    M.$('#wbColor').oninput=e=>{ M.WB.color=e.target.value; };
+    M.$('#wbColor').oninput=e=>{ M.WB.color=e.target.value; M.WB._colorTouched=true; };
     M.$('#wbSize').oninput=e=>{ M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value; };
     M.$('#wbFont').oninput=e=>M.WB.font=+e.target.value;
     M.$('#wbUndo').onclick=()=>M.WB.doUndo();
@@ -2391,9 +2453,16 @@ M.WB = {
     /* render loop */
     const loop=()=>{ if(M.WB.dirty && !M.$('#panel-board').classList.contains('hidden')){ M.WB.dirty=false; M.WB.draw(); } requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
+    M.WB.readTheme();
+    M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
     M.WB.resize();
   },
   /* ---------- geometry ---------- */
+  readTheme(){
+    const cs=getComputedStyle(document.documentElement);
+    M.WB._bg=(cs.getPropertyValue('--board-bg')||'').trim()||'#0D171C';
+    M.WB._grid=(cs.getPropertyValue('--board-grid')||'').trim()||'rgba(140,166,174,.13)';
+  },
   s2w(sx,sy){ return [(sx-M.WB.view.x)/M.WB.view.s,(sy-M.WB.view.y)/M.WB.view.s]; },
   w2s(wx,wy){ return [wx*M.WB.view.s+M.WB.view.x, wy*M.WB.view.s+M.WB.view.y]; },
   resize(){
@@ -2601,7 +2670,10 @@ M.WB = {
     ta.style.background=obj?.type==='note'?'transparent':'rgba(15,25,30,.95)';
     ta.value=obj?.text||'';
     ta.classList.remove('hidden'); ta.focus();
-    ta.onkeydown=e=>{ if(e.key==='Escape'||((e.key==='Enter')&&(e.metaKey||e.ctrlKey))){ e.preventDefault(); M.WB.commitText(); } e.stopPropagation(); };
+    ta.onkeydown=e=>{ e.stopPropagation();
+      if(e.key==='Escape'){ e.preventDefault(); ta.value=''; M.WB.commitText(); }
+      else if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); M.WB.commitText(); } /* Enter commits · Shift+Enter = newline */
+    };
     ta.onblur=()=>M.WB.commitText();
   },
   commitText(){
@@ -2619,6 +2691,7 @@ M.WB = {
       o.x=wx; o.y=wy;
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+      M.WB.setTool('select'); M.WB.sel=o.id;  /* new text appears selected, ready to move/resize */
     }
     M.WB.dirty=true;
   },
@@ -2786,7 +2859,7 @@ M.WB = {
     const pad=40; const c=document.createElement('canvas');
     c.width=Math.min(4000,(x2-x1)+pad*2); c.height=Math.min(4000,(y2-y1)+pad*2);
     const ctx=c.getContext('2d');
-    ctx.fillStyle='#0D171C'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,c.width,c.height);
     ctx.translate(pad-x1,pad-y1);
     M.WB.order.forEach(id=>M.WB.paintObj(ctx,M.WB.objs.get(id),1));
     c.toBlob(b=>{ const a=M.el('a'); a.href=URL.createObjectURL(b); a.download='majlis-board-'+M.State.room.code+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); },'image/png');
@@ -2798,13 +2871,13 @@ M.WB = {
     const ctx=M.WB.ctx, cv=M.WB.cv; if(!ctx) return;
     const dpr=M.WB.dpr||1; const v=M.WB.view;
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.fillStyle='#0D171C'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,cv.width,cv.height);
     ctx.translate(v.x,v.y); ctx.scale(v.s,v.s);
     /* grid (adaptive density) */
     const [wx0,wy0]=M.WB.s2w(0,0);
     const [wx1,wy1]=M.WB.s2w(cv.clientWidth,cv.clientHeight);
     let step=40; while(((wx1-wx0)/step)*((wy1-wy0)/step)>3600) step*=2;
-    ctx.fillStyle='rgba(140,166,174,.13)';
+    ctx.fillStyle=M.WB._grid||'rgba(140,166,174,.13)';
     const gx0=Math.floor(wx0/step)*step, gy0=Math.floor(wy0/step)*step;
     for(let gx=gx0; gx<wx1; gx+=step) for(let gy=gy0; gy<wy1; gy+=step) ctx.fillRect(gx-1,gy-1,2,2);
     /* objects */
@@ -2977,7 +3050,8 @@ M.App = {
         M.toast('warn','Still alone','Nobody detected yet — check the code / invite link and network.');
       }
     },20000);
-    try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); }
+    M.Net.onProgress=m=>M.lobbyMsg(m);
+    try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
     M.State.self.id=M.T.selfId;
     M.UI.enterApp();
     M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Admin.priv?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
@@ -3221,6 +3295,27 @@ M.Share = {
   }
 };
 
+/* ---------------- Theme (light default / dark optional) ---------------- */
+M.Theme = {
+  t:'light',
+  init(){
+    M.Theme.t = (document.documentElement.dataset.theme==='dark') ? 'dark' : 'light';
+    M.$('#themeBtn').onclick=()=>M.Theme.toggle();
+    const b2=M.$('#themeBtn2'); if(b2) b2.onclick=()=>M.Theme.toggle();
+    M.Theme.sync(false);
+  },
+  toggle(){ M.Theme.t = M.Theme.t==='light' ? 'dark' : 'light'; M.Theme.sync(true); },
+  sync(save){
+    document.documentElement.dataset.theme=M.Theme.t;
+    if(save) safeSet(localStorage,'mj.theme',M.Theme.t);
+    if(M.WB){
+      if(!M.WB._colorTouched){ const def=M.Theme.t==='light' ? '#C05621' : '#F5A83C'; M.WB.color=def; const c=M.$('#wbColor'); if(c) c.value=def; }
+      M.WB.readTheme(); M.WB.dirty=true;
+    }
+    M.bus.emit('theme');
+  }
+};
+
 /* ---------------- ambient network background ---------------- */
 M.Bg = {
   init(){
@@ -3229,7 +3324,9 @@ M.Bg = {
     const resize=()=>{ W=cv.width=innerWidth; H=cv.height=innerHeight; };
     resize(); addEventListener('resize',resize);
     const N=Math.min(52,Math.round(innerWidth*innerHeight/26000));
-    for(let i=0;i<N;i++) nodes.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.22,r:1.2+Math.random()*1.8,c:Math.random()<.16?'245,168,60':'56,207,182'});
+    const tpal=()=> document.documentElement.dataset.theme==='dark' ? {t:'56,207,182',a:'245,168,60'} : {t:'14,156,132',a:'222,133,18'};
+    let pal=tpal(); M.bus.on('theme',()=>{ pal=tpal(); });
+    for(let i=0;i<N;i++) nodes.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.22,r:1.2+Math.random()*1.8,c:Math.random()<.16?'a':'t'});
     const tick=()=>{
       raf=requestAnimationFrame(tick);
       if(document.hidden) return;
@@ -3240,9 +3337,9 @@ M.Bg = {
       }
       for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
         const a=nodes[i],b=nodes[j]; const d=Math.hypot(a.x-b.x,a.y-b.y);
-        if(d<150){ ctx.strokeStyle=`rgba(${a.c},${(1-d/150)*0.10})`; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+        if(d<150){ ctx.strokeStyle=`rgba(${pal[a.c]},${(1-d/150)*0.10})`; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
       }
-      for(const n of nodes){ ctx.fillStyle=`rgba(${n.c},.5)`; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7); ctx.fill(); }
+      for(const n of nodes){ ctx.fillStyle=`rgba(${pal[n.c]},.5)`; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7); ctx.fill(); }
     };
     tick();
   }
@@ -3276,6 +3373,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     boot('chat',()=>M.Chat.init()); boot('files',()=>M.FT.init()); boot('calls',()=>M.Call.init());
     boot('board',()=>M.WB.init()); boot('ui',()=>M.UI.init()); boot('control-center',()=>M.CC.init());
     boot('share',()=>M.Share.init()); boot('recovery',()=>M.Recovery.init());
+    boot('theme',()=>M.Theme.init());
+    addEventListener('pointerdown',()=>{ try{ M.Notify._sndCtx?.resume?.(); }catch(e){} },{once:true});
     /* fix: direct-send file to a member from sidebar */
     const fi=M.$('#fileInput');
     fi.onchange=e=>{
