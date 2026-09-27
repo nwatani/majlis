@@ -216,18 +216,28 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 @media (max-width:760px){
   #topStatus span.lbltxt{display:none}
   .brand-mini span{display:none}
-  #btnShare .btxt{display:none}
-  #btnCC .btxt{display:none}
-  #btnCC,#btnShare{padding:9px 11px}
+  #btnShare .btxt,#btnCC .btxt,#btnTerm .btxt{display:none}   /* every action collapses to its icon */
+  #btnCC,#btnShare,#btnTerm{padding:9px 11px}
 }
 @media (max-width:620px){
-  /* compact topbar so the leave button always stays reachable */
+  /* compact topbar so nothing — especially Leave — ever gets pushed off-screen */
   .brand-mini{display:none}
   #langBtn2,#themeBtn{display:none}
-  #topbar{gap:6px;padding:0 8px;padding-top:env(safe-area-inset-top);height:calc(54px + env(safe-area-inset-top))}
-  #roomChip{letter-spacing:.06em;padding:5px 7px 5px 10px;font-size:12px;gap:6px}
-  #topStatus{gap:5px;font-size:11px}
+  #topbar{gap:5px;padding:0 7px;padding-top:env(safe-area-inset-top);height:calc(52px + env(safe-area-inset-top))}
+  #roomChip{letter-spacing:.05em;padding:5px 6px 5px 9px;font-size:11.5px;gap:5px}
+  #roomChip svg{width:13px;height:13px}
+  #topStatus{gap:4px;font-size:10.5px}
+  #roomTimer{padding:3px 8px;font-size:10px;gap:4px}
+  #roomTimerTxt{font-size:10.5px}
   .icon-btn{width:34px;height:34px}
+  .btn{gap:5px}
+}
+@media (max-width:440px){
+  /* on the narrowest phones, presence moves to the sidebar; the bar keeps only actions */
+  #topStatus{display:none}
+  #topbar{gap:4px;padding:0 5px}
+  #roomChip{max-width:86px;overflow:hidden}
+  .icon-btn{width:33px;height:33px}
 }
 
 #main{flex:1;display:flex;min-height:0}
@@ -547,9 +557,18 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 .gc-item .avatar{width:31px;height:31px;font-size:12.5px;border-radius:9px}
 
 /* ---------- Control Center ---------- */
-#mCC{display:none;padding:0;background:var(--bg0)}
-#mCC.open{display:flex}
-#mCC .cc-wrap{display:flex;width:100%;height:100%}
+/* Control Center docks beside the room on desktop — the admin watches their
+   changes land live instead of closing the panel to see them */
+#mCC{display:none;padding:0;background:var(--overlay);backdrop-filter:blur(3px)}
+#mCC.open{display:block}
+#mCC .cc-wrap{display:flex;width:100%;height:100%;background:var(--bg0)}
+@media (min-width:1024px){
+  #mCC{background:transparent;backdrop-filter:none;pointer-events:none}
+  #mCC .cc-wrap{position:absolute;top:0;bottom:0;inset-inline-end:0;inset-inline-start:auto;width:min(940px,66vw);border-inline-start:1px solid var(--line2);box-shadow:-32px 0 90px -28px rgba(0,0,0,.6);pointer-events:auto;animation:ccDock .3s cubic-bezier(.2,.85,.3,1) both}
+}
+@keyframes ccDock{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+[dir="rtl"] #mCC .cc-wrap{animation-name:ccDockRtl}
+@keyframes ccDockRtl{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:none}}
 #ccNav{width:216px;flex:none;border-inline-end:1px solid var(--line);background:var(--bg1);padding:18px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto}
 #ccNav .cc-brand{display:flex;align-items:center;gap:9px;padding:4px 10px 16px;font-family:var(--disp);font-weight:700;font-size:14px;color:var(--amber2)}
 #ccNav .cc-brand svg{width:19px;height:19px}
@@ -865,6 +884,23 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
 </div></div>
 
+<!-- recording save dialog -->
+<div class="modal hidden" id="mRec"><div class="m-card">
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="var(--red)" stroke="none"/></svg><span data-i18n="rec_ready">Recording ready</span></h3>
+  <video id="recPreview" controls playsinline style="width:100%;border-radius:10px;background:#000;max-height:44vh;margin-bottom:12px"></video>
+  <div id="recMeta"></div>
+  <div id="recProg" class="hidden" style="margin:12px 0 4px">
+    <div class="x-bar"><i id="recProgBar"></i></div>
+    <span id="recProgTxt" class="mono" style="font-size:11px;color:var(--mut)"></span>
+  </div>
+  <div class="m-row" style="flex-wrap:wrap">
+    <button class="btn btn-ghost" data-close data-i18n="close">Close</button>
+    <button class="btn" id="recConv"><span data-i18n="rec_conv">Convert to MP4</span></button>
+    <button class="btn btn-primary" id="recDl">Download</button>
+  </div>
+  <p class="m-note" data-i18n="rec_conv_note">MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.</p>
+</div></div>
+
 <!-- remote assistance surfaces -->
 <div id="recBanner" class="hidden">
   <span class="rc-dot"></span>
@@ -1124,7 +1160,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.23.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.24.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1369,6 +1405,11 @@ en:{
  rec_one:'One recording at a time', rec_unsup:'Recording is not supported in this browser',
  rec_saved:'Recording saved', rec_started:'Recording started — all participants have been notified',
  rec_peer_on:'{n} started recording this call', rec_peer_off:'Recording stopped',
+ rec_ready:'Recording ready', rec_dl:'Download', rec_conv:'Convert to MP4',
+ rec_dur:'Duration', rec_size:'Size', rec_format:'Format',
+ rec_loading:'Loading encoder…', rec_conv_prog:'Converting', rec_conv_done:'MP4 saved',
+ rec_conv_fail:'Conversion failed — the WebM file is still available',
+ rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1503,6 +1544,11 @@ ar:{
  rec_one:'تسجيل واحد في كل مرة', rec_unsup:'التسجيل غير مدعوم في هذا المتصفح',
  rec_saved:'حُفظ التسجيل', rec_started:'بدأ التسجيل — تم إشعار جميع المشاركين',
  rec_peer_on:'بدأ {n} تسجيل هذه المكالمة', rec_peer_off:'توقف التسجيل',
+ rec_ready:'التسجيل جاهز', rec_dl:'تنزيل', rec_conv:'تحويل إلى MP4',
+ rec_dur:'المدة', rec_size:'الحجم', rec_format:'الصيغة',
+ rec_loading:'جارٍ تحميل المشفّر…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ MP4',
+ rec_conv_fail:'فشل التحويل — ملف WebM لا يزال متاحاً',
+ rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -1512,6 +1558,8 @@ M.applyLang = lang => {
   M.$$('[data-i18n]').forEach(n=>n.innerHTML=M.t(n.dataset.i18n));
   M.$$('[data-i18n-ph]').forEach(n=>n.placeholder=M.t(n.dataset.i18nPh));
   M.$('#langLbl').textContent=M.t('lang_name');
+  const tips={btnShare:'share_room',btnCC:'control_center',btnTerm:'term_room'};
+  for(const id in tips){ const el=M.$('#'+id); if(el) el.title=M.t(tips[id]); }
   M.bus.emit('lang');
 };
 M.toggleLang = () => M.applyLang(M.lang==='ar'?'en':'ar');
@@ -1773,6 +1821,21 @@ M.Net = {
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       M.Members.upsert(peerId,patch);
+      /* reconciliation: the admin's heartbeat carries board state, so a member who missed
+         the open/close command self-corrects within one heartbeat (~12 s) */
+      const iAmAdmin=!!(M.Admin.priv||M.Admin.legacy);
+      if(d && d.adm && !iAmAdmin){
+        if(d.wb===1 && !M.State.wb.open){
+          M.State.wb.open=true; M.WB.refreshUI(); M.UI.setTab('board');
+          M.toast('info',M.t('wb_opened'));
+          M.log('info','board state reconciled from admin heartbeat — opened');
+          try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}   /* pull full objects in case we also missed those */
+        } else if(d.wb===0 && M.State.wb.open){
+          M.State.wb.open=false; M.WB.refreshUI();
+          M.toast('warn',M.t('wb_closed_ev'));
+          M.log('info','board state reconciled from admin heartbeat — closed');
+        }
+      }
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => {
       if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
@@ -1855,7 +1918,7 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp, v:M.Version});
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0});   /* wb flag = self-healing board-state channel */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -3830,8 +3893,11 @@ M.Rec = {
     s.remotes.forEach(r=>wire(r.stream));
     const vTrack=cv.captureStream(15).getVideoTracks()[0];
     const mix=new MediaStream([vTrack,...(dest?dest.stream.getAudioTracks():[])]);
-    let mime='video/webm;codecs=vp8,opus';
+    /* prefer MP4 when the browser can mux it natively (Chrome 126+, Safari) */
+    const mp4=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4'];
+    let mime=mp4.find(m=>MediaRecorder.isTypeSupported?.(m))||'video/webm;codecs=vp8,opus';
     if(!MediaRecorder.isTypeSupported?.(mime)) mime='video/webm';
+    const ext=mime.startsWith('video/mp4')?'mp4':'webm';
     const rec=new MediaRecorder(mix,{mimeType:mime,videoBitsPerSecond:1500000});
     const chunks=[];
     rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
@@ -3839,13 +3905,12 @@ M.Rec = {
       clearInterval(M.Rec.active?.int); clearInterval(M.Rec.active?.tt);
       try{ ac?.close(); }catch(e){}
       vTrack.stop();
-      const blob=new Blob(chunks,{type:'video/webm'});
-      const url=URL.createObjectURL(blob);
-      const name='majlis-'+M.State.room.code+'-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.webm';
-      const a=M.el('a'); a.href=url; a.download=name; a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),8000);
-      M.toast('ok',M.t('rec_title'),M.t('rec_saved')+' · '+M.fmt.bytes(blob.size),{ms:7000});
-      M.log('info','recording saved: '+name+' ('+M.fmt.bytes(blob.size)+')');
+      const blob=new Blob(chunks,{type:mime});
+      const dur=(Date.now()-(M.Rec.active?.startedAt||Date.now()))/1000;
+      if(M.Rec._last?.url) URL.revokeObjectURL(M.Rec._last.url);
+      M.Rec._last={blob,url:URL.createObjectURL(blob),ext,dur,
+        name:'majlis-'+M.State.room.code+'-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')};
+      M.Rec.showSave();
       M.Rec.active=null;
       M.$('#recBanner').classList.add('hidden');
       s.peers.forEach(pid=>{ try{ M.Net.send('sig',{t:'rec',on:false,callId},pid); }catch(e){} });
@@ -3891,7 +3956,66 @@ M.Rec = {
     M.toast('info',M.t('rec_title'),M.t('rec_started'));
     M.log('warn','recording STARTED for call '+callId+' ('+wired.length+' audio sources)');
   },
-  stop(){ if(M.Rec.active?.rec?.state!=='inactive') M.Rec.active?.rec?.stop(); }
+  stop(){ if(M.Rec.active?.rec?.state!=='inactive') M.Rec.active?.rec?.stop(); },
+  /* ---- "Recording ready" dialog: preview, download, and on-demand MP4 transcode ---- */
+  showSave(){
+    const r=M.Rec._last; if(!r) return;
+    const pv=M.$('#recPreview'); pv.src=r.url; pv.load?.();
+    M.$('#recMeta').innerHTML=
+      `<div class="cc-kv"><span class="k">${M.t('rec_dur')}</span><span class="v">${M.fmt.dur(r.dur)}</span></div>`+
+      `<div class="cc-kv"><span class="k">${M.t('rec_size')}</span><span class="v">${M.fmt.bytes(r.blob.size)}</span></div>`+
+      `<div class="cc-kv"><span class="k">${M.t('rec_format')}</span><span class="v mono">${r.ext.toUpperCase()}</span></div>`;
+    const dl=M.$('#recDl');
+    dl.textContent=M.t('rec_dl')+' (.'+r.ext+')';
+    dl.onclick=()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name+'.'+r.ext; a.click(); M.toast('ok',M.t('rec_title'),M.t('rec_saved')); };
+    const cv=M.$('#recConv');
+    cv.classList.toggle('hidden',r.ext==='mp4');
+    cv.disabled=false; cv.textContent=M.t('rec_conv');
+    cv.onclick=()=>M.Rec.convert();
+    M.$('#recProg').classList.add('hidden');
+    M.$('#mRec').classList.remove('hidden');
+    M.log('info','recording ready: '+M.fmt.dur(r.dur)+' · '+M.fmt.bytes(r.blob.size)+' ('+r.ext+')');
+  },
+  async convert(){
+    const r=M.Rec._last; if(!r||r.ext==='mp4') return;
+    const btn=M.$('#recConv'); btn.disabled=true; btn.textContent=M.t('rec_loading');
+    const prog=M.$('#recProg'); prog.classList.remove('hidden');
+    const bar=M.$('#recProgBar'); const txt=M.$('#recProgTxt');
+    bar.style.width='2%'; txt.textContent=M.t('rec_loading');
+    try{
+      if(!M.Rec._ff){
+        const [{FFmpeg},{fetchFile,toBlobURL}]=await Promise.all([
+          import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm'),
+          import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm')
+        ]);
+        const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+        M.Rec._ff=new FFmpeg();
+        M.Rec._ff.on('progress',({progress})=>{ const p=Math.round(Math.max(0,Math.min(1,progress))*100); bar.style.width=p+'%'; txt.textContent=M.t('rec_conv_prog')+' '+p+'%'; });
+        M.Rec._ff.on('log',({message})=>{ if(/frame=/.test(message)) { const m=message.match(/time=(\d+:\d+:\d+\.\d+)/); if(m) txt.textContent=M.t('rec_conv_prog')+' · '+m[1]; } });
+        await M.Rec._ff.load({
+          coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
+          wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm')
+        });
+        M.Rec._ffFetch=fetchFile;
+      }
+      txt.textContent=M.t('rec_conv_prog')+' 0%';
+      await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
+      await M.Rec._ff.exec(['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4']);
+      const data=await M.Rec._ff.readFile('out.mp4');
+      const mp4=new Blob([data.buffer],{type:'video/mp4'});
+      const url=URL.createObjectURL(mp4);
+      const a=M.el('a'); a.href=url; a.download=r.name+'.mp4'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),8000);
+      bar.style.width='100%'; txt.textContent=M.t('rec_conv_done')+' · '+M.fmt.bytes(mp4.size);
+      M.toast('ok',M.t('rec_title'),M.t('rec_conv_done')+' · '+M.fmt.bytes(mp4.size),{ms:7000});
+      M.log('info','transcoded to MP4: '+M.fmt.bytes(mp4.size));
+    }catch(e){
+      txt.textContent='✗ '+(e.message||e);
+      M.toast('err',M.t('rec_title'),M.t('rec_conv_fail'));
+      M.log('err','mp4 transcode failed: '+(e.message||e));
+    }
+    btn.disabled=false; btn.textContent=M.t('rec_conv');
+  }
 };
 
 /* =====================================================================
@@ -4032,8 +4156,10 @@ M.WB = {
     /* keyboard */
     window.addEventListener('keydown', e=>{
       if(M.UI.tab!=='board' || M.$('#panel-board').classList.contains('hidden')) return;
-      /* overlays own the keyboard — the board never hijacks shortcuts over the Control Center or dialogs */
-      if(M.$('#mCC')?.classList.contains('open')) return;
+      /* the docked Control Center only owns the keyboard while you're actually typing inside it —
+         otherwise board shortcuts keep working on the visible room beside it */
+      const ccOpen=M.$('#mCC')?.classList.contains('open');
+      if(ccOpen && M.$('#mCC').contains(document.activeElement) && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName||'')) return;
       if(['mShare','mIncoming','mGroup','mDevices','mTarget','mConfirm','mRdReq','mRdCard'].some(id=>{ const m=M.$('#'+id); return m && !m.classList.contains('hidden'); })) return;
       const tag=document.activeElement?.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target.isContentEditable) return;
@@ -4665,6 +4791,13 @@ M.WB = {
   onNet(d){
     if(!d||!d.t) return;
     const from=d.peerId;
+    /* data implies state: if live board traffic arrives, the board is open by definition.
+       This is the third recovery path — a viewer can never be trapped behind the
+       "closed" overlay while the admin's strokes stream in behind it. */
+    if((d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state'||d.t==='clear') && !M.State.wb.open){
+      M.State.wb.open=true; M.WB.refreshUI();
+      M.log('info','board auto-opened by incoming board data from '+M.fmt.idShort(from));
+    }
     if(d.t==='up'||d.t==='add'){
       if(!M.WB.peerCanEdit(from)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
       M.WB.applyUp(d.o); return;
@@ -4718,7 +4851,14 @@ M.WB = {
         M.WB.refreshUI(); M.bus.emit('timer');
         M.log('info','board state snapshot received (open='+W.open+', mode='+W.mode+')');
         break;
-      case 'open': W.open=!!b.on; if(b.on){ M.toast('info',M.t('wb_opened')); M.WB.maybeReqState(); } else { M.toast('warn',M.t('wb_closed_ev')); M.WB.commitText(); } break;
+      case 'open':
+        W.open=!!b.on;
+        if(b.on){
+          M.toast('info',M.t('wb_opened'));
+          M.WB.maybeReqState();
+          if(!(M.Admin.priv||M.Admin.legacy)) M.UI.setTab('board');   /* members land on the board the moment the admin opens it */
+        } else { M.toast('warn',M.t('wb_closed_ev')); M.WB.commitText(); }
+        break;
       case 'mode': W.mode=b.m; M.toast('info',M.t('wb_mode_chg',{m:M.t(b.m==='admin'?'admin_only':b.m==='view'?'view_only':'collab')})); break;
       case 'lock': W.locked=!!b.on; M.toast(b.on?'warn':'info', M.t(b.on?'wb_locked':'wb_unlocked')); break;
       case 'images': W.images=!!b.on; break;
@@ -5502,7 +5642,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     };
     /* modals: generic close */
     M.$$('[data-close]').forEach(b=>b.onclick=()=>b.closest('.modal').classList.add('hidden'));
-    M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
+    M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard,#mRec').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
     M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
     /* live ICE/TURN health check — proves reachability before a call ever needs it */
     M.$('#cfgTestIce').onclick=async ()=>{
