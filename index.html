@@ -1183,7 +1183,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.25.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.25.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2445,6 +2445,7 @@ M.DB = {
 M.FT = {
   sends:new Map(), recvs:new Map(),
   CHUNK:65536, ACK_EVERY:16, WINDOW:64, MAX_PARALLEL:3,
+  _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
     M.bus.on('ftChunk', d=>M.FT.onChunk(d));
@@ -2458,6 +2459,29 @@ M.FT = {
       e.preventDefault(); dragDepth=0; M.$('#dropOverlay').classList.add('hidden');
       const files=[...(e.dataTransfer?.files||[])]; if(files.length) M.FT.pickTargetThenSend(files);
     });
+    /* stall watchdog: completes a transfer whose finish marker raced ahead of the last
+       buffered chunks, and fails honestly if bytes truly never arrive */
+    setInterval(()=>{
+      const now=Date.now();
+      M.FT.recvs.forEach(r=>{
+        if(r.status!=='receiving') return;
+        if((r.finHash||r.pending) && r.recv>=r.size) M.FT.finalize(r,r.finHash||r.pending,r.from);
+        else if(!r.finHash && r.expected<M.FT._chunkCount(r.size) && now-(r._lastProg||r.startedAt)>3000 && now-(r._nackAt||0)>1500){
+          /* stalled: ask the sender for the missing chunks by number */
+          r._nackAt=now;
+          const seqs=[]; const total=M.FT._chunkCount(r.size);
+          for(let s2=r.expected; s2<Math.min(r.expected+8,total); s2++) if(!r.buf?.has(s2)) seqs.push(s2);
+          if(seqs.length){ try{ M.Net.sendEnc('ft',{t:'nack',id:r.id,seqs},r.from); M.log('warn','nack → '+seqs.length+' chunk(s), next='+r.expected+' ('+r.name+')'); }catch(e){} }
+        }
+        else if(r.finHash && now-r.finAt>15000){
+          r.status='failed'; r.err='incomplete'; r.parts=null; if(r.buf){r.buf.clear();r.buf=null;}
+          M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('integrity_fail')});
+          M.toast('err',M.t('integrity_fail'),r.name+' · '+M.fmt.bytes(r.recv)+'/'+M.fmt.bytes(r.size));
+          M.log('err','transfer incomplete 8s after fin: '+r.recv+'/'+r.size);
+          M.FT.render();
+        }
+      });
+    },2000);
     M.$('#btnSendFile').onclick=()=>M.$('#fileInput').click();
     M.$('#btnAttach').onclick=()=>{
       const t=M.State.chatTarget;
@@ -2517,8 +2541,19 @@ M.FT = {
       let buf; try{ buf=await t.file.slice(start,end).arrayBuffer(); }catch(e){ M.FT.fail(t,'read error'); return; }
       const u8=new Uint8Array(buf);
       t.hash.update(u8);
-      try{ M.Net.A.ftbin.send(buf,{ metadata:{id:t.id,seq:t.seq}, ...(isRoom?{}:{target:t.target}) }); }
-      catch(e){ M.log('err','chunk send failed '+e.message); await new Promise(r=>setTimeout(r,400)); continue; }
+      /* confirmed delivery: await the relay's acceptance and retry — a silently dropped
+         chunk is what used to corrupt big transfers */
+      const meta={ metadata:{id:t.id,seq:t.seq}, ...(isRoom?{}:{target:t.target}) };
+      let ok=false;
+      for(let att=0; att<3 && !ok; att++){
+        try{ await M.Net.A.ftbin.send(buf,meta); ok=true; }
+        catch(e){
+          M.log('warn','chunk '+t.seq+' send attempt '+(att+1)+' failed: '+(e.message||e));
+          await new Promise(r=>setTimeout(r,300*(att+1)));
+        }
+        if(t.status!=='sending') return;
+      }
+      if(!ok){ M.FT.fail(t,'send failed at chunk '+t.seq); return; }
       t.seq++; t.sent=end;
       M.FT.tickUI(t);
       if(end>=t.size){
@@ -2545,7 +2580,8 @@ M.FT = {
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
         (async()=>{
           const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', status:'receiving',
-            expected:0, recv:0, parts:[], hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
+            expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
+            hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
           /* ---- resume from persisted chunks (survives refresh / crash) ---- */
           let resumeOff=0;
           try{
@@ -2575,6 +2611,21 @@ M.FT = {
         break;
       }
       case 'ack': { const t=M.FT.sends.get(d.id); if(t){ t.ack=Math.max(t.ack,d.seq); } break; }
+      case 'nack': {
+        /* receiver asked for specific missing chunks by number — resend them from the file */
+        const t=M.FT.sends.get(d.id); if(!t) break;
+        (async()=>{
+          for(const seq of (d.seqs||[])){
+            const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
+            try{
+              const b=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
+              await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},...(t.target==='*'?{}:{target:t.target})});
+            }catch(e){}
+          }
+          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.name);
+        })();
+        break;
+      }
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
         const t=M.FT.sends.get(d.id); if(!t) return;
@@ -2614,20 +2665,32 @@ M.FT = {
   onChunk({peerId,metadata,buf}){
     if(!metadata?.id) return;
     const r=M.FT.recvs.get(metadata.id); if(!r) return;
-    if(metadata.fin){ if(['receiving','verify'].includes(r.status)) M.FT.finalize(r,metadata.hash,peerId); return; }
+    if(metadata.fin){
+      if(r.status==='receiving'){ r.finHash=metadata.hash; r.finAt=Date.now(); r.from=peerId;
+        if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
+      }
+      return;
+    }
     if(r.status!=='receiving') return;
-    if(metadata.seq!==r.expected){ M.log('warn','out-of-order chunk '+metadata.seq+' vs '+r.expected); return; }
-    const u8=new Uint8Array(buf);
-    r.parts.push(u8); r.recv+=u8.length; r.expected++;
-    r.hash.update(u8);
-    M.DB.putChunk(r.id,metadata.seq,buf);   /* persist as it arrives — a crash loses at most the in-flight window */
+    const seq=metadata.seq;
+    if(seq<r.expected) return;                                    /* duplicate of an already-placed chunk */
+    if(seq>r.expected){                                           /* arrived early — hold it, never drop it */
+      if(r.buf && r.buf.size<320 && !r.buf.has(seq)) r.buf.set(seq,new Uint8Array(buf));
+      return;
+    }
+    const consume=(b,s)=>{ r.parts.push(b); r.recv+=b.length; r.hash.update(b); M.DB.putChunk(r.id,s,b); r.expected++; };
+    consume(new Uint8Array(buf),seq);
+    while(r.buf && r.buf.has(r.expected)){ const b2=r.buf.get(r.expected); r.buf.delete(r.expected); consume(b2,r.expected); }
+    r._lastProg=Date.now();
     if(r.expected%32===0) M.DB.putMeta(r.id,{size:r.size,name:r.name,recv:r.recv});
     if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
     M.FT.tickRecv(r);
-    if(r.pending && r.recv>=r.size) M.FT.finalize(r,r.pending,peerId); /* late chunks after an early 'done' */
+    const doneHash=r.finHash||r.pending;
+    if(doneHash && r.recv>=r.size) M.FT.finalize(r,doneHash,peerId);
   },
   finalize(r,hashHex,from){
     if(r.status==='done'||r.status==='failed'||r.status==='canceled') return;
+    if(r.buf){ r.buf.clear(); r.buf=null; }
     r.status='verify'; M.FT.render();
     const local=r.hash.hex();
     const ok=(local===hashHex) && r.recv===r.size;
