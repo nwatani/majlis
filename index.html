@@ -1186,7 +1186,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.26.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.26.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1879,6 +1879,10 @@ M.Net = {
       /* reconciliation: the admin's heartbeat carries board state, so a member who missed
          the open/close command self-corrects within one heartbeat (~12 s) */
       const iAmAdmin=!!(M.Admin.priv||M.Admin.legacy);
+      /* adopt the earliest room deadline any peer knows about — keeps all members in sync */
+      if(d && d.gu && !iAmAdmin && d.gu>Date.now() && (!M.Grace.until || d.gu<M.Grace.until)){
+        M.Grace.start(d.gu,'synced from '+M.fmt.idShort(peerId));
+      }
       if(d && d.adm && !iAmAdmin){
         if(d.wb===1 && !M.State.wb.open){
           M.State.wb.open=true; M.WB.refreshUI(); M.UI.setTab('board');
@@ -1935,6 +1939,7 @@ M.Net = {
         M.Net._pcSeen.add(pc);
         const onState=()=>{
           const st=pc.iceConnectionState;
+          if((st==='failed'||st==='closed'||st==='disconnected') && M.State.peers.get(pid)?.adm) M.Grace.eval();   /* admin's socket died → re-check absence immediately */
           if(st==='connected'||st==='completed'){
             if(M.Net._restarts.has(pid)||M.Net._joinErrs.has(pid)){ M.Net._restarts.delete(pid); M.Net._joinErrs.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
           } else if(st==='disconnected'){
@@ -1973,7 +1978,7 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0});   /* wb flag = self-healing board-state channel */
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!(M.Admin.priv||M.Admin.legacy), fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0});   /* gu propagates the room's termination deadline to rejoiners on other devices */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -2966,7 +2971,23 @@ M.UI = {
     M.$('#btnCC').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#btnTerm').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#btnBoard').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
-    M.Grace.settle=Date.now(); M.Grace.until=0; M.$('#graceBanner')?.classList.add('hidden');
+    M.Grace.settle=Date.now();
+    /* resume a room-level deadline that survived our leave — the timer stays visible across rejoins */
+    if(!(M.Admin.priv||M.Admin.legacy) && M.State.room){
+      const gu=M.Store.get('grace.'+M.State.room.code);
+      const now2=Date.now();
+      if(gu && gu>now2-M.Grace.PERIOD){
+        if(gu<=now2){
+          M.toast('err',M.t('grace_title'),M.t('grace_ended'),{ms:6000});
+          setTimeout(()=>M.App.backToLobby('ended'),1500);
+        } else {
+          M.Grace.until=gu;
+          M.$('#graceBanner')?.classList.remove('hidden');
+          M.log('info','grace resumed from room state — '+Math.round((gu-now2)/1000)+'s remaining');
+        }
+      }
+    }
+    if(!M.Grace.until) M.$('#graceBanner')?.classList.add('hidden');
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
     M.$('#selfName').textContent=M.State.self.name;
@@ -5451,7 +5472,8 @@ M.App = {
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
-    M.Grace.until=0; M.Grace.settle=0; M.$('#graceBanner')?.classList.add('hidden');
+    M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
+    M.$('#graceBanner')?.classList.add('hidden');
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#composer').style.display=''; M.Chat.view='thread'; M.$('#btnInbox').classList.remove('on');
@@ -5745,28 +5767,52 @@ M.Share = {
    the Admin returns, and terminate locally at zero. Cooperative enforcement
    over the P2P mesh — no server needed. */
 M.Grace = {
-  until:0, settle:0,
+  until:0, settle:0, sawAdmin:false,
   PERIOD:10*60*1000,
   init(){
     setInterval(()=>M.Grace.onTick(),1000);
+    /* multiple independent triggers — the countdown cannot be missed just
+       because one event path failed to fire */
     M.bus.on('members',()=>M.Grace.eval());
+    M.bus.on('peerOffline',()=>M.Grace.eval());
+    M.bus.on('peerLeave',()=>M.Grace.eval());
+    setInterval(()=>M.Grace.eval(),5000);
+    setTimeout(()=>M.Grace.eval(),9000);   /* covers a room whose Admin was never seen */
   },
   eval(){
     if(M.Admin.priv||M.Admin.legacy){ M.Grace.cancel(false); return; }   /* I am the Admin — nothing to enforce */
     if(!M.State.room) return;
-    if(Date.now()-M.Grace.settle<15000) return;                          /* let the Admin's hello land on fresh joins */
-    const adminOn=[...M.State.peers.values()].some(p=>p.adm&&p.status==='online');
+    if(Date.now()-M.Grace.settle<8000) return;                           /* let the Admin's hello land on fresh joins */
+    const now=Date.now();
+    const pcs=M.Net.room?.getPeers?.()||{};
+    const adminOn=[...M.State.peers.values()].some(p=>{
+      if(!p.adm||p.status==='offline') return false;
+      const lb=M.Net.lastHb.get(p.id);
+      if(lb && (now-lb)>=20000) return false;                 /* silent for 20s → gone, even if presence lingers */
+      const pc=pcs[p.id];                                    /* the transport knows a closed tab sooner than the relay does */
+      if(pc){
+        const st=pc.iceConnectionState||pc.connectionState||'';
+        if(st==='failed'||st==='closed') return false;
+        if(st==='disconnected' && lb && (now-lb)>=10000) return false;
+      }
+      return true;
+    });
     if(adminOn){ if(M.Grace.until) M.Grace.cancel(true); return; }
-    if(!M.Grace.until){
-      M.Grace.until=Date.now()+M.Grace.PERIOD;
-      M.$('#graceBanner').classList.remove('hidden');
-      M.toast('warn',M.t('grace_title'),M.t('grace_started'),{ms:6500});
-      M.log('warn','admin absent — room auto-terminates in 10 minutes');
-    }
+    /* The deadline belongs to the ROOM, not to a member's session: once the Admin is gone,
+       the 10-minute termination clock runs regardless of who leaves or rejoins. */
+    if(!M.Grace.until) M.Grace.start(Date.now()+M.Grace.PERIOD,'admin absent');
+  },
+  start(until,why){
+    M.Grace.until=until;
+    if(M.State.room) M.Store.set('grace.'+M.State.room.code,until);   /* survives leave/rejoin on this device */
+    M.$('#graceBanner').classList.remove('hidden');
+    M.toast('warn',M.t('grace_title'),M.t('grace_started'),{ms:6500});
+    M.log('warn','grace countdown active ('+why+') — room terminates at '+new Date(until).toLocaleTimeString());
   },
   cancel(announce){
     if(!M.Grace.until) return;
     M.Grace.until=0;
+    if(M.State.room) safeDel(localStorage,'mj.grace.'+M.State.room.code);   /* admin is back — the room lives */
     M.$('#graceBanner').classList.add('hidden');
     if(announce){ M.toast('ok',M.t('grace_title'),M.t('grace_back')); M.log('info','admin returned — auto-termination canceled'); }
   },
@@ -5777,6 +5823,7 @@ M.Grace = {
     if(el) el.textContent=M.fmt.dur(Math.max(0,Math.floor(rem/1000)));
     if(rem<=0){
       M.Grace.until=0;
+      if(M.State.room) safeDel(localStorage,'mj.grace.'+M.State.room.code);
       M.$('#graceBanner').classList.add('hidden');
       M.toast('err',M.t('grace_title'),M.t('grace_ended'),{ms:6000});
       M.log('warn','room auto-terminated: admin absent for 10 minutes');
