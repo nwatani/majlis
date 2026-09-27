@@ -433,7 +433,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     </div>
     <p class="lb-tag" data-i18n="tagline">A serverless gathering room — <b>realtime chat, files, calls and a shared whiteboard</b>, running peer-to-peer in your browser. No accounts. One link brings everyone in.</p>
     <div id="relayPanel">
-      <div class="rp-row"><span class="k">SIGNAL</span><span class="led pulse" id="ledSig"></span><b id="lblSig">connecting…</b></div>
+      <div class="rp-row"><span class="k">SIGNAL</span><span class="led pulse" id="ledSig"></span><b id="lblSig">standby — create or join a room</b></div>
       <div class="rp-row"><span class="k">STRATEGY</span><b id="lblStrategy">MQTT mesh · WebRTC</b></div>
       <div class="rp-row"><span class="k">TRANSPORT</span><b id="lblTransport">DTLS-SRTP encrypted</b></div>
     </div>
@@ -759,6 +759,22 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 
 <script>
 'use strict';
+/* ---------------- boot safety (must survive sandboxed previews, blocked
+   storage, insecure contexts — and always surface failures visibly) ------ */
+function safeGet(s,k){ try{ return s.getItem(k); }catch(e){ return null; } }
+function safeSet(s,k,v){ try{ s.setItem(k,v); }catch(e){} }
+function safeDel(s,k){ try{ s.removeItem(k); }catch(e){} }
+window.__mjErr = function(msg){
+  console.error('[majlis]',msg);
+  try{
+    const lobby=document.getElementById('lobby');
+    const d=document.getElementById('lobbyMsg');
+    if(d && lobby && !lobby.classList.contains('hidden')){ d.textContent='⚠ '+msg; d.style.color='var(--err)'; }
+  }catch(e){}
+};
+window.addEventListener('error', e=>{ try{ window.__mjErr('Script error: '+(e.message||e.error)+' ('+(e.lineno||'?')+')'); }catch(_){} });
+window.addEventListener('unhandledrejection', e=>{ try{ const r=e.reason; window.__mjErr('Async error: '+((r&&(r.message||r.name))||String(r))); }catch(_){} });
+
 /* =====================================================================
    MAJLIS — single-file realtime collaboration platform
    Modules: Util · SHA · I18N · Store · State · AdminCrypto · ContentCrypto
@@ -880,7 +896,7 @@ M.SHA = (() => {
 })();
 
 /* ---------------- i18n (English / Arabic) ---------------- */
-M.lang = localStorage.getItem('mj.lang') || 'en';
+M.lang = safeGet(localStorage,'mj.lang') || 'en';
 M.I18N = {
 en:{
  tagline:'A serverless gathering room — <b>realtime chat, files, calls and a shared whiteboard</b>, running peer-to-peer in your browser. No accounts. One link brings everyone in.',
@@ -1035,7 +1051,7 @@ ar:{
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
 M.applyLang = lang => {
-  M.lang=lang||M.lang; localStorage.setItem('mj.lang',M.lang);
+  M.lang=lang||M.lang; safeSet(localStorage,'mj.lang',M.lang);
   const ar=M.lang==='ar'; document.documentElement.lang=ar?'ar':'en'; document.documentElement.dir=ar?'rtl':'ltr';
   M.$$('[data-i18n]').forEach(n=>n.innerHTML=M.t(n.dataset.i18n));
   M.$$('[data-i18n-ph]').forEach(n=>n.placeholder=M.t(n.dataset.i18nPh));
@@ -1101,6 +1117,10 @@ M.Admin = {
         return true;
       }
     }catch(e){ M.log('warn','stored admin key import failed: '+e.message); }
+    if(typeof crypto==='undefined' || !crypto.subtle){
+      if(isCreator){ M.Admin.priv='legacy'; M.Admin.legacy=true; M.log('warn','insecure context (no WebCrypto) — admin authority running in legacy unsigned mode'); }
+      return !!M.Admin.priv;
+    }
     if(isCreator && crypto.subtle){
       const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
       M.Admin.priv=kp.privateKey;
@@ -1116,6 +1136,12 @@ M.Admin = {
   pubB64(){ return M.Admin.pubJwk ? M.b64url(M.te.encode(JSON.stringify(M.Admin.pubJwk))) : ''; },
   async cmd(name, payload={}){
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
+    if(M.Admin.legacy){
+      const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq,legacy:1};
+      try{ M.Net.A.adm.send(body); }catch(e){ M.log('err','legacy cmd send failed'); }
+      M.Admin.dispatch(body, M.State.self.id);
+      return true;
+    }
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     M.Net.A.adm.send({...body, sig:M.b64(raw), pub:M.Admin.pubJwk});
@@ -1125,6 +1151,7 @@ M.Admin = {
   },
   async verify(m, peerId){
     try{
+      if(m && m.legacy){ return (typeof crypto==='undefined'||!crypto.subtle) && m.from===peerId; }
       if(!m||!m.sig||!m.pub||m.from!==peerId) return false;
       const pubStr=JSON.stringify(m.pub);
       if(M.State.roomPubStr && pubStr!==M.State.roomPubStr) return false; // not this room's admin key
@@ -1792,7 +1819,7 @@ M.UI = {
   },
   enterApp(){
     M.$('#lobby').classList.add('hidden'); M.$('#app').classList.remove('hidden');
-    M.$('#btnCC').classList.toggle('hidden',!M.Admin.priv);
+    M.$('#btnCC').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
     M.$('#selfName').textContent=M.State.self.name;
@@ -2858,11 +2885,13 @@ M.App = {
     return u;
   },
   setName(){
-    let n=M.$('#nameInput').value.trim() || M.Store.get('name') || '';
-    if(!n){ M.lobbyMsg(M.t('name_required'),true); M.$('#nameInput').focus(); return false; }
-    M.Store.set('name',n); M.State.self.name=n.slice(0,24);
-    M.State.self.fp=M.SHA.create().update(M.te.encode(n+'|'+navigator.userAgent)).hex().slice(0,16);
-    return true;
+    try{
+      let n=M.$('#nameInput').value.trim() || M.Store.get('name') || '';
+      if(!n){ M.lobbyMsg(M.t('name_required'),true); M.$('#nameInput').focus(); return false; }
+      M.Store.set('name',n); M.State.self.name=n.slice(0,24);
+      M.State.self.fp=M.SHA.create().update(M.te.encode(n+'|'+navigator.userAgent)).hex().slice(0,16);
+      return true;
+    }catch(e){ window.__mjErr('setName: '+e.message); return false; }
   },
   async create(){
     if(!M.App.setName()) return;
@@ -2871,7 +2900,7 @@ M.App = {
       const code=M.roomCode();
       M.State.room={code, created:Date.now(), isCreator:true};
       await M.Admin.ensureKeys(code,true);
-      M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
+      if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
       if(M.$('#chkPrivate').checked && crypto.subtle){
         M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));
         await M.Crypto.importKeyB64(M.State.room.roomKeyB64);
@@ -2903,10 +2932,17 @@ M.App = {
     M.State.self.admin=!!M.Admin.priv;
     M.State.bans=M.Store.get('bans.'+code)||[];
     M.State.perms=M.permsDefault();
-    let failTimer=setTimeout(()=>{ if(!M.Net.connected) M.lobbyMsg(M.t('join_failed'),true); },15000);
-    const off=M.bus.on('joinFail',msg=>{ M.lobbyMsg(M.t('join_failed')+(msg?' ('+msg+')':''),true); });
-    await M.Net.join(code,{isCreator});
-    clearTimeout(failTimer); off();
+    const off=M.bus.on('joinFail',msg=>{
+      M.lobbyMsg(M.t('join_failed')+(msg?' ('+msg+')':''),true);
+      M.toast('err',M.t('join_failed'),msg||'');
+    });
+    setTimeout(off,25000);
+    const failTimer=setTimeout(()=>{
+      if(M.State.peers.size===0 && !M.State.room.isCreator){
+        M.toast('warn','Still alone','Nobody detected yet — check the code / invite link and network.');
+      }
+    },20000);
+    try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); }
     M.State.self.id=M.T.selfId;
     M.UI.enterApp();
     M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Admin.priv?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
@@ -2915,7 +2951,7 @@ M.App = {
   backToLobby(flag){
     try{ M.Call.all().forEach(s=>M.Call.teardown(s.id)); }catch(e){}
     try{ M.Net.leave(); }catch(e){}
-    if(flag) sessionStorage.setItem('mj.note',flag);
+    if(flag) safeSet(sessionStorage,'mj.note',flag);
     location.href=location.pathname+location.search+location.hash;
   }
 };
@@ -2924,7 +2960,7 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
 /* ---------------- Control Center ---------------- */
 M.CC = {
   open(){
-    if(!M.Admin.priv) return;
+    if(!M.Admin.priv && !M.Admin.legacy) return;
     M.$('#mCC').classList.add('open');
     M.CC.render();
     M.CC._diagT ??= setInterval(()=>{ if(M.$('#mCC').classList.contains('open')) M.CC.renderDiag(); },2500);
@@ -3107,7 +3143,7 @@ M.CC = {
     /* security config */
     M.$('#cfgSave').onclick=()=>{
       M.Store.set('turn',{urls:M.$('#cfgTurn').value.trim(),user:M.$('#cfgTurnUser').value.trim(),pass:M.$('#cfgTurnPass').value.trim()});
-      const b=M.$('#cfgBroker').value.trim(); if(b) M.Store.set('broker',b); else localStorage.removeItem('mj.broker');
+      const b=M.$('#cfgBroker').value.trim(); if(b) M.Store.set('broker',b); else safeDel(localStorage,'mj.broker');
       M.toast('ok',M.t('settings_saved'));
     };
     /* diagnostics */
@@ -3197,9 +3233,12 @@ M.bus.on('joinFail',()=>{ if(!M.$('#app').classList.contains('hidden')) M.toast(
 /* ---------------- boot ---------------- */
 document.addEventListener('DOMContentLoaded',()=>{
   try{
-    M.applyLang(M.lang);
-    M.Bg.init();
-    M.Chat.init(); M.FT.init(); M.Call.init(); M.WB.init(); M.UI.init(); M.CC.init(); M.Share.init(); M.Recovery.init();
+    const boot=(n,f)=>{ try{ f(); }catch(e){ window.__mjErr(n+' module failed: '+e.message); console.error(e); } };
+    boot('lang',()=>M.applyLang(M.lang));
+    boot('background',()=>M.Bg.init());
+    boot('chat',()=>M.Chat.init()); boot('files',()=>M.FT.init()); boot('calls',()=>M.Call.init());
+    boot('board',()=>M.WB.init()); boot('ui',()=>M.UI.init()); boot('control-center',()=>M.CC.init());
+    boot('share',()=>M.Share.init()); boot('recovery',()=>M.Recovery.init());
     /* fix: direct-send file to a member from sidebar */
     const fi=M.$('#fileInput');
     fi.onchange=e=>{
@@ -3239,8 +3278,8 @@ document.addEventListener('DOMContentLoaded',()=>{
       M.$('#lobbyMsg').classList.add('ok');
       if(savedName) setTimeout(()=>M.$('#btnJoin').focus(),100);
     }
-    const note=sessionStorage.getItem('mj.note');
-    if(note){ sessionStorage.removeItem('mj.note');
+    const note=safeGet(sessionStorage,'mj.note');
+    if(note){ safeDel(sessionStorage,'mj.note');
       setTimeout(()=>M.toast('info', note==='ended'?M.t('sys_room_end'): note==='kicked'?M.t('sys_you_kicked'):'Majlis'),300);
     }
     if(!crypto.subtle){ M.lobbyMsg('⚠ Insecure context: HTTPS is required for full functionality (crypto, media).',true); }
@@ -3254,6 +3293,19 @@ document.addEventListener('DOMContentLoaded',()=>{
   }
 });
 
+</script>
+<script>
+/* watchdog (separate tag): even a syntax error in the main script must never fail silently */
+setTimeout(function(){
+  try{
+    if(!window.M || !window.M.App){
+      var d=document.getElementById('lobbyMsg');
+      if(d){ d.textContent='⚠ The app script failed to start — open the browser console (F12) for the exact error. Make sure the page is served over HTTPS (GitHub Pages) or localhost.'; d.style.color='var(--err)'; }
+      var l=document.getElementById('lblSig');
+      if(l){ l.textContent='script failed to start — see message below'; }
+    }
+  }catch(e){}
+},2500);
 </script>
 </body>
 </html>
