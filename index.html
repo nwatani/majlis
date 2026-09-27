@@ -960,7 +960,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.9.1';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.9.2';   /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1087,7 +1087,7 @@ en:{
  board_viewonly:'The board is open, but you are in view-only mode.',
  share_sub:'Anyone with this link joins instantly as a member. You stay the Admin.', copy_link:'Copy link', more_apps:'More…', close:'Close',
  decline:'Decline', accept:'Accept', start_group:'Start a group call', group_note:'Group calls use a peer-to-peer mesh — best with up to ~6 participants.',
- cancel:'Cancel', voice:'Voice', video:'Video', devices:'Devices', mic:'Microphone', camera:'Camera', speaker:'Speaker', apply:'Apply',
+ cancel:'Cancel', voice:'Voice', video:'Video', devices:'Devices', mic:'Microphone', camera:'Camera', speaker:'Speaker', apply:'Apply', dev_no_call:'Join a call first — device changes apply to live calls',
  send_to:'Send to…', confirm:'Confirm',
  cc_room:'Room', cc_members:'Members', cc_comms:'Communication', cc_calls:'Calls', cc_files:'Files', cc_wb:'Whiteboard', cc_perms:'Permissions', cc_sec:'Security', cc_diag:'Diagnostics',
  cc_room_sub:'Identity, invitation link and room lifecycle.', room_info:'Room information', invite_url:'Invite URL', created:'Created', signaling:'Signaling', encryption:'Content encryption',
@@ -1191,7 +1191,7 @@ ar:{
  board_viewonly:'السبورة مفتوحة، لكنك في وضع المشاهدة فقط.',
  share_sub:'أي شخص يملك هذا الرابط ينضم فوراً كعضو. تبقى أنت المشرف.', copy_link:'نسخ الرابط', more_apps:'المزيد…', close:'إغلاق',
  decline:'رفض', accept:'قبول', start_group:'بدء مكالمة جماعية', group_note:'المكالمات الجماعية تعمل بشبكة ندّية — الأفضل حتى ~٦ مشاركين.',
- cancel:'إلغاء', voice:'صوت', video:'فيديو', devices:'الأجهزة', mic:'المايكروفون', camera:'الكاميرا', speaker:'مكبر الصوت', apply:'تطبيق',
+ cancel:'إلغاء', voice:'صوت', video:'فيديو', devices:'الأجهزة', mic:'المايكروفون', camera:'الكاميرا', speaker:'مكبر الصوت', apply:'تطبيق', dev_no_call:'انضم إلى مكالمة أولاً — تغييرات الأجهزة تُطبَّق على المكالمات الحية',
  send_to:'إرسال إلى…', confirm:'تأكيد',
  cc_room:'الغرفة', cc_members:'الأعضاء', cc_comms:'التواصل', cc_calls:'المكالمات', cc_files:'الملفات', cc_wb:'السبورة', cc_perms:'الصلاحيات', cc_sec:'الأمان', cc_diag:'التشخيص',
  cc_room_sub:'الهوية ورابط الدعوة ودورة حياة الغرفة.', room_info:'معلومات الغرفة', invite_url:'رابط الدعوة', created:'أُنشئت', signaling:'الإشارة', encryption:'تشفير المحتوى',
@@ -2336,9 +2336,11 @@ M.Media = {
   streams:{}, refs:{},
   constraints(kind){
     const dev=M.Store.get('devices')||{};
-    if(kind==='voice') return { audio: dev.mic?{deviceId:{exact:dev.mic}}:true };
-    return { audio: dev.mic?{deviceId:{exact:dev.mic}}:true,
-      video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:24}, facingMode:'user', ...(dev.cam?{deviceId:{ideal:dev.cam}}:{}) } };
+    /* ideal (not exact) so a stale saved device can never block a call from starting */
+    if(kind==='voice') return { audio: dev.mic?{deviceId:{ideal:dev.mic}}:true };
+    return { audio: dev.mic?{deviceId:{ideal:dev.mic}}:true,
+      video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:24},
+        ...(dev.cam?{deviceId:{ideal:dev.cam}}:{facingMode:'user'}) } };   /* a chosen camera wins over the front-cam default */
   },
   async acquire(kind){
     if(!navigator.mediaDevices?.getUserMedia){
@@ -2395,26 +2397,50 @@ M.Media = {
   async switchDevice(type,deviceId){
     const dev=M.Store.get('devices')||{}; dev[type]=deviceId; M.Store.set('devices',dev);
     const kind = type==='mic' ? (M.Media.streams.video?'video':'voice') : 'video';
-    const s=M.Media.streams.video||M.Media.streams.voice; if(!s) return;
+    const s=M.Media.streams.video||M.Media.streams.voice;
     const want = type==='cam'?'video':'audio';
-    const old=s.getTracks().find(t=>t.kind===want); if(!old) return;
-    const c = want==='video' ? {video:{deviceId:{exact:deviceId}}} : {audio:{deviceId:{exact:deviceId}}};
-    let ns;
-    try{ ns=await navigator.mediaDevices.getUserMedia(c); }
-    catch(e){
-      if(want!=='video') throw e;
-      /* phones often refuse deviceId switches — flip through facingMode instead */
-      const cur=old.getSettings?.()?.facingMode;
-      const alt=(cur==='environment')?'user':'environment';
-      M.log('warn','deviceId camera switch failed, retrying with facingMode '+alt);
-      ns=await M.Media.camStream(alt);
+    if(!s){ M.toast('warn',M.t('devices'),M.t('dev_no_call')); return; }
+    const old=s.getTracks().find(t=>t.kind===want);
+    /* ---- picking a camera inside a voice call upgrades it to video ---- */
+    if(!old && want==='video'){
+      try{
+        const ns=await navigator.mediaDevices.getUserMedia({video:{deviceId:{ideal:deviceId},width:{ideal:1280},height:{ideal:720}}});
+        const nt=ns.getVideoTracks()[0];
+        s.addTrack(nt);
+        try{ M.Net.room?.addTrack?.(nt,s); }catch(e){ M.log('warn','addTrack failed: '+e.message); }
+        M.Media.watch(kind);
+        M.Call.sessions.forEach(cs=>{ if(cs.localKind==='voice'){ cs.kind='video'; cs.localKind='video'; M.Call.renderWin(cs); } });
+        M.toast('ok',M.t('devices'),M.t('camera')+' ✓');
+        M.log('info','voice call upgraded to video with selected camera');
+      }catch(e){ M.toast('err',M.t('camera'),e.message||String(e)); }
+      return;
     }
-    const nt=want==='video'?ns.getVideoTracks()[0]:ns.getAudioTracks()[0];
+    if(!old) return;
+    let nt;
+    if(want==='video'){
+      const curFacing=old.getSettings?.()?.facingMode;
+      old.stop();   /* phones refuse a second live camera — release first */
+      try{
+        const ns=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:deviceId},width:{ideal:1280},height:{ideal:720}}});
+        nt=ns.getVideoTracks()[0];
+      }catch(e){
+        M.log('warn','deviceId camera switch failed ('+e.name+') — retrying via facingMode');
+        const alt=(curFacing==='environment')?'user':'environment';
+        try{ nt=(await M.Media.camStream(alt)).getVideoTracks()[0]; }
+        catch(e2){
+          try{ nt=(await M.Media.camStream(curFacing||'user')).getVideoTracks()[0]; }  /* never strand the call video-less */
+          catch(e3){ throw e; }
+        }
+      }
+    } else {
+      const ns=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:deviceId}}});
+      nt=ns.getAudioTracks()[0];
+    }
     try{
       if(M.Net.room?.replaceTrack) await M.Net.room.replaceTrack(old,nt);
-      s.removeTrack(old); old.stop(); s.addTrack(nt); M.Media.watch(kind);
+      s.removeTrack(old); s.addTrack(nt); M.Media.watch(kind);
       M.toast('ok',M.t('devices'), (type==='cam'?M.t('camera'):M.t('mic'))+' ✓');
-      M.log('info','switched '+type+' device');
+      M.log('info','switched '+type+' device live');
     }catch(e){ M.toast('err',M.t('perm_denied'),e.message); }
   },
   /* deterministic facing camera: exact first (real back/front), ideal as graceful fallback */
@@ -2429,22 +2455,21 @@ M.Media = {
   },
   async openDevicesModal(){
     const {mic,cam,spk}=await M.Media.listDevices();
-    const fill=(sel,list,cur)=>{ sel.innerHTML=''; list.forEach(d=>{ const o=M.el('option',null,d.label||'Device'); o.value=d.deviceId; sel.appendChild(o); }); if(cur) sel.value=cur; };
+    const fill=(sel,list,cur,word)=>{ sel.innerHTML=''; list.forEach((d,i)=>{ if(!d.deviceId) return; const o=M.el('option',null,d.label||(word+' '+(i+1))); o.value=d.deviceId; sel.appendChild(o); }); if(cur) sel.value=cur; };
     const dev=M.Store.get('devices')||{};
-    fill(M.$('#devMic'),mic,dev.mic); fill(M.$('#devCam'),cam,dev.cam); fill(M.$('#devSpk'),spk,M.Store.get('output'));
+    fill(M.$('#devMic'),mic,dev.mic,M.t('mic')); fill(M.$('#devCam'),cam,dev.cam,M.t('camera')); fill(M.$('#devSpk'),spk,M.Store.get('output'),M.t('speaker'));
     if(spk.length===0){ M.$('#devSpk').disabled=true; M.$('#devNote').textContent=M.t('sink_unsupported'); }
     M.$('#devApply').onclick=async ()=>{
       const cur=M.Store.get('devices')||{};
       const mic=M.$('#devMic').value, cam=M.$('#devCam').value, spk=M.$('#devSpk').value;
       M.$('#mDevices').classList.add('hidden');
-      try{
-        if(mic && mic!==cur.mic) await M.Media.switchDevice('mic',mic);
-        if(cam && cam!==cur.cam) await M.Media.switchDevice('cam',cam);
-        if(spk && spk!==M.Store.get('output')){
-          M.Store.set('output',spk);
-          M.$$('#callLayer video, #callLayer audio').forEach(el=>{ if(el.setSinkId) el.setSinkId(spk).catch(()=>{}); });
-        }
-      }catch(e){ M.toast('err',M.t('devices'),e.message||String(e)); }
+      if(mic && mic!==cur.mic){ try{ await M.Media.switchDevice('mic',mic); }catch(e){ M.toast('err',M.t('mic'),e.message||String(e)); } }
+      if(cam && cam!==cur.cam){ try{ await M.Media.switchDevice('cam',cam); }catch(e){ M.toast('err',M.t('camera'),e.message||String(e)); } }
+      if(spk && spk!==M.Store.get('output')){
+        M.Store.set('output',spk);
+        M.$$('#callLayer video, #callLayer audio').forEach(el=>{ if(el.setSinkId) el.setSinkId(spk).catch(()=>{}); });
+        M.toast('ok',M.t('devices'),M.t('speaker')+' ✓');
+      }
     };
     M.$('#mDevices').classList.remove('hidden');
   }
