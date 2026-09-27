@@ -1104,7 +1104,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.22.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.22.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1312,7 +1312,9 @@ en:{
  link_recovered:'Link recovered',
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
- screen:'Screen', quality:'quality', rtt:'ping', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
+ screen:'Screen', quality:'quality', rtt:'ping',
+ screen_share:'Screen share', screen_on:'You are sharing your screen', screen_canceled:'Screen selection was canceled',
+ screen_blocked:'Screen capture is blocked here — embedded previews often forbid it; open the site directly in its own tab', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
  rc_btn:'Remote control', rc_win_title:'Remote control', rc_request_title:'Remote control request',
  rc_request_body:'wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.',
  rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
@@ -1443,7 +1445,9 @@ ar:{
  link_recovered:'عاد الاتصال',
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
- screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
+ screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة',
+ screen_share:'مشاركة الشاشة', screen_on:'أنت تشارك شاشتك', screen_canceled:'أُلغي اختيار الشاشة',
+ screen_blocked:'التقاط الشاشة محظور هنا — المعاينات المضمّنة غالباً تمنعه؛ افتح الموقع مباشرة في تبويب مستقل', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
  rc_btn:'تحكم عن بُعد', rc_win_title:'تحكم عن بُعد', rc_request_title:'طلب تحكم عن بُعد',
  rc_request_body:'يرغب في مشاهدة شاشتك وإرشادك عن بُعد. تُشارَك شاشتك مع المشرف فقط، ويظهر مؤشره ونقراته وحروفه كطبقة حية فوق شاشتك. يمكنك إلغاء الوصول في أي لحظة.',
  rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
@@ -3141,16 +3145,23 @@ M.Call = {
       if(s.screenStream){ try{ M.Net.room.removeStream(s.screenStream); }catch(e){} s.screenStream.getTracks().forEach(t=>t.stop()); s.screenStream=null; }
       s.sharing=false; M.Call.renderWin(s); return;
     }
-    if(!navigator.mediaDevices?.getDisplayMedia){ M.toast('warn',M.t('screen_unsupported')); return; }
+    if(!navigator.mediaDevices?.getDisplayMedia){ M.toast('warn',M.t('screen_share'),M.t('screen_unsupported')); return; }
     try{
-      const sc=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+      const sc=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false});
       s.screenStream=sc; s.sharing=true;
       const targets=[...s.peers];
-      targets.forEach(pid=>{ try{ M.Net.room.addStream(sc,{target:pid,metadata:{call:s.id,kind:'screen'}}); }catch(e){} });
+      try{ M.Net.room.addStream(sc,{target:targets,metadata:{call:s.id,kind:'screen'}}); }   /* one renegotiation for all peers */
+      catch(e){ M.log('err','screen addStream failed: '+e.message); }
       sc.getVideoTracks()[0].addEventListener('ended',()=>{ if(s.sharing) M.Call.toggleScreen(s); });
       M.Call.renderWin(s);
-      M.log('info','screen sharing started in call '+s.id);
-    }catch(e){ M.log('warn','screen share canceled/failed: '+e.message); }
+      M.toast('ok',M.t('screen_share'),M.t('screen_on'));
+      M.log('info','screen sharing started in call '+s.id+' → '+targets.length+' peer(s)');
+    }catch(e){
+      if(e.name==='NotAllowedError'||e.name==='SecurityError'){
+        M.toast('warn',M.t('screen_share'),M.t('screen_blocked'),{ms:7000});
+        M.log('warn','screen capture blocked by the browser/embed context ('+e.name+')');
+      } else M.toast('warn',M.t('screen_share'),M.t('screen_canceled'));
+    }
   },
 
   teardown(callId, note, remote){
@@ -3219,6 +3230,9 @@ M.Call = {
     if(focus){ shown=shown.sort((a,b)=>((s._levels?.[b])||0)-((s._levels?.[a])||0)).slice(0,4); }
     s._shownKey=[...shown].sort().join(',');
     const tiles=[{self:true},...shown.map(pid=>({pid}))];
+    /* screen shares always earn their own dedicated tile — sender preview + every remote screen */
+    if(s.screenStream) tiles.push({selfScreen:true});
+    [...s.peers].forEach(pid=>{ if(s.remotes.get(pid)?.screen) tiles.push({pid,screen:true}); });
     grid.classList.toggle('g2', tiles.length>1 && tiles.length<=4);
     if(tiles.length>4) grid.style.gridTemplateColumns='repeat(3,1fr)';
     if(focus && s.peers.size>shown.length){
@@ -3234,7 +3248,23 @@ M.Call = {
     }
     for(const tl of tiles){
       const tile=M.el('div','tile');
-      if(!tl.self) tile.dataset.pid=tl.pid;
+      if(!tl.self && !tl.selfScreen) tile.dataset.pid=tl.pid;
+      /* ---- dedicated screen-share tiles (they never fight the camera tile for space) ---- */
+      if(tl.selfScreen){
+        const v=M.el('video'); v.srcObject=s.screenStream; v.muted=true; v.autoplay=true; v.playsInline=true;
+        v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
+        tile.appendChild(M.el('div','scr-tag',M.t('screen')));
+        tile.appendChild(M.el('div','t-name',M.t('you')+' · '+M.t('screen')));
+        grid.appendChild(tile); continue;
+      }
+      if(tl.screen){
+        const r=s.remotes.get(tl.pid)||{}; const nm=M.Members.name(tl.pid);
+        const v=M.el('video'); v.srcObject=r.screen; v.muted=true; v.autoplay=true; v.playsInline=true;
+        v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
+        tile.appendChild(M.el('div','scr-tag',M.t('screen')));
+        tile.appendChild(M.el('div','t-name',nm.replace(/</g,'&lt;')+' · '+M.t('screen')));
+        grid.appendChild(tile); continue;
+      }
       if(tl.self){
         const name=M.t('you');
         const hasVid=s.kind==='video' && s.localStream?.getVideoTracks().some(t=>t.enabled&&t.readyState==='live');
@@ -3253,7 +3283,7 @@ M.Call = {
           const out=M.Store.get('output'); if(out&&v.setSinkId) v.setSinkId(out).catch(()=>{}); }
         else { const a=M.el('audio'); a.autoplay=true; if(r.stream) a.srcObject=r.stream; tile.appendChild(a); }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(nm)}">${M.initials(nm)}</div><span>${r.camOff?M.t('cam_off'):nm.replace(/</g,'&lt;')}</span>`)); }
-        if(r.screen){ const sv=M.el('video'); sv.srcObject=r.screen; sv.autoplay=true; sv.playsInline=true; sv.style.objectFit='contain'; tile.appendChild(sv); tile.appendChild(M.el('div','scr-tag',M.t('screen'))); }
+
         const rtt=M.Net.rtt.get(pid);
         const tag=M.el('div','t-name');
         const q=rtt==null?'':`<span style="width:7px;height:7px;border-radius:50%;background:${rtt<0?'var(--dim)':rtt<180?'var(--ok)':rtt<450?'var(--warn)':'var(--err)'}"></span>`;
