@@ -1007,6 +1007,16 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="cancel">Cancel</button></div>
 </div></div>
 
+<div class="modal hidden" id="mDupe"><div class="m-card sm" style="text-align:center">
+  <div class="inc-ava"><div class="avatar xl" style="background:var(--bg3);color:var(--warn);font-size:26px">2×</div></div>
+  <h3 style="justify-content:center" data-i18n="dupe_title">Already in this room</h3>
+  <p style="font-size:13.5px;color:var(--mut);line-height:1.65" data-i18n="dupe_body">You're already connected to this room in another tab on this device. Only one session per member is allowed.</p>
+  <div style="display:flex;gap:11px;margin-top:20px;flex-wrap:wrap">
+    <button class="btn btn-primary btn-big" id="dupeBack" style="flex:1" data-i18n="dupe_back">Keep my other tab</button>
+    <button class="btn btn-big" id="dupeTake" style="flex:1" data-i18n="dupe_take">Use this tab</button>
+  </div>
+</div></div>
+
 <div class="modal hidden" id="mConfirm"><div class="m-card sm">
   <h3 id="cfTitle" style="color:var(--red)">Confirm</h3>
   <p id="cfBody" style="font-size:14px;color:var(--mut)"></p>
@@ -1186,7 +1196,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.26.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.27.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1325,6 +1335,9 @@ en:{
  grace_started:'The Admin left — this room closes automatically in 10 minutes',
  grace_back:'The Admin returned — the room continues',
  grace_ended:'Closed automatically: the Admin was away for 10 minutes',
+ dupe_title:'Already in this room',
+ dupe_body:"You're already connected to this room in another tab on this device. Only one session per member is allowed.",
+ dupe_back:'Keep my other tab', dupe_take:'Use this tab', dupe_taken:'This session was closed — you continued in another tab',
  cc_members_sub:'Presence, device info, per-member permissions and moderation.', cc_comms_sub:'Room-wide switches. Changes apply to every member instantly.',
  room_chat:'Room chat', private_msgs:'Private messages', voice_calls:'Voice calls', video_calls:'Video calls', group_calls:'Group calls',
  member_calls:'Member-initiated calls', member_calls_sub:'When off, only the Admin can start calls.', private_calls:'Private (1-to-1) calls',
@@ -1473,6 +1486,9 @@ ar:{
  grace_started:'غادر المشرف — تُغلق الغرفة تلقائياً خلال 10 دقائق',
  grace_back:'عاد المشرف — تستمر الغرفة',
  grace_ended:'أُغلقت تلقائياً: غياب المشرف لمدة 10 دقائق',
+ dupe_title:'أنت في هذه الغرفة بالفعل',
+ dupe_body:'أنت متصل بهذه الغرفة في تبويب آخر على هذا الجهاز. يُسمح بجلسة واحدة فقط لكل عضو.',
+ dupe_back:'الاحتفاظ بالتبويب الآخر', dupe_take:'استخدام هذا التبويب', dupe_taken:'أُغلقت هذه الجلسة — تابعت في تبويب آخر',
  cc_members_sub:'الحضور ومعلومات الأجهزة وصلاحيات كل عضو والإشراف.', cc_comms_sub:'مفاتيح عامة للغرفة. تسري التغييرات على الجميع فوراً.',
  room_chat:'دردشة الغرفة', private_msgs:'الرسائل الخاصة', voice_calls:'المكالمات الصوتية', video_calls:'مكالمات الفيديو', group_calls:'المكالمات الجماعية',
  member_calls:'مكالمات يبدأها الأعضاء', member_calls_sub:'عند الإيقاف، المشرف فقط يبدأ المكالمات.', private_calls:'المكالمات الخاصة (ثنائية)',
@@ -1806,7 +1822,7 @@ M.Net = {
     /* redundant signaling relays — if one broker dies, the others keep the room alive */
     const custom=M.Store.get('broker');
     cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
-    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, ts:Date.now() });
+    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, jt:M.State.joinedAt||0, ts:Date.now() });
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
       onJoinError: d => {
@@ -1836,7 +1852,7 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe']) M.Net.A[n]=R.makeAction(n);
     M.bus.emit('netReady');
 
     /* presence */
@@ -1857,6 +1873,7 @@ M.Net = {
 
     M.Net.A.hello.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
+      M.Dupe.check(peerId,d);
       if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if((M.Admin.priv||M.Admin.legacy) && M.State.room && (M.State.wb.open || M.State.timerUntil)){
@@ -1866,6 +1883,14 @@ M.Net = {
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
     M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
+    M.Net.A.dupe.onMessage = (d,{peerId}) => {
+      /* a newer session of the same member is claiming the seat — this tab steps down */
+      if(d?.t==='take' && d.to===M.State.self.id){
+        M.toast('warn',M.t('dupe_title'),M.t('dupe_taken'),{ms:6000});
+        M.log('warn','session replaced by a newer tab of the same member');
+        setTimeout(()=>M.App.backToLobby('dupe'),1400);
+      }
+    };
     /* chat history backfill for refreshed / late-joining members (room messages only — DMs are never shared) */
     M.Net.A.hist.onMessage = (d,{peerId}) => M.Chat.onHist(d,peerId);
     /* remote-assistance control channel (consent, input mirroring, teardown) */
@@ -2040,6 +2065,23 @@ M.Net = {
     M.Net.nudge();
   },
   leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
+};
+
+/* ---------------- Duplicate-session guard ---------------------------------
+   One session per member: tabs compare fingerprints; the one that joined
+   later yields with a clear choice (keep the original, or take over). */
+M.Dupe = {
+  active:false, keeperId:null,
+  check(pid,d){
+    if(M.Dupe.active || !M.State.room) return;
+    if(!d || !d.fp || d.fp!==M.State.self.fp || pid===M.State.self.id) return;
+    const myJt=M.State.joinedAt||0, theirJt=d.jt||0;
+    const iAmOriginal = myJt<theirJt || (myJt===theirJt && M.State.self.id<pid);
+    if(iAmOriginal) return;                        /* the newcomer detects this on its own */
+    M.Dupe.active=true; M.Dupe.keeperId=pid;
+    M.$('#mDupe').classList.remove('hidden');
+    M.log('warn','duplicate session detected — this tab joined later, yielding');
+  }
 };
 
 /* ---------------- Members ---------------- */
@@ -2887,7 +2929,9 @@ M.UI = {
   },
   renderMembers(){
     const list=M.$('#memberList'); list.innerHTML='';
-    const peers=[...M.State.peers.values()].sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
+    const peers=[...M.State.peers.values()]
+      .filter(p=>!(p.fp && p.fp===M.State.self.fp))   /* my own duplicate tabs never crowd the roster */
+      .sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
     const onCount=peers.filter(p=>p.status!=='offline').length;
     const cnt=M.$('#memberCount'); if(cnt){ cnt.textContent=peers.length? onCount+' / '+peers.length : '0'; cnt.title=onCount+' '+M.t('online')+' / '+peers.length+' '+M.t('members_s'); }
     if(peers.length===0){ list.appendChild(M.el('div','dim',`<div style="padding:18px 10px;font-size:12.5px">${M.t('no_members')}</div>`)); }
@@ -5408,6 +5452,7 @@ M.App = {
     M.$('#btnJoin').disabled=false;
   },
   async enter(code,isCreator){
+    M.State.joinedAt=Date.now();
     M.State.self.admin=!!M.Admin.priv;
     M.State.bans=M.Store.get('bans.'+code)||[];
     M.State.perms=M.permsDefault();
@@ -5474,6 +5519,7 @@ M.App = {
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
     M.$('#graceBanner')?.classList.add('hidden');
+    M.Dupe.active=false; M.Dupe.keeperId=null; M.$('#mDupe')?.classList.add('hidden');
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#composer').style.display=''; M.Chat.view='thread'; M.$('#btnInbox').classList.remove('on');
@@ -5928,6 +5974,14 @@ document.addEventListener('DOMContentLoaded',()=>{
     /* modals: generic close */
     M.$$('[data-close]').forEach(b=>b.onclick=()=>b.closest('.modal').classList.add('hidden'));
     M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard,#mRec,#mExport').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
+    /* duplicate-session dialog */
+    M.$('#dupeBack').onclick=()=>{ M.$('#mDupe').classList.add('hidden'); M.Dupe.active=false; M.App.backToLobby('dupe'); };
+    M.$('#dupeTake').onclick=()=>{
+      const k=M.Dupe.keeperId;
+      M.$('#mDupe').classList.add('hidden'); M.Dupe.active=false; M.Dupe.keeperId=null;
+      try{ M.Net.send('dupe',{t:'take',to:k},k); }catch(e){}   /* the older tab steps down */
+      M.toast('ok',M.t('dupe_title'),M.t('dupe_taken'),{ms:4000});
+    };
     M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
     /* live ICE/TURN health check — proves reachability before a call ever needs it */
     M.$('#cfgTestIce').onclick=async ()=>{
@@ -5977,7 +6031,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     }
     const note=safeGet(sessionStorage,'mj.note');
     if(note){ safeDel(sessionStorage,'mj.note');
-      setTimeout(()=>M.toast('info', note==='ended'?M.t('sys_room_end'): note==='kicked'?M.t('sys_you_kicked'):'Majlis'),300);
+      setTimeout(()=>M.toast('info', note==='ended'?M.t('sys_room_end'): note==='kicked'?M.t('sys_you_kicked'): note==='dupe'?M.t('dupe_taken'):'Majlis'),300);
     }
     if(!crypto.subtle){ M.lobbyMsg('⚠ Insecure context: HTTPS is required for full functionality (crypto, media).',true); }
     window.addEventListener('error',e=>M.log('err','uncaught: '+(e.message||e.error)));
