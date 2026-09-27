@@ -234,22 +234,30 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .avatar .st{position:absolute;bottom:-2px;inset-inline-end:-2px;width:12px;height:12px;border-radius:50%;border:2.5px solid var(--bg1)}
 #selfCard b{font-size:14px;display:block;line-height:1.25}
 #selfCard small{font-family:var(--mono);font-size:10.5px;color:var(--dim)}
-#memberList{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:3px}
-.member{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:9px;transition:background .13s;position:relative}
-.member:hover{background:var(--bg2)}
-.member .avatar{width:33px;height:33px;font-size:13.5px;border-radius:9px}
+#memberHead{display:flex;align-items:center;gap:9px;padding:13px 16px 5px}
+#memberHead .lbl{margin:0;font-size:10px}
+#memberCount{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--teal);background:rgba(56,207,182,.12);border:1px solid rgba(56,207,182,.32);border-radius:99px;padding:1px 8px;letter-spacing:.04em}
+.member-sep{padding:11px 12px 3px;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:8px}
+.member-sep::after{content:'';flex:1;height:1px;background:var(--line)}
+#memberList{flex:1;overflow-y:auto;padding:4px 8px 10px;display:flex;flex-direction:column;gap:2px}
+.member{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;transition:background .16s,transform .16s;position:relative}
+.member:hover{background:var(--bg2);transform:translateX(2px)}
+[dir="rtl"] .member:hover{transform:translateX(-2px)}
+.member .avatar{width:34px;height:34px;font-size:13.5px;border-radius:10px;box-shadow:0 2px 8px -3px rgba(0,0,0,.35)}
 .member .mi{flex:1;min-width:0}
 .member .mn{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
 .member .mn .crown{color:var(--amber);flex:none}
-.member .ms{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px;font-family:var(--mono)}
-.member .acts{display:none;align-items:center;gap:2px}
-.member:hover .acts{display:flex}
-.member .acts .icon-btn{width:29px;height:29px}
-.member .acts .icon-btn svg{width:15px;height:15px}
+.member .ms{font-size:10.5px;color:var(--dim);display:flex;align-items:center;gap:6px;font-family:var(--mono);transition:opacity .15s}
+.member:hover .ms{opacity:.25}   /* actions float over the status line — the name never moves */
+.member .acts{position:absolute;bottom:7px;inset-inline-end:7px;display:flex;align-items:center;gap:1px;padding:2px;background:var(--bg2);border:1px solid var(--line2);border-radius:9px;box-shadow:var(--sh);opacity:0;transform:translateY(5px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}
+.member:hover .acts{opacity:1;transform:none;pointer-events:auto}
+.member .acts .icon-btn{width:27px;height:27px}
+.member .acts .icon-btn svg{width:14px;height:14px}
 /* touch devices have no hover — member actions are always reachable */
 @media (hover:none), (max-width:900px){
   .member{flex-wrap:wrap;row-gap:2px}
-  .member .acts{display:flex;width:100%;justify-content:flex-end;padding-inline-start:43px;margin-top:1px}
+  .member .acts{position:static;opacity:1;transform:none;pointer-events:auto;background:none;border:none;box-shadow:none;padding:0;width:100%;justify-content:flex-end;padding-inline-start:44px;margin-top:1px}
+  .member:hover .ms{opacity:1}
   .member .acts .icon-btn{width:35px;height:33px}
   .member .acts .icon-btn svg{width:17px;height:17px}
 }
@@ -275,6 +283,12 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #topStatus{cursor:pointer}
 #verTag{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:2px 7px;letter-spacing:.05em;background:var(--panel-bg);white-space:nowrap;cursor:pointer;transition:color .15s,border-color .15s}
 #verTag:hover{color:var(--ink);border-color:var(--line2)}
+#roomTimer b{font-family:var(--mono);color:inherit}
+#roomTimer.twarn{color:var(--warn);border-color:var(--warn)}
+#roomTimer.terr{color:var(--err);border-color:var(--err);animation:ledPulse 1.2s infinite}
+.cc-timer{display:flex;align-items:center;gap:7px;font-family:var(--mono)}
+.cc-timer input{width:56px;padding:7px 6px;text-align:center}
+.cc-timer .col{color:var(--mut);font-weight:700}
 @media (max-width:620px){ #verTag{display:none} }
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -636,6 +650,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <span id="verTag" class="mono" title="Build version — if this is older than the release, hard-refresh (Ctrl+Shift+R)">…</span>
     <button class="btn btn-primary" id="btnShare"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span class="btxt" data-i18n="share_room">Share room</span></button>
     <button class="btn btn-admin hidden" id="btnCC"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h10M18 8h2M4 16h4M12 16h8" stroke-linecap="round"/><circle cx="16" cy="8" r="2"/><circle cx="10" cy="16" r="2"/></svg><span class="btxt" data-i18n="control_center">Control Center</span></button>
+    <button class="btn btn-danger hidden" id="btnTerm" title="Terminate room"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.4 5.6a9 9 0 1 1-12.8 0" stroke-linecap="round"/><path d="M12 2v9" stroke-linecap="round"/></svg><span class="btxt" data-i18n="term_room">Terminate</span></button>
+    <span id="roomTimer" class="pill hidden" title="Session ends in">⏳ <b id="roomTimerTxt">00:00:00</b></span>
     <button class="icon-btn" id="langBtn2" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></button>
     <button class="icon-btn" id="themeBtn" title="Theme">
       <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
@@ -647,6 +663,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <div id="sideScrim" class="hidden"></div>
     <aside id="sidebar">
       <div id="selfCard" style="cursor:pointer"><div class="avatar" id="selfAvatar">?</div><div style="min-width:0"><b id="selfName">—</b> <svg id="renameIco" style="display:inline-block;vertical-align:-2px;opacity:.55" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" stroke-linejoin="round"/></svg><small id="selfIdLbl">···</small></div><button class="icon-btn danger" id="sideClose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button></div>
+      <div id="memberHead"><span class="lbl" data-i18n="cc_members">Members</span><span id="memberCount">0</span></div>
       <div id="memberList"></div>
       <div id="sideFoot">
         <span class="pill" id="connPill"><span class="led" id="connLed"></span><span id="connLbl">connecting</span></span>
@@ -915,6 +932,19 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <div class="hr"></div>
         <button class="btn btn-danger" id="ccEndRoom"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg><span data-i18n="end_room">End room for everyone</span></button>
       </div>
+      <div class="cc-card"><h4 data-i18n="timer_lbl">Session timer</h4>
+        <p class="dim" style="font-size:12.5px;margin-bottom:12px" data-i18n="timer_sub">Optional countdown. When it reaches zero the room terminates for everyone and all participants are notified.</p>
+        <div class="cc-timer" style="margin-bottom:13px">
+          <input class="inp" id="ccTH" type="number" min="0" max="99" value="0" inputmode="numeric"><span class="col">h</span>
+          <input class="inp" id="ccTM" type="number" min="0" max="59" value="0" inputmode="numeric"><span class="col">m</span>
+          <input class="inp" id="ccTS" type="number" min="0" max="59" value="0" inputmode="numeric"><span class="col">s</span>
+        </div>
+        <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" id="ccTimerSet" data-i18n="timer_set">Start countdown</button>
+          <button class="btn" id="ccTimerStop" data-i18n="timer_stop">Stop</button>
+          <span class="mono dim" id="ccTimerNow" style="margin-inline-start:auto"></span>
+        </div>
+      </div>
     </section>
     <section class="cc-sec" data-sec="members"><h2 data-i18n="cc_members">Members</h2><p class="cc-sub" data-i18n="cc_members_sub">Presence, device info, per-member permissions and moderation.</p><div class="cc-card"><div id="ccMembers"></div></div></section>
     <section class="cc-sec" data-sec="comms"><h2 data-i18n="cc_comms">Communication</h2><p class="cc-sub" data-i18n="cc_comms_sub">Room-wide switches. Changes apply to every member instantly.</p>
@@ -1037,7 +1067,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.18.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.19.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1169,6 +1199,9 @@ en:{
  cc_room:'Room', cc_members:'Members', cc_comms:'Communication', cc_calls:'Calls', cc_files:'Files', cc_wb:'Whiteboard', cc_perms:'Permissions', cc_sec:'Security', cc_diag:'Diagnostics',
  cc_room_sub:'Identity, invitation link and room lifecycle.', room_info:'Room information', invite_url:'Invite URL', created:'Created', signaling:'Signaling', encryption:'Content encryption',
  lifecycle:'Lifecycle', lock_room:'Lock room', lock_room_sub:'Prevent new members from joining. Current members stay connected.', end_room:'End room for everyone',
+ term_room:'Terminate', term_q:'Terminate this room?', term_q_body:'Every participant will be notified and disconnected, and the session closed. This cannot be undone.',
+ timer_lbl:'Session timer', timer_sub:'Optional countdown. When it reaches zero the room terminates for everyone and all participants are notified.',
+ timer_set:'Start countdown', timer_stop:'Stop', timer_started:'Session countdown started', timer_need:'Set a duration first', session_ended:'Session time is up — the room has ended',
  cc_members_sub:'Presence, device info, per-member permissions and moderation.', cc_comms_sub:'Room-wide switches. Changes apply to every member instantly.',
  room_chat:'Room chat', private_msgs:'Private messages', voice_calls:'Voice calls', video_calls:'Video calls', group_calls:'Group calls',
  member_calls:'Member-initiated calls', member_calls_sub:'When off, only the Admin can start calls.', private_calls:'Private (1-to-1) calls',
@@ -1288,6 +1321,9 @@ ar:{
  cc_room:'الغرفة', cc_members:'الأعضاء', cc_comms:'التواصل', cc_calls:'المكالمات', cc_files:'الملفات', cc_wb:'السبورة', cc_perms:'الصلاحيات', cc_sec:'الأمان', cc_diag:'التشخيص',
  cc_room_sub:'الهوية ورابط الدعوة ودورة حياة الغرفة.', room_info:'معلومات الغرفة', invite_url:'رابط الدعوة', created:'أُنشئت', signaling:'الإشارة', encryption:'تشفير المحتوى',
  lifecycle:'دورة الحياة', lock_room:'قفل الغرفة', lock_room_sub:'منع انضمام أعضاء جدد. الأعضاء الحاليون يبقون متصلين.', end_room:'إنهاء الغرفة للجميع',
+ term_room:'إنهاء', term_q:'إنهاء هذه الغرفة؟', term_q_body:'سيتم إشعار جميع المشاركين وفصلهم وإغلاق الجلسة. لا يمكن التراجع.',
+ timer_lbl:'مؤقت الجلسة', timer_sub:'عدّ تنازلي اختياري. عند بلوغ الصفر تُنهى الغرفة للجميع ويُخطَر جميع المشاركين.',
+ timer_set:'بدء العدّ', timer_stop:'إيقاف', timer_started:'بدأ عدّ الجلسة التنازلي', timer_need:'حدّد مدة أولاً', session_ended:'انتهى وقت الجلسة — أُغلقت الغرفة',
  cc_members_sub:'الحضور ومعلومات الأجهزة وصلاحيات كل عضو والإشراف.', cc_comms_sub:'مفاتيح عامة للغرفة. تسري التغييرات على الجميع فوراً.',
  room_chat:'دردشة الغرفة', private_msgs:'الرسائل الخاصة', voice_calls:'المكالمات الصوتية', video_calls:'مكالمات الفيديو', group_calls:'المكالمات الجماعية',
  member_calls:'مكالمات يبدأها الأعضاء', member_calls_sub:'عند الإيقاف، المشرف فقط يبدأ المكالمات.', private_calls:'المكالمات الخاصة (ثنائية)',
@@ -1446,7 +1482,7 @@ M.Perms = {
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
 M.Admin = {
-  priv:null, pubJwk:null, seq:0,
+  priv:null, pubJwk:null, seq:0, _seen:new Set(),
   async ensureKeys(code, isCreator){
     const stored=M.Store.get('adminKey.'+code);
     try{
@@ -1474,19 +1510,24 @@ M.Admin = {
   async derivePub(priv){ const jwk=await crypto.subtle.exportKey('jwk',priv); return {kty:jwk.kty,crv:jwk.crv,x:jwk.x,y:jwk.y}; },
   pubB64(){ return M.Admin.pubJwk ? M.b64url(M.te.encode(JSON.stringify(M.Admin.pubJwk))) : ''; },
   pubPin(){ return M.Admin.pubJwk ? M.SHA.create().update(M.te.encode(JSON.stringify(M.Admin.pubJwk))).hex().slice(0,16) : ''; },
-  async cmd(name, payload={}){
+  async cmd(name, payload={}, target){
+    /* target = send to ONE peer (state sync) without local re-apply;
+       every command is retransmitted once so a dropped packet can never lose an admin action */
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
     if(M.Admin.legacy){
       const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq,legacy:1};
-      try{ M.Net.A.adm.send(body); }catch(e){ M.log('err','legacy cmd send failed'); }
-      M.Admin.dispatch(body, M.State.self.id);
+      const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(body,target); else M.Net.A.adm.send(body); }catch(e){} };
+      fire(); if(target==null) setTimeout(fire,1200);
+      if(target==null) M.Admin.dispatch(body, M.State.self.id);
       return true;
     }
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
-    M.Net.A.adm.send({...body, sig:M.b64(raw), pub:M.Admin.pubJwk});
-    M.log('info','admin cmd → '+name);
-    M.Admin.dispatch(body, M.State.self.id); // apply locally
+    const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
+    const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){} };
+    fire(); if(target==null) setTimeout(fire,1200);
+    M.log('info','admin cmd → '+name+(target?' → '+M.fmt.idShort(target):''));
+    if(target==null) M.Admin.dispatch(body, M.State.self.id); // apply locally
     return true;
   },
   async verify(m, peerId){
@@ -1515,8 +1556,22 @@ M.Admin = {
       case 'kick': B.emit('kick',body); break;
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); } B.emit('kick',body); break;
       case 'unban': M.State.bans=M.State.bans.filter(f=>f!==body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); B.emit('bans'); break;
-      case 'end': B.emit('roomEnd'); break;
-      case 'wbCtrl': M.bus.emit('wbCtrl',body); break;
+      case 'end':
+        if(M.State.room){ safeDel(localStorage,'mj.wb.'+M.State.room.code); safeDel(localStorage,'mj.timer.'+M.State.room.code); }
+        M.State.timerUntil=0; B.emit('timer'); B.emit('roomEnd'); break;
+      case 'timer':
+        M.State.timerUntil=body.until||0;
+        if((M.Admin.priv||M.Admin.legacy) && M.State.room){
+          if(M.State.timerUntil) M.Store.set('timer.'+M.State.room.code,M.State.timerUntil);
+          else safeDel(localStorage,'mj.timer.'+M.State.room.code);
+        }
+        if(body.until) B.emit('sysmsg',{text:M.t('timer_started')});
+        B.emit('timer'); M.log('info','session timer → '+(body.until?Math.round((body.until-Date.now())/1000)+'s':'stopped')); break;
+      case 'wbCtrl':
+        M.bus.emit('wbCtrl',body);
+        if((M.Admin.priv||M.Admin.legacy) && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
+          M.Store.set('wb.'+M.State.room.code,{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors});
+        break;
     }
     B.emit('ccRefresh');
   }
@@ -1615,7 +1670,15 @@ M.Net = {
       M.Members.offline(peerId);
     };
 
-    M.Net.A.hello.onMessage = (d,{peerId}) => { M.Net.lastHb.set(peerId,Date.now()); if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'}); };
+    M.Net.A.hello.onMessage = (d,{peerId}) => {
+      M.Net.lastHb.set(peerId,Date.now());
+      if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
+      /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
+      if((M.Admin.priv||M.Admin.legacy) && M.State.room && (M.State.wb.open || M.State.timerUntil)){
+        const W=M.State.wb;
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},timer:M.State.timerUntil||0},peerId);
+      }
+    };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
     M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
     /* chat history backfill for refreshed / late-joining members (room messages only — DMs are never shared) */
@@ -1629,7 +1692,13 @@ M.Net = {
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       M.Members.upsert(peerId,patch);
     };
-    M.Net.A.adm.onMessage = async (m,{peerId}) => { if(await M.Admin.verify(m,peerId)) M.Admin.dispatch(m,peerId); else M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); };
+    M.Net.A.adm.onMessage = async (m,{peerId}) => {
+      if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
+      const key=m.from+':'+m.seq;                                  /* retransmissions are safe: duplicates are dropped */
+      if(M.Admin._seen.has(key)) return;
+      M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
+      M.Admin.dispatch(m,peerId);
+    };
     M.Net.A.type.onMessage = (d,{peerId}) => { if(d&&d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d&&d.to}); };
 
     /* encrypted app channels: chat / wb / ft control */
@@ -2309,6 +2378,23 @@ M.UI = {
     M.$('#sideScrim').onclick=()=>M.UI.closeDrawer();
     M.$('#topStatus').onclick=()=>{ if(matchMedia('(max-width:900px)').matches) M.UI.openDrawer(); };
     addEventListener('resize',M.debounce(()=>{ if(!matchMedia('(max-width:900px)').matches) M.UI.closeDrawer(); M.bus.emit('resize'); },150));
+    setInterval(()=>M.UI.tickTimer(),1000);
+  },
+  tickTimer(){
+    const el=M.$('#roomTimer'), tx=M.$('#roomTimerTxt'), cc=M.$('#ccTimerNow');
+    const until=M.State.timerUntil;
+    if(cc) cc.textContent=until? M.t('timer_lbl')+': '+M.fmt.dur(Math.max(0,(until-Date.now())/1000)) : '';
+    if(!until){ el?.classList.add('hidden'); return; }
+    const rem=Math.max(0,Math.floor((until-Date.now())/1000));
+    el.classList.remove('hidden');
+    tx.textContent=M.fmt.dur(rem);
+    el.classList.toggle('twarn',rem<=300&&rem>60);
+    el.classList.toggle('terr',rem<=60&&rem>0);
+    if(rem<=0 && !M.App._sessionEnded){
+      M.App._sessionEnded=true;
+      if(M.Admin.priv||M.Admin.legacy) M.Admin.cmd('end');   /* admin broadcasts the termination… */
+      else { M.toast('err',M.t('session_ended')); setTimeout(()=>M.App.backToLobby('ended'),1600); }  /* …members end locally at the same wall-clock instant */
+    }
   },
   onlineCount(){
     const on=M.Members.onlinePeers().length;
@@ -2351,8 +2437,12 @@ M.UI = {
   renderMembers(){
     const list=M.$('#memberList'); list.innerHTML='';
     const peers=[...M.State.peers.values()].sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
+    const onCount=peers.filter(p=>p.status!=='offline').length;
+    const cnt=M.$('#memberCount'); if(cnt){ cnt.textContent=peers.length? onCount+' / '+peers.length : '0'; cnt.title=onCount+' '+M.t('online')+' / '+peers.length+' '+M.t('members_s'); }
     if(peers.length===0){ list.appendChild(M.el('div','dim',`<div style="padding:18px 10px;font-size:12.5px">${M.t('no_members')}</div>`)); }
+    let sepDone=false;
     for(const p of peers){
+      if(!sepDone && p.status==='offline' && onCount>0){ list.appendChild(M.el('div','member-sep',M.t('offline'))); sepDone=true; }
       /* last-resort heal: handshake data always carried the real name */
       const early=M.Net._early?.get(p.id);
       if(p.name.indexOf('guest-')===0 && early && early.n){ p.name=early.n; if(early.fp)p.fp=early.fp; if(early.v)p.v=early.v; }
@@ -2425,9 +2515,11 @@ M.UI = {
   enterApp(){
     M.$('#lobby').classList.add('hidden'); M.$('#app').classList.remove('hidden');
     M.$('#btnCC').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
+    M.$('#btnTerm').classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
     M.$('#selfName').textContent=M.State.self.name;
+    if(M.Admin.priv||M.Admin.legacy) M.$('#selfName').insertAdjacentHTML('beforeend',M.Icons.crown);
     M.$('#selfIdLbl').textContent=M.fmt.idShort(M.State.self.id)+' · '+M.Platform.os+' '+M.Platform.br;
     const av=M.$('#selfAvatar'); av.textContent=M.initials(M.State.self.name); av.style.background=M.avatarBg(M.State.self.name);
     M.Chat.switchTarget(null);
@@ -4154,6 +4246,12 @@ M.WB = {
   applyCtrl(b){
     const W=M.State.wb;
     switch(b.sub){
+      case 'snapshot':   /* authoritative board+timer state pushed to joiners / re-announced by admin */
+        if(b.wb) Object.assign(W,b.wb);
+        if(b.timer) M.State.timerUntil=b.timer;
+        M.WB.refreshUI(); M.bus.emit('timer');
+        M.log('info','board state snapshot received (open='+W.open+', mode='+W.mode+')');
+        break;
       case 'open': W.open=!!b.on; if(b.on){ M.toast('info',M.t('wb_opened')); M.WB.maybeReqState(); } else { M.toast('warn',M.t('wb_closed_ev')); M.WB.commitText(); } break;
       case 'mode': W.mode=b.m; M.toast('info',M.t('wb_mode_chg',{m:M.t(b.m==='admin'?'admin_only':b.m==='view'?'view_only':'collab')})); break;
       case 'lock': W.locked=!!b.on; M.toast(b.on?'warn':'info', M.t(b.on?'wb_locked':'wb_unlocked')); break;
@@ -4497,6 +4595,14 @@ M.App = {
     M.State.self.admin=!!M.Admin.priv;
     M.State.bans=M.Store.get('bans.'+code)||[];
     M.State.perms=M.permsDefault();
+    M.App._sessionEnded=false; M.App._ending=false;
+    /* session continuity: an admin refresh restores the board's open/mode/lock state; everyone restores a running timer */
+    if(M.Admin.priv||M.Admin.legacy){
+      const ws=M.Store.get('wb.'+code);
+      if(ws) Object.assign(M.State.wb,ws);
+    }
+    const tu=M.Store.get('timer.'+code);
+    if(tu && tu>Date.now()) M.State.timerUntil=tu;
     const off=M.bus.on('joinFail',msg=>{
       M.lobbyMsg(M.t('join_failed')+(msg?' ('+msg+')':''),true);
       M.toast('err',M.t('join_failed'),msg||'');
@@ -4548,6 +4654,7 @@ M.App = {
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
+    M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
     M.$('#callLayer').innerHTML=''; M.$('#memberList').innerHTML=''; M.$('#peersLbl').textContent='0';
@@ -4738,6 +4845,14 @@ M.CC = {
     M.$('#ccCopyUrl').onclick=()=>M.Share.copy();
     M.$('#ccLock').onchange=e=>M.Admin.cmd('lock',{on:e.target.checked});
     M.$('#ccEndRoom').onclick=async ()=>{ if(await M.confirm(M.t('end_q'),M.t('end_q_body'))) M.Admin.cmd('end'); };
+    M.$('#btnTerm').onclick=async ()=>{ if(await M.confirm(M.t('term_q'),M.t('term_q_body'))) M.Admin.cmd('end'); };
+    M.$('#ccTimerSet').onclick=()=>{
+      const ms=((+M.$('#ccTH').value||0)*3600+(+M.$('#ccTM').value||0)*60+(+M.$('#ccTS').value||0))*1000;
+      if(ms<1000){ M.toast('warn',M.t('timer_lbl'),M.t('timer_need')); return; }
+      M.Admin.cmd('timer',{until:Date.now()+ms});
+      M.toast('ok',M.t('timer_lbl'),M.t('timer_started'));
+    };
+    M.$('#ccTimerStop').onclick=()=>{ M.Admin.cmd('timer',{until:0}); M.toast('info',M.t('timer_lbl'),M.t('timer_stop')); };
     /* comms */
     const bind=(id,key)=>M.$(id).onchange=e=>{ if(!M.CC._loading) M.Admin.cmd('perm',{perms:{[key]:e.target.checked}}); };
     bind('#tgChat','chat'); bind('#tgDm','dm'); bind('#tgVoice','voice'); bind('#tgVideo','video');
@@ -4884,8 +4999,9 @@ M.bus.on('kick',({peerId,name})=>{
 M.bus.on('kickAsk',p=>{
   M.confirm(M.t('kick_q'),M.t('kick_q_body',{n:p.name})).then(ok=>{ if(ok) M.Admin.cmd('kick',{peerId:p.id,name:p.name}); });
 });
-M.bus.on('roomEnd',()=>{
-  M.toast('err',M.t('sys_room_end'),'',{ms:6000});
+M.bus.on('roomEnd',(msg)=>{
+  if(M.App._ending) return; M.App._ending=true;
+  M.toast('err',msg||M.t('sys_room_end'),'',{ms:6000});
   setTimeout(()=>M.App.backToLobby('ended'),1800);
 });
 M.bus.on('joinFail',()=>{ if(!M.$('#app').classList.contains('hidden')) M.toast('err',M.t('join_failed')); });
