@@ -408,8 +408,28 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin .cw-ctrl .icon-btn.end{background:var(--red);color:#fff;border-color:var(--red);width:46px}
 .callwin.ringing .cw-grid{min-height:110px}
 .callwin .ring-note{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--mut);font-family:var(--mono)}
+/* expanded + fullscreen call window */
+.callwin.max{width:min(1200px,95vw);height:min(800px,90vh);top:50%!important;left:50%!important;inset-inline-end:auto!important;transform:translate(-50%,-50%)!important}
+.callwin.max .cw-grid{flex:1;min-height:0}
+.callwin:fullscreen{width:100%;height:100%;max-height:none;border-radius:0;border:none;inset-inline-end:auto}
+.callwin:fullscreen .cw-grid{flex:1;min-height:0}
+.cw-hbtn{width:27px;height:27px;display:grid;place-items:center;border-radius:6px;color:var(--mut);background:transparent;border:none;cursor:pointer;flex:none;transition:background .13s,color .13s}
+.cw-hbtn:hover{background:var(--bg3);color:var(--ink)}
+.cw-hbtn svg{width:14px;height:14px}
+/* spotlight layout */
+.cw-grid.spotmode{display:flex!important;grid-template-columns:none!important}
+.cw-grid.spotmode .tile.spot{aspect-ratio:auto;flex:1;min-height:140px}
+.cw-strip{display:flex;gap:6px;overflow-x:auto;flex:none;padding-bottom:2px;scrollbar-width:thin}
+.cw-strip .tile{width:132px;aspect-ratio:4/3;flex:none}
+.t-expand{position:absolute;top:6px;inset-inline-end:6px;z-index:3;width:27px;height:27px;border-radius:7px;display:grid;place-items:center;background:rgba(10,16,19,.68);color:#fff;border:none;cursor:pointer;opacity:0;transition:opacity .16s,background .16s,transform .12s}
+.tile:hover .t-expand{opacity:1}
+.t-expand:hover{background:var(--amber);color:#221503;transform:scale(1.08)}
+.t-expand svg{width:13px;height:13px}
+html[data-theme="light"] .t-expand{background:rgba(255,255,255,.85);color:#15242B;box-shadow:0 2px 8px -2px rgba(21,36,43,.4)}
 @media (max-width:760px){
   .callwin{position:fixed;inset-inline:10px;bottom:76px;width:auto;max-height:56vh;max-height:56dvh}
+  .callwin.max{top:6px!important;left:6px!important;right:6px;bottom:6px;transform:none!important;width:auto!important;height:auto!important}
+  .t-expand{opacity:1}
   #dropOverlay .dz{padding:34px 26px;font-size:17px;border-radius:14px}
   .m-card{padding:18px}
 }
@@ -1104,7 +1124,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.22.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.23.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1314,6 +1334,7 @@ en:{
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
  screen:'Screen', quality:'quality', rtt:'ping',
  screen_share:'Screen share', screen_on:'You are sharing your screen', screen_canceled:'Screen selection was canceled',
+ spot_on:'Focus this view', spot_off:'Back to grid', cw_max:'Expand', cw_min:'Restore', cw_fs:'Fullscreen',
  screen_blocked:'Screen capture is blocked here — embedded previews often forbid it; open the site directly in its own tab', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
  rc_btn:'Remote control', rc_win_title:'Remote control', rc_request_title:'Remote control request',
  rc_request_body:'wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.',
@@ -1447,6 +1468,7 @@ ar:{
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة',
  screen_share:'مشاركة الشاشة', screen_on:'أنت تشارك شاشتك', screen_canceled:'أُلغي اختيار الشاشة',
+ spot_on:'تركيز على هذا العرض', spot_off:'العودة إلى الشبكة', cw_max:'توسيع', cw_min:'استعادة', cw_fs:'ملء الشاشة',
  screen_blocked:'التقاط الشاشة محظور هنا — المعاينات المضمّنة غالباً تمنعه؛ افتح الموقع مباشرة في تبويب مستقل', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
  rc_btn:'تحكم عن بُعد', rc_win_title:'تحكم عن بُعد', rc_request_title:'طلب تحكم عن بُعد',
  rc_request_body:'يرغب في مشاهدة شاشتك وإرشادك عن بُعد. تُشارَك شاشتك مع المشرف فقط، ويظهر مؤشره ونقراته وحروفه كطبقة حية فوق شاشتك. يمكنك إلغاء الوصول في أي لحظة.',
@@ -3205,7 +3227,7 @@ M.Call = {
     s.win=w;
     /* drag */
     const head=w.querySelector('.cw-head'); let drag=null;
-    head.addEventListener('pointerdown',e=>{ if(M.Platform.mobile) return; drag={x:e.clientX-w.offsetLeft,y:e.clientY-w.offsetTop}; head.setPointerCapture(e.pointerId); });
+    head.addEventListener('pointerdown',e=>{ if(M.Platform.mobile||e.target.closest('button')) return; drag={x:e.clientX-w.offsetLeft,y:e.clientY-w.offsetTop}; head.setPointerCapture(e.pointerId); });
     head.addEventListener('pointermove',e=>{ if(!drag) return; w.style.left=(e.clientX-drag.x)+'px'; w.style.top=(e.clientY-drag.y)+'px'; w.style.insetInlineEnd='auto'; });
     head.addEventListener('pointerup',()=>drag=null);
     M.Call.renderWin(s);
@@ -3219,9 +3241,16 @@ M.Call = {
     w.querySelector('.cw-head').innerHTML=`
       <span style="color:${s.status==='active'?'var(--teal)':'var(--warn)'};display:flex">${kindIco.replace('<svg','<svg width="16" height="16"')}</span>
       <div class="cw-t"><b>${names.replace(/</g,'&lt;')}</b><small>${s.status==='active'?'':M.t(s.status==='ringing'?(s.direction==='out'?'calling':'ringing'):'…')}${s.group?' · '+M.t('group_call'):''}</small></div>
-      <span class="mono dim" style="font-size:11px"></span>`;
+      <span class="mono dim" style="font-size:11px"></span>
+      <button class="cw-hbtn" data-cw="max" title="${s._max?M.t('cw_min'):M.t('cw_max')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${s._max?'<path d="M9 3v6H3M15 21v-6h6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/>':'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/>'}</svg></button>
+      <button class="cw-hbtn" data-cw="fs" title="${M.t('cw_fs')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke-linecap="round"/></svg></button>`;
     s.durEl=w.querySelector('.cw-head .mono');
     if(s.status==='active'&&s.startedAt) s.durEl.textContent=M.fmt.dur((Date.now()-s.startedAt)/1000);
+    w.querySelector('[data-cw="max"]').onclick=e=>{ e.stopPropagation(); s._max=!s._max; w.classList.toggle('max',s._max); M.Call.renderWin(s); };
+    w.querySelector('[data-cw="fs"]').onclick=e=>{ e.stopPropagation();
+      if(document.fullscreenElement) document.exitFullscreen();
+      else (w.requestFullscreen? w.requestFullscreen().catch(()=>{ s._max=true; w.classList.add('max'); M.Call.renderWin(s); }) : (s._max=true, w.classList.add('max'), M.Call.renderWin(s)));
+    };
     /* grid */
     const grid=w.querySelector('.cw-grid'); grid.innerHTML='';
     /* speaker-focus: with >6 participants, only the 4 loudest get live tiles */
@@ -3233,29 +3262,31 @@ M.Call = {
     /* screen shares always earn their own dedicated tile — sender preview + every remote screen */
     if(s.screenStream) tiles.push({selfScreen:true});
     [...s.peers].forEach(pid=>{ if(s.remotes.get(pid)?.screen) tiles.push({pid,screen:true}); });
-    grid.classList.toggle('g2', tiles.length>1 && tiles.length<=4);
-    if(tiles.length>4) grid.style.gridTemplateColumns='repeat(3,1fr)';
-    if(focus && s.peers.size>shown.length){
-      const hidden=[...s.peers].filter(p=>!shown.includes(p));
-      const strip=M.el('div'); strip.style.cssText='grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding:2px 2px 0';
-      hidden.forEach(pid=>{
-        const c=M.el('span'); c.textContent=M.Members.name(pid);
-        const live=(s._levels?.[pid]||0)>0.03;
-        c.style.cssText='font-size:10.5px;font-family:var(--mono);padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:'+(live?'var(--teal)':'var(--dim)')+';background:'+(live?'rgba(56,207,182,.1)':'transparent');
-        strip.appendChild(c);
-      });
-      grid.appendChild(strip);
-    }
-    for(const tl of tiles){
-      const tile=M.el('div','tile');
+    const tkey=t=> t.selfScreen?'ss': t.screen?'scr:'+t.pid : t.self?'self':'cam:'+t.pid;
+    let spot=null;
+    if(s._spot){ spot=tiles.find(t=>tkey(t)===s._spot)||null; if(!spot) s._spot=null; }
+    const side=tiles.filter(t=>t!==spot);
+
+    const makeTile=(tl,big)=>{
+      const tile=M.el('div','tile'+(big?' spot':''));
       if(!tl.self && !tl.selfScreen) tile.dataset.pid=tl.pid;
-      /* ---- dedicated screen-share tiles (they never fight the camera tile for space) ---- */
+      /* spotlight affordance — hover icon or double-click */
+      if(s.status==='active'){
+        const ex=M.el('button','t-expand');
+        ex.innerHTML=(spot===tl)
+          ?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v6H3M15 21v-6h6M3 9h6V3M21 15h-6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          :'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        ex.title=(spot===tl)?M.t('spot_off'):M.t('spot_on');
+        ex.onclick=e=>{ e.stopPropagation(); s._spot=(spot===tl)?null:tkey(tl); M.Call.renderWin(s); };
+        tile.appendChild(ex);
+        tile.ondblclick=()=>{ s._spot=(spot===tl)?null:tkey(tl); M.Call.renderWin(s); };
+      }
       if(tl.selfScreen){
         const v=M.el('video'); v.srcObject=s.screenStream; v.muted=true; v.autoplay=true; v.playsInline=true;
         v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',M.t('you')+' · '+M.t('screen')));
-        grid.appendChild(tile); continue;
+        return tile;
       }
       if(tl.screen){
         const r=s.remotes.get(tl.pid)||{}; const nm=M.Members.name(tl.pid);
@@ -3263,7 +3294,7 @@ M.Call = {
         v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',nm.replace(/</g,'&lt;')+' · '+M.t('screen')));
-        grid.appendChild(tile); continue;
+        return tile;
       }
       if(tl.self){
         const name=M.t('you');
@@ -3283,14 +3314,39 @@ M.Call = {
           const out=M.Store.get('output'); if(out&&v.setSinkId) v.setSinkId(out).catch(()=>{}); }
         else { const a=M.el('audio'); a.autoplay=true; if(r.stream) a.srcObject=r.stream; tile.appendChild(a); }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(nm)}">${M.initials(nm)}</div><span>${r.camOff?M.t('cam_off'):nm.replace(/</g,'&lt;')}</span>`)); }
-
         const rtt=M.Net.rtt.get(pid);
         const tag=M.el('div','t-name');
         const q=rtt==null?'':`<span style="width:7px;height:7px;border-radius:50%;background:${rtt<0?'var(--dim)':rtt<180?'var(--ok)':rtt<450?'var(--warn)':'var(--err)'}"></span>`;
         tag.innerHTML=q+(r.muted?M.Icons.micOff.replace('<svg','<svg style="color:var(--red)"'):'')+nm.replace(/</g,'&lt;');
         tile.appendChild(tag);
       }
-      grid.appendChild(tile);
+      return tile;
+    };
+
+    if(spot){
+      /* spotlight: one big view + everyone else as a filmstrip */
+      grid.classList.remove('g2'); grid.style.gridTemplateColumns='';
+      grid.classList.add('spotmode');
+      grid.appendChild(makeTile(spot,true));
+      const strip=M.el('div','cw-strip');
+      side.forEach(t=>strip.appendChild(makeTile(t,false)));
+      grid.appendChild(strip);
+    } else {
+      grid.classList.remove('spotmode');
+      grid.classList.toggle('g2', tiles.length>1 && tiles.length<=4);
+      grid.style.gridTemplateColumns= tiles.length>4 ? 'repeat(3,1fr)' : '';
+      tiles.forEach(t=>grid.appendChild(makeTile(t,false)));
+      if(focus && s.peers.size>shown.length){
+        const hidden=[...s.peers].filter(p=>!shown.includes(p));
+        const hstrip=M.el('div'); hstrip.style.cssText='grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding:2px 2px 0';
+        hidden.forEach(pid=>{
+          const c=M.el('span'); c.textContent=M.Members.name(pid);
+          const live=(s._levels?.[pid]||0)>0.03;
+          c.style.cssText='font-size:10.5px;font-family:var(--mono);padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:'+(live?'var(--teal)':'var(--dim)')+';background:'+(live?'rgba(56,207,182,.1)':'transparent');
+          hstrip.appendChild(c);
+        });
+        grid.appendChild(hstrip);
+      }
     }
     /* controls */
     const ctrl=w.querySelector('.cw-ctrl'); ctrl.innerHTML='';
