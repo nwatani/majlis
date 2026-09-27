@@ -455,7 +455,12 @@ html[data-theme="light"] #recBanner b{color:#a3271e}
 #rcBanner b{color:#fff}
 html[data-theme="light"] #rcBanner b{color:#a3271e}
 #rcBanner .rc-dot{width:10px;height:10px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
-#rcWin{position:fixed;z-index:75;top:70px;inset-inline-end:18px;width:min(680px,94vw);background:var(--bg1);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sh);overflow:hidden;display:flex;flex-direction:column;outline:none;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+#rcWin{position:fixed;z-index:75;top:70px;inset-inline-end:18px;width:min(740px,94vw);background:var(--bg1);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sh);overflow:hidden;outline:none;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+#rcWin:not(.hidden){display:flex;flex-direction:column}
+.rc-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--line);cursor:grab;user-select:none}
+.rc-head:active{cursor:grabbing}
+#rcWin.rc-max{top:10px!important;bottom:10px!important;left:10px!important;right:10px!important;inset-inline-end:auto!important;width:auto!important;height:auto!important}
+#rcWin.rc-max #rcStage{aspect-ratio:auto;flex:1;min-height:0}
 .rc-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--line)}
 #rcStage{position:relative;background:#000;aspect-ratio:16/10;cursor:crosshair;touch-action:none}
 #rcStage video{width:100%;height:100%;object-fit:contain;display:block}
@@ -887,6 +892,20 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
 </div></div>
 
+<!-- board export dialog -->
+<div class="modal hidden" id="mExport"><div class="m-card">
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg><span data-i18n="export_ready">Export ready</span></h3>
+  <div style="background:var(--tile-bg);border-radius:11px;padding:8px;box-shadow:inset 0 0 0 1px var(--line)">
+    <img id="expImg" alt="Board export preview" style="width:100%;max-height:46vh;object-fit:contain;border-radius:8px;display:block;background:var(--board-bg)">
+  </div>
+  <div class="cc-kv" style="margin-top:10px"><span class="k mono" id="expName" style="word-break:break-all">—</span><span class="v" id="expDim">—</span></div>
+  <div class="m-row">
+    <button class="btn btn-ghost" data-close data-i18n="close">Close</button>
+    <a id="expDl" class="btn btn-primary" download style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="export_dl">Download PNG</span></a>
+  </div>
+  <p class="m-note" data-i18n="export_hint">On phones you can also long-press the preview to save it straight to your photos.</p>
+</div></div>
+
 <!-- recording save dialog -->
 <div class="modal hidden" id="mRec"><div class="m-card">
   <h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="var(--red)" stroke="none"/></svg><span data-i18n="rec_ready">Recording ready</span></h3>
@@ -922,6 +941,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
     <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
     <span id="rcCamChip" class="hidden" style="font-size:10.5px;font-family:var(--mono);background:rgba(245,168,60,.14);color:var(--amber2);border:1px solid rgba(245,168,60,.45);padding:2px 9px;border-radius:99px;white-space:nowrap">📷 <span data-i18n="rc_cam_chip">camera view</span></span>
+    <button class="icon-btn" id="rcMax" title="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-sm btn-danger" id="rcEnd" data-i18n="end_call">End</button>
   </div>
   <div id="rcStage" data-live="0"><video id="rcVideo" autoplay playsinline muted></video><div class="rc-hint" id="rcHint" data-i18n="rc_wait">awaiting member approval…</div></div>
@@ -1163,7 +1183,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.25.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.25.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1350,6 +1370,8 @@ en:{
  lang_name:'العربية', dm:'DM', call:'Call', remove:'Remove', settings_saved:'Settings saved — they apply to the next room you join.',
  board_you:'You', wb_export_denied:'Export is disabled by the Admin', wb_img_denied:'Image insertion is disabled by the Admin',
  wb_place:'Place', wb_ph:'Type here… — Enter places · Shift+Enter for a new line · Esc cancels', wb_close_short:'Close whiteboard',
+ export_ready:'Export ready', export_dl:'Download PNG', export_empty:'Nothing on the board to export yet',
+ export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
  wb_custom:'Custom color',
@@ -1368,7 +1390,9 @@ en:{
  test_warn:'no external path — calls will fail across networks', test_norelay:'direct + STUN OK; add TURN for strict NATs', test_ok:'full path available',
  install_app:'Install app', installed:'Installed — launch it from your home screen',
  inbox:'Conversations', inbox_sub:'All your private threads', inbox_empty:'No private conversations yet.<br>Hover a member and tap the chat icon to start one.',
- link_recovered:'Link recovered',
+ link_recovered:'Link recovered', link_title:'Connection',
+ link_retrying:'Reconnecting to {n}…',
+ link_retry_fail:'Still no path to {n} — if calls fail, add a TURN server in Control Center → Security',
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
  screen:'Screen', quality:'quality', rtt:'ping',
@@ -1413,6 +1437,7 @@ en:{
  rec_loading:'Loading encoder…', rec_conv_prog:'Converting', rec_conv_done:'MP4 saved',
  rec_conv_fail:'Conversion failed — the WebM file is still available',
  rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
+ rc_canceled:'The request was canceled',
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
@@ -1489,6 +1514,8 @@ ar:{
  lang_name:'English', dm:'خاص', call:'اتصال', remove:'إزالة', settings_saved:'حُفظت الإعدادات — تسري على الغرفة القادمة.',
  board_you:'أنت', wb_export_denied:'عطّل المشرف التصدير', wb_img_denied:'عطّل المشرف إدراج الصور',
  wb_place:'وضع', wb_ph:'اكتب هنا… — Enter للوضع · Shift+Enter سطر جديد · Esc إلغاء', wb_close_short:'إغلاق السبورة',
+ export_ready:'التصدير جاهز', export_dl:'تنزيل PNG', export_empty:'لا يوجد شيء على السبورة لتصديره بعد',
+ export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
  wb_custom:'لون مخصّص',
@@ -1507,7 +1534,9 @@ ar:{
  test_warn:'لا مسار خارجي — ستفشل المكالمات بين الشبكات', test_norelay:'مباشر + STUN جيد؛ أضف TURN للشبكات المقيدة', test_ok:'المسار الكامل متاح',
  install_app:'تثبيت التطبيق', installed:'تم التثبيت — شغّله من الشاشة الرئيسية',
  inbox:'المحادثات', inbox_sub:'كل محادثاتك الخاصة', inbox_empty:'لا محادثات خاصة بعد.<br>مرّر فوق عضو واضغط أيقونة الدردشة لبدء واحدة.',
- link_recovered:'عاد الاتصال',
+ link_recovered:'عاد الاتصال', link_title:'الاتصال',
+ link_retrying:'جارٍ إعادة الاتصال بـ {n}…',
+ link_retry_fail:'لا مسار بعد إلى {n} — إذا فشلت المكالمات أضف خادم TURN في مركز التحكم ← الأمان',
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة',
@@ -1552,6 +1581,7 @@ ar:{
  rec_loading:'جارٍ تحميل المشفّر…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ MP4',
  rec_conv_fail:'فشل التحويل — ملف WebM لا يزال متاحاً',
  rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
+ rc_canceled:'أُلغي الطلب',
 }
 };
 M.t = (k, vars) => { let s=(M.I18N[M.lang]&&M.I18N[M.lang][k]) ?? M.I18N.en[k] ?? k; if(vars) for(const key in vars) s=s.replace('{'+key+'}',vars[key]); return s; };
@@ -1769,9 +1799,20 @@ M.Net = {
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
       onJoinError: d => {
-        M.log('err','join error: '+(d.error?.message||'failed'));
-        if(!M.Net.connected){ M.bus.emit('joinFail', d.error?.message||'failed'); }
-        else if(Date.now()-(M.Net._jeT||0)>10000){ M.Net._jeT=Date.now(); M.toast('warn','Peer link failed','A direct path to some peer could not be established. If calls fail, add a TURN server in Control Center → Security.'); }
+        const pid=d.peerId;
+        M.log('warn','peer link issue: '+M.fmt.idShort(pid||'?')+' '+(d.error?.message||''));
+        if(!M.Net.connected){ M.bus.emit('joinFail', d.error?.message||'failed'); return; }
+        /* ---- self-healing: restart ICE against the failed peer, don't just report it ---- */
+        const rec=M.Net._joinErrs.get(pid)||{n:0,t:Date.now()};
+        if(Date.now()-rec.t>60000){ rec.n=0; rec.t=Date.now(); }
+        rec.n++; M.Net._joinErrs.set(pid,rec);
+        M.Net.healPeer(pid);
+        if(Date.now()-(M.Net._jeT||0)>12000){
+          M.Net._jeT=Date.now();
+          const name=M.Members.name(pid);
+          if(rec.n>=3) M.toast('warn',M.t('link_title'),M.t('link_retry_fail',{n:name}),{ms:7000});
+          else M.toast('info',M.t('link_title'),M.t('link_retrying',{n:name}),{ms:4000});
+        }
       },
       onPeerHandshake: async (peerId, send, receive) => {
         await send(profile());
@@ -1884,7 +1925,7 @@ M.Net = {
         const onState=()=>{
           const st=pc.iceConnectionState;
           if(st==='connected'||st==='completed'){
-            if(M.Net._restarts.has(pid)){ M.Net._restarts.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
+            if(M.Net._restarts.has(pid)||M.Net._joinErrs.has(pid)){ M.Net._restarts.delete(pid); M.Net._joinErrs.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
           } else if(st==='disconnected'){
             setTimeout(()=>{ if(pc.iceConnectionState==='disconnected') M.Net._tryRestart(pc,pid); },4000);
           } else if(st==='failed'){ M.Net._tryRestart(pc,pid); }
@@ -1965,6 +2006,23 @@ M.Net = {
     rec.n++; M.Net._restarts.set(pid,rec);
     try{ pc.restartIce?.(); M.log('warn','ICE restart #'+rec.n+' for '+M.fmt.idShort(pid)); }catch(e){}
   },
+  _joinErrs:new Map(),
+  /* restart the transport toward one peer and re-announce ourselves to them directly */
+  healPeer(pid){
+    try{ const pc=M.Net.room?.getPeers?.()?.[pid]; if(pc) pc.restartIce?.(); M.log('info','ICE restart toward '+M.fmt.idShort(pid)); }catch(e){}
+    try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:!!(M.Admin.priv||M.Admin.legacy),v:M.Version},pid); }catch(e){}
+  },
+  /* sweep every degraded link — called on tab foreground and network recovery */
+  healAll(){
+    if(!M.Net.connected) return;
+    const pcs=M.Net.room?.getPeers?.()||{}; let n=0;
+    for(const pid in pcs){
+      const pc=pcs[pid]; const st=pc.iceConnectionState||pc.connectionState||'';
+      if(st && st!=='connected' && st!=='completed'){ try{ pc.restartIce?.(); n++; }catch(e){} }
+    }
+    if(n) M.log('info','heal sweep: restarted '+n+' stale link(s)');
+    M.Net.nudge();
+  },
   leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
 };
 
@@ -2035,11 +2093,11 @@ M.Members = {
 /* ---------------- Recovery ---------------- */
 M.Recovery = {
   init(){
-    window.addEventListener('online',()=>{ M.log('info','network online'); M.toast('ok',M.t('reconnect_ok')); M.Net.nudge(); M.bus.emit('netOnline'); });
+    window.addEventListener('online',()=>{ M.log('info','network online'); M.toast('ok',M.t('reconnect_ok')); M.Net.healAll(); M.bus.emit('netOnline'); });
     window.addEventListener('offline',()=>{ M.log('warn','network offline'); M.toast('warn',M.t('reconnect_lost')); M.bus.emit('netOffline'); });
     navigator.connection?.addEventListener?.('change',()=>{ M.log('info','network change: '+(navigator.connection.effectiveType||'?')); M.Net.nudge(); });
     document.addEventListener('visibilitychange',()=>{
-      if(document.visibilityState==='visible'){ M.log('info','app foregrounded'); M.Net.nudge(); M.bus.emit('foreground'); }
+      if(document.visibilityState==='visible'){ M.log('info','app foregrounded'); M.Net.healAll(); M.bus.emit('foreground'); }
       else M.bus.emit('background');
     });
     M.bus.on('relayStatus',({ok})=>{
@@ -3609,6 +3667,25 @@ M.RC = {
     });
     M.$('#rcEnd').onclick=()=>M.RC.closeAdmin();
     M.$('#rcFlip').onclick=()=>M.RC.flipCam();
+    /* the control window is draggable by its header and expandable to near-fullscreen */
+    const rw=M.$('#rcWin'), rh=rw.querySelector('.rc-head'); let rd=null;
+    rh.addEventListener('pointerdown',e=>{
+      if(e.target.closest('button')||rw.classList.contains('rc-max')) return;
+      rd={x:e.clientX-rw.offsetLeft,y:e.clientY-rw.offsetTop};
+      rh.setPointerCapture(e.pointerId);
+    });
+    rh.addEventListener('pointermove',e=>{
+      if(!rd) return;
+      rw.style.left=Math.max(0,Math.min(innerWidth-80,e.clientX-rd.x))+'px';
+      rw.style.top=Math.max(0,Math.min(innerHeight-60,e.clientY-rd.y))+'px';
+      rw.style.insetInlineEnd='auto'; rw.style.bottom='auto';
+    });
+    rh.addEventListener('pointerup',()=>rd=null);
+    M.$('#rcMax').onclick=e=>{ e.stopPropagation(); rw.classList.toggle('rc-max');
+      e.currentTarget.querySelector('svg').innerHTML=rw.classList.contains('rc-max')
+        ?'<path d="M9 3v6H3M15 21v-6h6M3 9h6V3M21 15h-6v6" stroke-linecap="round" stroke-linejoin="round"/>'
+        :'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/>';
+    };
     M.$('#rcRevoke').onclick=()=>M.RC.closeMember('revoked');
     M.$('#rcReqAllow').onclick=()=>M.RC.answerReq(true);
     M.$('#rcReqDeny').onclick=()=>M.RC.answerReq(false);
@@ -3730,7 +3807,14 @@ M.RC = {
         break;
       }
       case 'end': {
-        if(M.RC.member && from===M.RC.member.adminId) M.RC.closeMember(M.t('rc_ended'),true);
+        if(M.RC.member && from===M.RC.member.adminId){ M.RC.closeMember(M.t('rc_ended'),true); break; }
+        /* admin withdrew the request while the member was still deciding — dismiss the modal and stop the ring */
+        if(M.RC._pendingReq && M.RC._pendingReq.from===from){
+          M.RC._pendingReq=null;
+          M.$('#mRCReq').classList.add('hidden'); M.Notify.ring(false);
+          M.toast('info',M.t('rc_win_title'),M.t('rc_canceled'));
+          M.log('info','remote-control request withdrawn by admin');
+        }
         break;
       }
       case 'ev': {
@@ -4991,17 +5075,30 @@ M.WB = {
   },
   exportPNG(){
     if(!M.Perms.denyToast('wbExport')) return;
-    if(M.WB.objs.size===0){ M.toast('info','Board','Nothing to export'); return; }
+    if(M.WB.objs.size===0){ M.toast('info',M.t('tab_board'),M.t('export_empty')); return; }
     let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
-    const pad=40; const c=document.createElement('canvas');
-    c.width=Math.min(4000,(x2-x1)+pad*2); c.height=Math.min(4000,(y2-y1)+pad*2);
+    const pad=48;
+    const W=Math.max(64,Math.min(4096,Math.round(x2-x1)+pad*2));
+    const H=Math.max(64,Math.min(4096,Math.round(y2-y1)+pad*2));
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
     const ctx=c.getContext('2d');
-    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,W,H);
     ctx.translate(pad-x1,pad-y1);
-    M.WB.order.forEach(id=>M.WB.paintObj(ctx,M.WB.objs.get(id),1));
-    c.toBlob(b=>{ const a=M.el('a'); a.href=URL.createObjectURL(b); a.download='majlis-board-'+M.State.room.code+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); },'image/png');
-    M.toast('ok','Export','PNG saved');
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o) M.WB.paintObj(ctx,o,1); });
+    c.toBlob(b=>{
+      if(!b){ M.toast('err',M.t('tab_board'),M.t('export_fail')); M.log('err','board export produced no blob'); return; }
+      if(M.WB._expUrl) URL.revokeObjectURL(M.WB._expUrl);
+      M.WB._expUrl=URL.createObjectURL(b);
+      const name='majlis-board-'+(M.State.room?.code||'board')+'-'+Date.now()+'.png';
+      M.$('#expImg').src=M.WB._expUrl;
+      M.$('#expName').textContent=name;
+      M.$('#expDim').textContent=W+' × '+H+' · '+M.fmt.bytes(b.size);
+      const dl=M.$('#expDl'); dl.href=M.WB._expUrl; dl.download=name;
+      M.$('#mExport').classList.remove('hidden');
+      try{ const a=M.el('a'); a.href=M.WB._expUrl; a.download=name; a.click(); }catch(e){}   /* desktop convenience; the dialog is the guarantee */
+      M.log('info','board exported: '+name+' ('+W+'×'+H+', '+M.fmt.bytes(b.size)+')');
+    },'image/png');
   },
 
   /* ---------- drawing ---------- */
@@ -5660,7 +5757,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     };
     /* modals: generic close */
     M.$$('[data-close]').forEach(b=>b.onclick=()=>b.closest('.modal').classList.add('hidden'));
-    M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard,#mRec').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
+    M.$$('#mShare,#mGroup,#mDevices,#mTarget,#mRdCard,#mRec,#mExport').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.add('hidden'); }));
     M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
     /* live ICE/TURN health check — proves reachability before a call ever needs it */
     M.$('#cfgTestIce').onclick=async ()=>{
