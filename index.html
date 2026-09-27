@@ -325,6 +325,21 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .msg.dm-tag .m-body{border-color:rgba(111,179,242,.45)}
 #typingRow{padding:2px 20px 4px;font-size:12px;color:var(--teal);font-style:italic;height:22px;flex:none}
 #composer{display:flex;align-items:flex-end;gap:9px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex:none;border-top:1px solid var(--line)}
+/* ---- conversations inbox ---- */
+#btnInbox{position:relative}
+#inboxBdg{position:absolute;top:2px;inset-inline-end:2px;min-width:15px;height:15px;font-size:9px;padding:0 4px}
+.conv{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:12px;cursor:pointer;transition:background .15s,transform .15s;animation:msgIn .22s ease both;position:relative}
+.conv:hover{background:var(--bg2);transform:translateX(2px)}
+[dir="rtl"] .conv:hover{transform:translateX(-2px)}
+.conv .avatar{width:38px;height:38px;font-size:14px;border-radius:11px;flex:none}
+.conv .cv-mid{flex:1;min-width:0}
+.conv .cv-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.conv .cv-top b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv .cv-time{font-family:var(--mono);font-size:10px;color:var(--dim);flex:none}
+.conv .cv-prev{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.conv.unread .cv-top b{color:var(--ink)}
+.conv.unread .cv-prev{color:var(--ink);font-weight:600}
+.conv .badge{flex:none}
 #msgInput{flex:1;max-height:120px;padding:10px 14px;border-radius:12px}
 #composer[disabled]{opacity:.5;pointer-events:none}
 .comp-note{padding:14px 18px;font-size:13px;color:var(--dim);text-align:center;border-top:1px solid var(--line);flex:none}
@@ -688,6 +703,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <div id="chatHead">
           <button class="icon-btn hidden" id="btnBackDm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div><b id="chatTitle">Room</b><small id="chatSub"></small></div>
+          <div class="grow"></div>
+          <button class="icon-btn" id="btnInbox" title="Conversations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6l3.5-7z" stroke-linejoin="round"/></svg><span class="badge hidden" id="inboxBdg">0</span></button>
         </div>
         <div id="msgList"></div>
         <div id="typingRow" class="hidden"><span id="typingLbl"></span></div>
@@ -1067,7 +1084,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.19.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.20.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1268,6 +1285,8 @@ en:{
  wb_objects:'objects',
  test_paste:'Test paste pipeline', copy_log:'Copy log',
  wb_duplicated:'{n} duplicated',
+ inbox:'Conversations', inbox_sub:'All your private threads', inbox_empty:'No private conversations yet.<br>Hover a member and tap the chat icon to start one.',
+ link_recovered:'Link recovered',
  call_perm_denied:'This call type is disabled by the Admin', no_members:'No other members yet — share the link to invite people.',
  call_state_ring:'Ringing', call_state_active:'Live', call_state_in:'Incoming', kind_voice:'voice', kind_video:'video',
  screen:'Screen', quality:'quality', rtt:'ping', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
@@ -1390,6 +1409,8 @@ ar:{
  wb_objects:'عنصر',
  test_paste:'اختبار خط اللصق', copy_log:'نسخ السجل',
  wb_duplicated:'كرر {n}',
+ inbox:'المحادثات', inbox_sub:'كل محادثاتك الخاصة', inbox_empty:'لا محادثات خاصة بعد.<br>مرّر فوق عضو واضغط أيقونة الدردشة لبدء واحدة.',
+ link_recovered:'عاد الاتصال',
  call_perm_denied:'عطّل المشرف هذا النوع من المكالمات', no_members:'لا أعضاء آخرون بعد — شارك الرابط لدعوة الآخرين.',
  call_state_ring:'يرن', call_state_active:'مباشر', call_state_in:'واردة', kind_voice:'صوتية', kind_video:'فيديو',
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
@@ -1723,6 +1744,29 @@ M.Net = {
       const now=Date.now();
       M.State.peers.forEach((m,pid)=>{ const lb=M.Net.lastHb.get(pid); if(m.status==='online' && lb && now-lb>50000){ M.log('warn','peer stale → offline: '+m.name); M.Members.offline(pid); } });
     },15000);
+    /* ---- link hardening ------------------------------------------------
+       watch every peer connection; restart ICE when a link degrades, and
+       ping online peers periodically to keep NAT bindings warm. A dropped
+       transport now recovers itself instead of silently dying. */
+    M.Net._pcSeen=new WeakSet(); M.Net._restarts=new Map();
+    M.Net._linkT=setInterval(()=>{
+      const pcs=R.getPeers?.()||{};
+      for(const pid in pcs){
+        const pc=pcs[pid]; if(!pc||M.Net._pcSeen.has(pc)) continue;
+        M.Net._pcSeen.add(pc);
+        const onState=()=>{
+          const st=pc.iceConnectionState;
+          if(st==='connected'||st==='completed'){
+            if(M.Net._restarts.has(pid)){ M.Net._restarts.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
+          } else if(st==='disconnected'){
+            setTimeout(()=>{ if(pc.iceConnectionState==='disconnected') M.Net._tryRestart(pc,pid); },4000);
+          } else if(st==='failed'){ M.Net._tryRestart(pc,pid); }
+        };
+        try{ pc.addEventListener('iceconnectionstatechange',onState); pc.addEventListener('connectionstatechange',onState); }catch(e){}
+        M.log('info','monitoring link '+M.fmt.idShort(pid));
+      }
+    },5000);
+    M.Net._pingT=setInterval(()=>{ M.Members.onlinePeers().slice(0,6).forEach(pid=>M.Net.ping(pid)); },45000);
     /* name patrol: nobody stays a "guest-…" — unidentified peers are asked for
        their real profile; if they never answer (older client / lossy relay) we
        also re-announce ourselves and flag them as "identifying…" */
@@ -1787,7 +1831,14 @@ M.Net = {
       return out;
     }catch(e){ return null; }
   },
-  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); M.Net.connected=false; }
+  _tryRestart(pc,pid){
+    let rec=M.Net._restarts.get(pid)||{n:0,t:Date.now()};
+    if(Date.now()-rec.t>60000) rec={n:0,t:Date.now()};
+    if(rec.n>=3){ M.log('warn','ICE restart limit reached for '+M.fmt.idShort(pid)); return; }
+    rec.n++; M.Net._restarts.set(pid,rec);
+    try{ pc.restartIce?.(); M.log('warn','ICE restart #'+rec.n+' for '+M.fmt.idShort(pid)); }catch(e){}
+  },
+  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
 };
 
 /* ---------------- Members ---------------- */
@@ -1935,7 +1986,9 @@ M.Chat = {
       M.Chat._typingThrottled ??= M.throttle(()=>{ M.Net.send('type',{to:M.State.chatTarget,n:M.State.self.name}); },1400);
       M.Chat._typingThrottled();
     });
-    M.$('#btnBackDm').onclick=()=>M.Chat.switchTarget(null);
+    M.$('#btnBackDm').onclick=()=>{ if(M.Chat.view==='inbox') M.Chat.switchTarget(M.Chat._preInbox||null); else M.Chat.switchTarget(null); };
+    M.$('#btnInbox').onclick=()=>{ if(M.Chat.view==='inbox') M.Chat.switchTarget(M.Chat._preInbox??M.State.chatTarget); else M.Chat.openInbox(); };
+    M.Chat.view='thread';
     M.bus.on('chatIn', d=>M.Chat.onIn(d));
     M.bus.on('members', ()=>M.Chat._tryRestoreDms());
     M.bus.on('typing', ({peerId,to})=>{
@@ -1967,6 +2020,48 @@ M.Chat = {
       if(key!=='room'){ M.Notify.beep('dm'); M.Notify.push(M.t('notif_dm',{n:d.name}), d.text.slice(0,80)); }
       else if(document.visibilityState==='hidden'){ M.Notify.beep('msg'); M.Notify.push(M.t('notif_msg',{r:M.State.room.code}), d.text.slice(0,80)); }
     } else if(key!=='room'){ M.Notify.beep('dm'); }
+    if(M.Chat.view==='inbox') M.Chat.renderInbox();
+    M.UI.badges();
+  },
+  openInbox(){
+    M.Chat.view='inbox';
+    M.Chat._preInbox=M.State.chatTarget;
+    M.Chat.renderKey='__inbox__';
+    M.$('#btnBackDm').classList.remove('hidden');
+    M.$('#chatTitle').textContent=M.t('inbox');
+    M.$('#chatSub').textContent=M.t('inbox_sub');
+    M.$('#composer').style.display='none';
+    M.$('#typingRow').classList.add('hidden');
+    M.$('#btnInbox').classList.add('on');
+    M.UI.setTab('chat');
+    M.Chat.renderInbox();
+    M.UI.badges();
+  },
+  renderInbox(){
+    const list=M.$('#msgList'); list.innerHTML='';
+    const rows=[];
+    M.Chat.threads.forEach((th,key)=>{
+      if(key==='room'||!th.length) return;
+      rows.push({key,last:th[th.length-1],unread:M.Chat.unread.get(key)||0,name:M.Members.name(key)});
+    });
+    rows.sort((a,b)=>(b.last.ts||0)-(a.last.ts||0));
+    if(!rows.length){ list.appendChild(M.el('div','dim',`<div style="padding:44px 20px;text-align:center;font-size:13px;line-height:1.7">${M.t('inbox_empty')}</div>`)); return; }
+    rows.forEach((r,i)=>{
+      const row=M.el('div','conv'+(r.unread?' unread':''));
+      row.style.animationDelay=(i*0.03)+'s';
+      const av=M.el('div','avatar',M.initials(r.name)); av.style.background=M.avatarBg(r.name);
+      const mid=M.el('div','cv-mid');
+      const top=M.el('div','cv-top');
+      top.appendChild(M.el('b',null,r.name.replace(/</g,'&lt;')));
+      top.appendChild(M.el('span','cv-time',M.fmt.clock(r.last.ts)));
+      const pv=M.el('div','cv-prev');
+      pv.textContent=(r.last.me?M.t('you')+': ':'')+(r.last.file?'📎 '+(r.last.file.name||''): (r.last.text||''));
+      mid.append(top,pv);
+      row.append(av,mid);
+      if(r.unread){ const b=M.el('span','badge'); b.textContent=r.unread>99?'99+':r.unread; row.appendChild(b); }
+      row.onclick=()=>M.Chat.switchTarget(r.key);
+      list.appendChild(row);
+    });
   },
   append(key,msg,fromMe){
     let th=M.Chat.threads.get(key); if(!th){ th=[]; M.Chat.threads.set(key,th); }
@@ -2048,6 +2143,9 @@ M.Chat = {
   },
   renderKey:'room',
   switchTarget(peerId){
+    M.Chat.view='thread';
+    M.$('#composer').style.display='';
+    M.$('#btnInbox').classList.remove('on');
     M.State.chatTarget=peerId; M.Chat.renderKey=M.Chat.key(peerId);
     M.Chat.unread.delete(M.Chat.renderKey);
     M.$('#btnBackDm').classList.toggle('hidden',!peerId);
@@ -2429,6 +2527,8 @@ M.UI = {
     let chatUnread=0; M.Chat.unread.forEach((n,k)=>{ const cur=M.Chat.renderKey===k && M.UI.tab==='chat'; if(!cur) chatUnread+=n; });
     const set=(id,n,force)=>{ const b=M.$(id); if(!b) return; const show=n>0||force; b.classList.toggle('hidden',!show); if(typeof n==='number') b.textContent=n>99?'99+':n; };
     set('#bdg-chat',chatUnread);
+    let dmUn=0; M.Chat.unread.forEach((n,k)=>{ if(k!=='room') dmUn+=n; });
+    const ib=M.$('#inboxBdg'); if(ib){ ib.classList.toggle('hidden',dmUn===0); ib.textContent=dmUn>99?'99+':dmUn; }
     set('#bdg-files',M.FT.activeCount());
     set('#bdg-calls',M.Call?M.Call.all().length:0);
     const wb=M.$('#bdg-board'); if(wb) wb.classList.toggle('hidden',!M.State.wb.open);
@@ -2461,7 +2561,10 @@ M.UI = {
       nm.appendChild(inds);
       const ms=M.el('div','ms');
       const unid=p.name.indexOf('guest-')===0;
-      ms.innerHTML=`<span style="width:13px;height:13px;display:inline-flex;color:var(--dim)">${M.Icons.dev(p)}</span>${unid?`<span style="color:var(--warn)">${M.t('identifying')}</span>`:M.t(p.status)}${p.os&&p.os!=='?'?' · '+p.os:''}`;
+      const rtt=M.Net.rtt.get(p.id);
+      const qc=(rtt!=null&&p.status==='online')?`<span title="${rtt} ms" style="width:7px;height:7px;border-radius:50%;background:${rtt<180?'var(--ok)':rtt<450?'var(--warn)':'var(--err)'}"></span>`:'';
+      const dmDot=(M.Chat.unread.get(p.id)||0)>0?`<span title="${M.t('inbox')}" style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></span>`:'';
+      ms.innerHTML=`<span style="width:13px;height:13px;display:inline-flex;color:var(--dim)">${M.Icons.dev(p)}</span>${qc}${dmDot}${unid?`<span style="color:var(--warn)">${M.t('identifying')}</span>`:M.t(p.status)}${p.os&&p.os!=='?'?' · '+p.os:''}`;
       info.append(nm,ms);
       const acts=M.el('div','acts');
       const mk=(svg,title,fn,danger)=>{ const b=M.el('button','icon-btn'+(danger?' danger':''),svg); b.title=title; b.onclick=e=>{ e.stopPropagation(); M.UI.closeDrawer(); fn(); }; return b; };
@@ -4641,8 +4744,8 @@ M.App = {
   },
   resetState(){
     M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map();
-    M.Net.lastHb.clear(); M.Net.rtt.clear();
-    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol);
+    M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
+    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
     M.State.peers.clear(); M.State.perms=null; M.State.chatTarget=null;
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
@@ -4657,6 +4760,7 @@ M.App = {
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     try{ M.RC.resetAll(); }catch(e){}
     M.$('#msgList').innerHTML=''; M.$('#xferList').innerHTML=''; M.$('#callList').innerHTML='';
+    M.$('#composer').style.display=''; M.Chat.view='thread'; M.$('#btnInbox').classList.remove('on');
     M.$('#callLayer').innerHTML=''; M.$('#memberList').innerHTML=''; M.$('#peersLbl').textContent='0';
     M.$('#wbTextWrap').classList.add('hidden'); M.$('#wbToolHint').classList.add('hidden');
     M.$('#mCC').classList.remove('open'); M.$('#mIncoming').classList.add('hidden');
