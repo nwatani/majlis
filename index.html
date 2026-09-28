@@ -218,7 +218,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 @media (max-width:760px){
   #topStatus span.lbltxt{display:none}
   .brand-mini span{display:none}
-  #btnShare .btxt,#btnCC .btxt,#btnTerm .btxt{display:none}   /* every action collapses to its icon */
+  #btnShare .btxt,#btnCC .btxt,#btnTerm .btxt,#btnBoard .btxt{display:none}   /* every action collapses to its icon */
   #btnCC,#btnShare,#btnTerm,#btnBoard{padding:9px 11px}
 #btnBoard.on{background:rgba(56,207,182,.16);border-color:rgba(56,207,182,.55);color:var(--teal);box-shadow:0 0 0 3px rgba(56,207,182,.12)}
 #btnBoard.on svg{color:var(--teal)}
@@ -237,12 +237,21 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   .icon-btn{width:34px;height:34px}
   .btn{gap:5px}
 }
+@media (max-width:640px){
+  /* the four tabs compress to fit on one row — no horizontal scrolling to reach Board */
+  #tabs{padding:0 5px;gap:1px}
+  .tabbtn{padding:11px 5px;font-size:11.5px;gap:4px;flex:1 1 0;min-width:0;justify-content:center}
+  .tabbtn svg{width:14px;height:14px;flex:none}
+  .tabbtn span[data-i18n]{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+}
 @media (max-width:440px){
   /* on the narrowest phones, presence moves to the sidebar; the bar keeps only actions */
   #topStatus{display:none}
   #topbar{gap:4px;padding:0 5px}
   #roomChip{max-width:86px;overflow:hidden}
   .icon-btn{width:33px;height:33px}
+  .tabbtn{padding:10px 3px;font-size:10.5px;gap:3px}
+  .tabbtn svg{width:13px;height:13px}
 }
 
 #main{flex:1;display:flex;min-height:0}
@@ -1208,7 +1217,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.31.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.31.7';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
