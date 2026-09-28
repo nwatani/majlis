@@ -1229,7 +1229,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.32.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.32.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1497,7 +1497,7 @@ en:{
  rec_peer_on:'{n} started recording this call', rec_peer_off:'Recording stopped',
  rec_ready:'Recording ready', rec_dl:'Download', rec_conv:'Convert to MP4',
  rec_dur:'Duration', rec_size:'Size', rec_format:'Format',
- rec_loading:'Loading encoder…', rec_loading_core:'Downloading encoder (~32 MB, first time only)…', rec_conv_prog:'Converting', rec_conv_done:'Saved',
+ rec_loading:'Loading encoder…', rec_loading_core:'Downloading encoder (~32 MB, first time only)…', rec_decoding:'Decoding audio…', rec_conv_prog:'Converting', rec_conv_done:'Saved',
  rec_conv_fail:'Conversion failed — the original file is still available',
  rec_mp3:'Save as MP3',
  rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
@@ -1659,7 +1659,7 @@ ar:{
  rec_peer_on:'بدأ {n} تسجيل هذه المكالمة', rec_peer_off:'توقف التسجيل',
  rec_ready:'التسجيل جاهز', rec_dl:'تنزيل', rec_conv:'تحويل إلى MP4',
  rec_dur:'المدة', rec_size:'الحجم', rec_format:'الصيغة',
- rec_loading:'جارٍ تحميل المشفّر…', rec_loading_core:'جارٍ تنزيل المشفّر (~32 م.ب، أول مرة فقط)…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ',
+ rec_loading:'جارٍ تحميل المشفّر…', rec_loading_core:'جارٍ تنزيل المشفّر (~32 م.ب، أول مرة فقط)…', rec_decoding:'جارٍ فك ترميز الصوت…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ',
  rec_conv_fail:'فشل التحويل — الملف الأصلي لا يزال متاحاً',
  rec_mp3:'حفظ بصيغة MP3',
  rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
@@ -4441,6 +4441,36 @@ M.Rec = {
       if(!M.Rec._ff){ M.Rec._ffFetch=null; throw lastErr||new Error('encoder unavailable'); }
     }
   },
+  /* ---- lightweight MP3: decode in Web Audio, encode with lamejs (~150 KB) ----
+     no 32 MB wasm download, so it works even on networks that block big fetches */
+  async _mp3(r,bar,txt){
+    if(!window.lamejs){
+      txt.textContent=M.t('rec_loading');
+      await new Promise((res,rej)=>{ const s=document.createElement('script');
+        s.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.all.js';
+        s.onload=res; s.onerror=()=>rej(new Error('mp3 encoder failed to load'));
+        document.head.appendChild(s); });
+    }
+    txt.textContent=M.t('rec_decoding');
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    let audio;
+    try{ audio=await ac.decodeAudioData(await r.blob.arrayBuffer()); }
+    finally{ /* keep ac open until encode finishes */ }
+    const ch=Math.min(2,audio.numberOfChannels);
+    const enc=new window.lamejs.Mp3Encoder(ch,audio.sampleRate,128);
+    const to16=a=>{ const s=new Int16Array(a.length); for(let i=0;i<a.length;i++) s[i]=Math.max(-32768,Math.min(32767,Math.round(a[i]*32767))); return s; };
+    const Li=to16(audio.getChannelData(0)), Ri=ch>1?to16(audio.getChannelData(1)):Li;
+    const out=[], block=1152;
+    for(let i=0;i<Li.length;i+=block){
+      const b=ch>1?enc.encodeBuffer(Li.subarray(i,i+block),Ri.subarray(i,i+block)):enc.encodeBuffer(Li.subarray(i,i+block));
+      if(b.length) out.push(new Uint8Array(b));
+      if(i%(block*50)===0){ const p=Math.round(i/Li.length*100); bar.style.width=p+'%'; txt.textContent=M.t('rec_conv_prog')+' '+p+'%'; await new Promise(q=>setTimeout(q,0)); }
+    }
+    const end=enc.flush(); if(end.length) out.push(new Uint8Array(end));
+    ac.close();
+    bar.style.width='100%';
+    return new Blob(out,{type:'audio/mpeg'});
+  },
   async convert(fmt){
     const r=M.Rec._last; if(!r) return;
     if(fmt==='mp4'&&(r.ext==='mp4'||r.audio)) return;
@@ -4449,15 +4479,23 @@ M.Rec = {
     M.$('#recProg').classList.remove('hidden');
     M.$('#recProgBar').style.width='2%'; M.$('#recProgTxt').textContent=M.t('rec_loading');
     try{
-      await M.Rec._ensureFF();
-      M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
-      await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
-      const args=fmt==='mp3'
-        ? ['-i','in.'+r.ext,'-vn','-c:a','libmp3lame','-q:a','4','out.mp3']
-        : ['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4'];
-      await M.Rec._ff.exec(args);
-      const data=await M.Rec._ff.readFile('out.'+fmt);
-      const out=new Blob([data.buffer],{type:fmt==='mp3'?'audio/mpeg':'video/mp4'});
+      let out;
+      if(fmt==='mp3'){
+        try{ out=await M.Rec._mp3(r,M.$('#recProgBar'),M.$('#recProgTxt')); }
+        catch(e){ M.log('warn','lite mp3 failed ('+e.message+') — trying ffmpeg'); await M.Rec._ensureFF(); out=null; }
+        if(!out){
+          M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
+          await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
+          await M.Rec._ff.exec(['-i','in.'+r.ext,'-vn','-c:a','libmp3lame','-q:a','4','out.mp3']);
+          out=new Blob([(await M.Rec._ff.readFile('out.mp3')).buffer],{type:'audio/mpeg'});
+        }
+      } else {
+        await M.Rec._ensureFF();
+        M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
+        await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
+        await M.Rec._ff.exec(['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4']);
+        out=new Blob([(await M.Rec._ff.readFile('out.mp4')).buffer],{type:'video/mp4'});
+      }
       const url=URL.createObjectURL(out);
       const a=M.el('a'); a.href=url; a.download=r.name+'.'+fmt; a.click();
       setTimeout(()=>URL.revokeObjectURL(url),8000);
