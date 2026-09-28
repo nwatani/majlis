@@ -528,7 +528,7 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #rcStage[data-live="1"] .rc-hint{display:none}
 .rc-foot{padding:9px 13px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line);background:var(--bg2)}
 @media (max-width:760px){ #rcWin{inset-inline:8px;top:auto;bottom:10px;width:auto} }
-#rcOverlay{position:fixed;inset:0;z-index:120;pointer-events:none}
+
 /* member-side floating viewer for the admin's mirrored screen */
 #rcMirror{position:fixed;right:14px;bottom:14px;width:min(56vw,720px);max-width:calc(100vw - 28px);background:var(--bg1);border:1.5px solid var(--teal);border-radius:13px;box-shadow:0 20px 60px -18px rgba(0,0,0,.6);overflow:hidden;z-index:110;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
 #rcMirror .rcm-body{position:relative}
@@ -540,19 +540,17 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #rcMirror .rcm-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg2);border-bottom:1px solid var(--line);cursor:grab;user-select:none;font-size:12px;font-weight:700}
 #rcMirror .rcm-head:active{cursor:grabbing}
 #rcMirror .rcm-live{width:8px;height:8px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
-#rcMirror .rcm-x{margin-inline-start:auto;width:24px;height:24px;border:none;border-radius:6px;background:var(--bg3);color:var(--mut);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center}
-#rcMirror .rcm-x:hover{color:var(--ink);background:var(--bg4)}
+#rcMirror .rcm-btn{margin-inline-start:auto;width:24px;height:24px;border:none;border-radius:6px;background:var(--bg3);color:var(--mut);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center;flex:none;transition:color .13s,background .13s}
+#rcMirror .rcm-btn + .rcm-btn{margin-inline-start:4px}
+#rcMirror .rcm-btn:hover{color:var(--ink);background:var(--bg4)}
+#rcMirror .rcm-btn svg{width:13px;height:13px}
 #rcMirror.rcm-min video{display:none}
 #rcMirror.rcm-min{width:auto}
+/* maximized: the mirrored screen becomes the member's whole workspace */
+#rcMirror.rcm-max{inset:10px;left:10px;right:10px;top:10px;bottom:10px;width:auto;max-width:none;display:flex;flex-direction:column}
+#rcMirror.rcm-max .rcm-body{flex:1;min-height:0}
+#rcMirror.rcm-max video{height:100%;aspect-ratio:auto}
 @media (max-width:640px){ #rcMirror{right:8px;bottom:8px;width:min(72vw,420px)} }
-#rcCur{position:absolute;width:26px;height:26px;border:2.5px solid var(--red);border-radius:50%;transform:translate(-50%,-50%);display:none;box-shadow:0 0 0 5px rgba(255,97,87,.22),0 2px 12px rgba(0,0,0,.45);transition:left .05s linear,top .05s linear}
-#rcCur::after{content:'';position:absolute;inset:8px;background:var(--red);border-radius:50%}
-#rcCurLbl{position:absolute;top:24px;left:14px;background:var(--red);color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;letter-spacing:.02em}
-.rc-ripple{position:absolute;width:14px;height:14px;border:2px solid var(--red);border-radius:50%;transform:translate(-50%,-50%);animation:rcRip .6s ease-out both}
-@keyframes rcRip{from{opacity:.9;width:12px;height:12px}to{opacity:0;width:76px;height:76px}}
-#rcKey{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(11,18,21,.88);color:var(--ink);border:1px solid var(--line2);font-family:var(--mono);font-size:13px;padding:6px 16px;border-radius:9px;box-shadow:var(--sh)}
-html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
-
 /* ---------- Board ---------- */
 #panel-board{position:relative}
 #boardBar{display:flex;align-items:center;gap:5px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;overflow-x:auto;background:var(--panel-bg)}
@@ -1051,8 +1049,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <button class="btn btn-sm" id="rcFlip" title="Flip camera" style="padding:5px 9px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 8h-3l-2-3H9L7 8H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z" stroke-linejoin="round"/><path d="M14.5 13.5a3 3 0 0 1-5.2 1.6M9.5 12.5a3 3 0 0 1 5.2-1.6M14.7 10v1.9h-1.9M9.3 16v-1.9h1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <button class="btn btn-sm btn-danger" id="rcRevoke" data-i18n="rc_revoke">Revoke access</button>
 </div>
-<div id="rcOverlay" class="hidden"><div id="rcCur"><span id="rcCurLbl"></span></div><div id="rcKey" class="hidden"></div></div>
-<div id="rcMirror" class="hidden"><div class="rcm-head"><span data-i18n="rc_mirror">Admin's screen</span><span class="rcm-live"></span><button class="rcm-x" title="Hide">–</button></div><div class="rcm-body"><video autoplay playsinline muted></video><div id="rcMirrorCur" class="hidden"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 7.5-7 1.8L9.5 19 4 2z"/></svg><span id="rcMirrorCurLbl"></span></div></div></div>
+<div id="rcMirror" class="hidden"><div class="rcm-head"><span data-i18n="rc_mirror">Admin's screen</span><span class="rcm-live"></span><button class="rcm-btn" data-rcm="max" title="Maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="rcm-btn" data-rcm="hide" title="Hide">–</button></div><div class="rcm-body"><video autoplay playsinline muted></video><div id="rcMirrorCur" class="hidden"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 7.5-7 1.8L9.5 19 4 2z"/></svg><span id="rcMirrorCurLbl"></span></div></div></div>
 <div id="rcWin" class="hidden" tabindex="0">
   <div class="rc-head">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
@@ -1310,7 +1307,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.33.9';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.34.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4063,16 +4060,8 @@ M.RC = {
       if(M.RC.member && M.RC.member.adminId===pid) M.RC.closeMember('admin offline',true);
     });
     const stage=M.$('#rcStage');
-    stage.addEventListener('pointermove',e=>{ if(M.RC.admin?.status!=='active') return; const p=M.RC.norm(e); M.RC.sendMove(p.x,p.y); });
-    stage.addEventListener('pointerdown',e=>{ if(M.RC.admin?.status!=='active') return; M.RC.ev('down',M.RC.norm(e)); });
-    stage.addEventListener('pointerup',e=>{ if(M.RC.admin?.status!=='active') return; M.RC.ev('click',M.RC.norm(e)); });
-    stage.addEventListener('wheel',e=>{ e.preventDefault(); if(M.RC.admin?.status==='active') M.RC.ev('scroll',{dy:Math.sign(e.deltaY)}); },{passive:false});
-    M.$('#rcWin').addEventListener('keydown',e=>{
-      if(M.RC.admin?.status!=='active') return;
-      e.preventDefault();
-      const mods=(e.ctrlKey?'Ctrl+':'')+(e.shiftKey?'Shift+':'')+(e.altKey?'Alt+':'')+(e.metaKey?'⌘+':'');
-      M.RC.ev('key',{key:e.key,mods});
-    });
+    /* the RC stage is a view-only window onto the member's screen; the single
+       pointer surface is the admin's cursor mirrored inside #rcMirror */
     M.$('#rcEnd').onclick=()=>M.RC.closeAdmin();
     M.$('#rcFlip').onclick=()=>M.RC.flipCam();
     M.$('#rcShare').onclick=()=>M.RC.toggleShare();
@@ -4235,10 +4224,23 @@ M.RC = {
     if(!mw._wired){
       mw._wired=true;
       const hd=mw.querySelector('.rcm-head'); let dg=null;
-      hd.addEventListener('pointerdown',e=>{ if(e.target.closest('.rcm-x')) return; dg={x:e.clientX-mw.offsetLeft,y:e.clientY-mw.offsetTop}; hd.setPointerCapture(e.pointerId); });
+      hd.addEventListener('pointerdown',e=>{
+        if(e.target.closest('.rcm-btn')||mw.classList.contains('rcm-max')) return;   /* no dragging while maximized */
+        dg={x:e.clientX-mw.offsetLeft,y:e.clientY-mw.offsetTop}; hd.setPointerCapture(e.pointerId);
+      });
       hd.addEventListener('pointermove',e=>{ if(!dg) return; mw.style.left=M.clamp(e.clientX-dg.x,0,innerWidth-80)+'px'; mw.style.top=M.clamp(e.clientY-dg.y,0,innerHeight-40)+'px'; mw.style.right='auto'; mw.style.bottom='auto'; });
       hd.addEventListener('pointerup',()=>dg=null);
-      mw.querySelector('.rcm-x').onclick=()=>mw.classList.toggle('rcm-min');
+      const ICON_MAX='M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7';
+      const ICON_MIN='M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7';
+      mw.querySelector('[data-rcm="max"]').onclick=e=>{
+        e.stopPropagation();
+        const on=mw.classList.toggle('rcm-max');
+        if(on) mw.classList.remove('rcm-min');
+        const b=e.currentTarget;
+        b.querySelector('svg').innerHTML=`<path d="${on?ICON_MIN:ICON_MAX}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        b.title=on?'Restore':'Maximize';
+      };
+      mw.querySelector('[data-rcm="hide"]').onclick=e=>{ e.stopPropagation(); mw.classList.toggle('rcm-min'); };
     }
     mw.classList.remove('hidden');
     mw.querySelector('video').srcObject=stream;
@@ -4266,7 +4268,7 @@ M.RC = {
   hideMirror(){
     const mw=M.$('#rcMirror'); if(!mw) return;
     const v=mw.querySelector('video'); if(v) v.srcObject=null;
-    mw.classList.add('hidden');
+    mw.classList.add('hidden'); mw.classList.remove('rcm-max','rcm-min');
   },
   onStream(stream,peerId){
     const a=M.RC.admin;
@@ -4296,16 +4298,6 @@ M.RC = {
     M.$('#rcWin').classList.add('hidden'); M.$('#rcVideo').srcObject=null;
     if(note) M.toast('info',M.t('rc_win_title'),note);
     M.log('info','remote-control ended (admin side)');
-  },
-  /* input mirroring (normalized coordinates survive any screen size) */
-  ev(k,d){ const a=M.RC.admin; if(!a||a.status!=='active') return; try{ M.Net.send('rc',{t:'ev',k,...d},a.peerId); }catch(e){} },
-  sendMove(x,y){ M.RC._mv ??= M.throttle((xx,yy)=>M.RC.ev('move',{x:xx,y:yy}),33); M.RC._mv(x,y); },
-  norm(e){
-    const v=M.$('#rcVideo'); const r=v.getBoundingClientRect();
-    const vw=v.videoWidth||16, vh=v.videoHeight||9;
-    const sc=Math.min(r.width/vw,r.height/vh);
-    const ox=(r.width-vw*sc)/2, oy=(r.height-vh*sc)/2;
-    return { x:M.clamp((e.clientX-r.left-ox)/(vw*sc),0,1), y:M.clamp((e.clientY-r.top-oy)/(vh*sc),0,1) };
   },
   /* ---------------- Member side ---------------- */
   onMsg(d,from){
@@ -4355,10 +4347,6 @@ M.RC = {
           M.toast('info',M.t('rc_win_title'),M.t('rc_canceled'));
           M.log('info','remote-control request withdrawn by admin');
         }
-        break;
-      }
-      case 'ev': {
-        if(M.RC.member && from===M.RC.member.adminId) M.RC.paintEvent(d);
         break;
       }
       case 'cur2': {
@@ -4420,8 +4408,6 @@ M.RC = {
     const bm=M.$('#rcBannerMode'); if(bm) bm.textContent=M.t(isCam?'rc_banner_cam':'rc_banner');
     const fb=M.$('#rcFlip'); if(fb) fb.style.display=isCam?'':'none';
     M.$('#rcBanner').classList.remove('hidden');
-    M.$('#rcOverlay').classList.remove('hidden');
-    M.$('#rcCurLbl').textContent=M.Members.name(p.from);
     stream.getVideoTracks().forEach(t=>t.onended=()=>M.RC.closeMember('sharing stopped'));
     M.toast('ok',M.t('rc_win_title'),M.t(isCam?'rc_member_on_cam':'rc_member_on'),{ms:6500});
     M.log('warn','remote-control GRANTED to '+M.Members.name(p.from));
@@ -4435,30 +4421,8 @@ M.RC = {
     M.RC.hideMirror();
     M.RC.member=null;
     M.$('#rcBanner').classList.add('hidden');
-    M.$('#rcOverlay').classList.add('hidden');
-    M.$('#rcKey').classList.add('hidden');
     M.toast('info',M.t('rc_win_title'),M.t('rc_ended')+(reason?' — '+reason:''));
     M.log('info','remote-control closed (member side)');
-  },
-  /* member-side overlay rendering of the admin's mirrored input */
-  paintEvent(d){
-    const cur=M.$('#rcCur');
-    if(d.k==='move'||d.k==='down'||d.k==='click'){
-      cur.style.display='block';
-      cur.style.left=(d.x*innerWidth)+'px'; cur.style.top=(d.y*innerHeight)+'px';
-      if(d.k==='click'||d.k==='down'){
-        const rp=M.el('div','rc-ripple');
-        rp.style.left=(d.x*innerWidth)+'px'; rp.style.top=(d.y*innerHeight)+'px';
-        M.$('#rcOverlay').appendChild(rp); setTimeout(()=>rp.remove(),650);
-      }
-      return;
-    }
-    if(d.k==='scroll'){ M.RC.flashKey('⇅ scroll'); return; }
-    if(d.k==='key') M.RC.flashKey('⌨ '+((d.mods||'')+d.key));
-  },
-  flashKey(txt){
-    const k=M.$('#rcKey'); k.textContent=txt; k.classList.remove('hidden');
-    clearTimeout(M.RC._kt); M.RC._kt=setTimeout(()=>k.classList.add('hidden'),1100);
   },
   /* member flips front/back camera mid-session without re-asking permission */
   async flipCam(){
