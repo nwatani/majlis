@@ -1229,7 +1229,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.32.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.32.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1497,7 +1497,7 @@ en:{
  rec_peer_on:'{n} started recording this call', rec_peer_off:'Recording stopped',
  rec_ready:'Recording ready', rec_dl:'Download', rec_conv:'Convert to MP4',
  rec_dur:'Duration', rec_size:'Size', rec_format:'Format',
- rec_loading:'Loading encoder…', rec_conv_prog:'Converting', rec_conv_done:'MP4 saved',
+ rec_loading:'Loading encoder…', rec_loading_core:'Downloading encoder (~32 MB, first time only)…', rec_conv_prog:'Converting', rec_conv_done:'Saved',
  rec_conv_fail:'Conversion failed — the original file is still available',
  rec_mp3:'Save as MP3',
  rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
@@ -1659,7 +1659,7 @@ ar:{
  rec_peer_on:'بدأ {n} تسجيل هذه المكالمة', rec_peer_off:'توقف التسجيل',
  rec_ready:'التسجيل جاهز', rec_dl:'تنزيل', rec_conv:'تحويل إلى MP4',
  rec_dur:'المدة', rec_size:'الحجم', rec_format:'الصيغة',
- rec_loading:'جارٍ تحميل المشفّر…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ MP4',
+ rec_loading:'جارٍ تحميل المشفّر…', rec_loading_core:'جارٍ تنزيل المشفّر (~32 م.ب، أول مرة فقط)…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ',
  rec_conv_fail:'فشل التحويل — الملف الأصلي لا يزال متاحاً',
  rec_mp3:'حفظ بصيغة MP3',
  rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
@@ -4404,24 +4404,41 @@ M.Rec = {
   },
   async _ensureFF(){
     /* load ffmpeg.wasm once; the file-reader is bound BEFORE load so a failed
-       load can never leave a half-built engine (the old _ffFetch bug) */
+       load can never leave a half-built engine (the old _ffFetch bug).
+       The ~32 MB core is fetched from jsDelivr first, unpkg as fallback,
+       with a hard timeout — it can never hang on "Loading encoder…" again. */
     if(M.Rec._ff && M.Rec._ffFetch) return;
+    const txt=M.$('#recProgTxt');
     const [{FFmpeg},{fetchFile,toBlobURL}]=await Promise.all([
       import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm'),
       import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm')
     ]);
     M.Rec._ffFetch=fetchFile;
     if(!M.Rec._ff){
-      const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-      M.Rec._ff=new FFmpeg();
-      M.Rec._ff.on('progress',({progress})=>{ const p=Math.round(Math.max(0,Math.min(1,progress))*100); M.$('#recProgBar').style.width=p+'%'; M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' '+p+'%'; });
-      M.Rec._ff.on('log',({message})=>{ const m=message.match(/time=(\d+:\d+:\d+\.\d+)/); if(m) M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' · '+m[1]; });
-      try{
-        await M.Rec._ff.load({
-          coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
-          wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm')
-        });
-      }catch(e){ M.Rec._ff=null; M.Rec._ffFetch=null; throw e; }   /* clean slate → next attempt retries fully */
+      const bases=[
+        'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
+        'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+      ];
+      let lastErr=null;
+      for(const base of bases){
+        const ff=new FFmpeg();
+        ff.on('progress',({progress})=>{ const p=Math.round(Math.max(0,Math.min(1,progress))*100); M.$('#recProgBar').style.width=p+'%'; M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' '+p+'%'; });
+        ff.on('log',({message})=>{ const m=message.match(/time=(\d+:\d+:\d+\.\d+)/); if(m) M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' · '+m[1]; });
+        try{
+          if(txt) txt.textContent=M.t('rec_loading_core');
+          await Promise.race([
+            ff.load({
+              coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
+              wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm')
+            }),
+            new Promise((_,rej)=>setTimeout(()=>rej(new Error('encoder download timed out')),60000))
+          ]);
+          M.Rec._ff=ff; lastErr=null;
+          M.log('info','ffmpeg core loaded from '+base.split('/')[2]);
+          break;
+        }catch(e){ lastErr=e; M.log('warn','encoder load failed from '+base.split('/')[2]+': '+(e.message||e)); }
+      }
+      if(!M.Rec._ff){ M.Rec._ffFetch=null; throw lastErr||new Error('encoder unavailable'); }
     }
   },
   async convert(fmt){
