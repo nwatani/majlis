@@ -1207,7 +1207,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.29.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.30.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1347,7 +1347,9 @@ en:{
  grace_back:'The Admin returned — the room continues',
  grace_ended:'Closed automatically: the Admin was away for 10 minutes',
  admin_off:'Admin offline',
- room_dead:'This room was terminated — its code is no longer valid',
+ room_dead:'This room has ended.',
+ room_not_found:'Room not found. Please check the room code and try again.',
+ create_busy:'Could not allocate a free room code — please try again.',
  dupe_title:'Already in this room',
  dupe_body:"You're already connected to this room in another tab on this device. Only one session per member is allowed.",
  dupe_back:'Keep my other tab', dupe_take:'Use this tab', dupe_taken:'This session was closed — you continued in another tab',
@@ -1503,7 +1505,9 @@ ar:{
  grace_back:'عاد المشرف — تستمر الغرفة',
  grace_ended:'أُغلقت تلقائياً: غياب المشرف لمدة 10 دقائق',
  admin_off:'المشرف غير متصل',
- room_dead:'أُنهِيت هذه الغرفة — رمزها لم يعد صالحاً',
+ room_dead:'انتهت هذه الغرفة.',
+ room_not_found:'الغرفة غير موجودة. تحقق من رمز الغرفة وحاول مجدداً.',
+ create_busy:'تعذّر تخصيص رمز غرفة متاح — حاول مجدداً.',
  dupe_title:'أنت في هذه الغرفة بالفعل',
  dupe_body:'أنت متصل بهذه الغرفة في تبويب آخر على هذا الجهاز. يُسمح بجلسة واحدة فقط لكل عضو.',
  dupe_back:'الاحتفاظ بالتبويب الآخر', dupe_take:'استخدام هذا التبويب', dupe_taken:'أُغلقت هذه الجلسة — تابعت في تبويب آخر',
@@ -1880,7 +1884,7 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe']) M.Net.A[n]=R.makeAction(n);
     M.bus.emit('netReady');
 
     /* presence */
@@ -1911,6 +1915,13 @@ M.Net = {
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
     M.Net.A.who.onMessage = (d,{peerId}) => { try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
+    /* room-existence probe: anyone already inside answers, which is how a joiner
+       learns whether a code belongs to a live (or recoverable) room */
+    M.Net.A.probe.onMessage = (d,{peerId}) => {
+      if(d?.t==='q'){
+        try{ M.Net.send('probe',{t:'ack',adm:!!(M.Admin.priv||M.Admin.legacy)},peerId); }catch(e){}
+      } else if(d?.t==='ack' && M.Net._probeResolve){ M.Net._probeResolve(); }
+    };
     M.Net.A.dupe.onMessage = (d,{peerId}) => {
       /* a newer session of the same member is claiming the seat — this tab steps down */
       if(d?.t==='take' && d.to===M.State.self.id){
@@ -2084,6 +2095,16 @@ M.Net = {
   healPeer(pid){
     try{ const pc=M.Net.room?.getPeers?.()?.[pid]; if(pc) pc.restartIce?.(); M.log('info','ICE restart toward '+M.fmt.idShort(pid)); }catch(e){}
     try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:!!(M.Admin.priv||M.Admin.legacy),v:M.Version},pid); }catch(e){}
+  },
+  /* ask the namespace "is anyone home?" — resolves true on the first ack */
+  probeRoom(ms){
+    return new Promise(res=>{
+      let done=false;
+      const finish=v=>{ if(done) return; done=true; M.Net._probeResolve=null; res(v); };
+      M.Net._probeResolve=()=>finish(true);
+      try{ M.Net.send('probe',{t:'q'}); }catch(e){}
+      setTimeout(()=>finish(false),ms);
+    });
   },
   /* sweep every degraded link — called on tab foreground and network recovery */
   healAll(){
@@ -5512,7 +5533,18 @@ M.App = {
     if(!M.App.setName()) return;
     M.lobbyMsg(M.t('creating')); M.$('#btnCreate').disabled=true;
     try{
-      const code=M.roomCode();
+      /* pick a code that no live or recoverable room currently holds — a code is
+         never assigned to two rooms at once */
+      let code='', occupied=true, tries=0;
+      while(occupied && tries<6){
+        code=M.roomCode(); tries++;
+        M.State.room={code, created:Date.now(), isCreator:true};
+        await M.Net.join(code,{isCreator:true});
+        M.State.self.id=M.T.selfId;
+        occupied=await M.Net.probeRoom(1400);
+        if(occupied){ M.log('warn','code '+code+' already in use — rolling again'); try{ M.Net.leave(); }catch(e){} M.App.resetState(); }
+      }
+      if(occupied){ M.lobbyMsg(M.t('create_busy'),true); M.$('#btnCreate').disabled=false; return; }
       M.State.room={code, created:Date.now(), isCreator:true, name:M.t('room_of',{n:M.State.self.name})};
       await M.Admin.ensureKeys(code,true);
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
@@ -5531,12 +5563,6 @@ M.App = {
     if(!/^[A-Z2-9]{6}$/.test(code)){ M.lobbyMsg(M.t('invalid_code'),true); return; }
     M.lobbyMsg(M.t('joining')); M.$('#btnJoin').disabled=true;
     try{
-      if(M.Store.get('dead.'+code)){   /* terminated rooms are gone for good on this device */
-        M.lobbyMsg(M.t('room_dead'),true);
-        M.toast('err',M.t('grace_title'),M.t('room_dead'),{ms:7000});
-        M.$('#btnJoin').disabled=false;
-        return;
-      }
       M.State.room={code, created:Date.now(), isCreator:false};
       const qp=new URLSearchParams(location.search);
       const k=qp.get('k');
@@ -5545,11 +5571,35 @@ M.App = {
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
       await M.Admin.ensureKeys(code,false);
       if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
+      /* Does this room exist? The returning Admin (holds the key) or a member still
+         inside the recoverable window enter directly; everyone else must be answered
+         by someone currently in the room — otherwise: "Room not found." */
+      const knownAdmin=!!M.Store.get('adminKey.'+code);
+      const gu=M.Store.get('grace.'+code);
+      const bypass=knownAdmin || (gu && gu>Date.now());
+      M.Net.onProgress=m=>M.lobbyMsg(m);
+      try{ await M.Net.join(code,{isCreator:!!M.Admin.priv}); }finally{ M.Net.onProgress=null; }
+      M.State.self.id=M.T.selfId;
+      if(!bypass){
+        /* someone must answer for the room to exist — a terminated or unknown code
+           stays silent and is reported as not found */
+        const found=await M.Net.probeRoom(3500);
+        if(!found){
+          try{ M.Net.leave(); }catch(e){}
+          M.App.resetState();
+          safeDel(localStorage,'mj.grace.'+code);   /* a room that never existed must leave no trace behind */
+          M.lobbyMsg(M.t('room_not_found'),true);
+          M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500});
+          M.$('#btnJoin').disabled=false;
+          return;
+        }
+      }
       history.replaceState(null,'',M.App.inviteUrl());
       await M.App.enter(code,!!M.Admin.priv);
     }catch(e){ M.lobbyMsg(e.message||String(e),true); }
     M.$('#btnJoin').disabled=false;
   },
+  _inRoom:false,
   async enter(code,isCreator){
     M.State.joinedAt=Date.now();
     M.State.self.admin=!!M.Admin.priv;
@@ -5583,6 +5633,8 @@ M.App = {
     try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
     M.State.self.id=M.T.selfId;
     M.Chat.restoreLocal();
+    M.App._inRoom=true;
+    M.lobbyMsg('');   /* no stale lobby text survives into a live session */
     M.UI.enterApp();
     try{ M.WB.restoreClip(); }catch(e){}
     /* ask the room to backfill anything this device missed while it was away */
@@ -5607,6 +5659,7 @@ M.App = {
   },
   resetState(){
     M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map();
+    M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
     M.State.peers.clear(); M.State.perms=null; M.State.chatTarget=null;
@@ -5641,6 +5694,9 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    (Codes live client-side; a never-before-seen device has no tombstone — the
    honest limit of a serverless design.) */
 M.App.purgeRoom = function(code){
+  /* wipe every per-room artifact and RELEASE the code — terminated rooms are not
+     blacklisted; the code returns to the pool for future random assignment.
+     Rejoin attempts find an empty namespace and simply read "Room not found." */
   try{
     const dead=[];
     for(let i=0;i<localStorage.length;i++){
@@ -5648,7 +5704,6 @@ M.App.purgeRoom = function(code){
       if(k && k.startsWith('mj.') && k.endsWith('.'+code)) dead.push(k);
     }
     dead.forEach(k=>localStorage.removeItem(k));
-    M.Store.set('dead.'+code,Date.now());   /* the tombstone — written AFTER the wipe */
   }catch(e){ M.log('err','purge failed: '+e.message); }
   if(M.State.room) M.State.room.adminOffline=true;
 };
@@ -5952,6 +6007,7 @@ M.Grace = {
   },
   eval(){
     if(M.Admin.priv||M.Admin.legacy){ M.Grace.cancel(false); return; }   /* I am the Admin — nothing to enforce */
+    if(!M.App._inRoom) return;          /* only a REAL, entered room can start a countdown — never a probe or a lobby */
     if(!M.State.room) return;
     if(Date.now()-M.Grace.settle<8000) return;                           /* let the Admin's hello land on fresh joins */
     const now=Date.now();
