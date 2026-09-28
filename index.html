@@ -470,6 +470,33 @@ html[data-theme="light"] .t-expand{background:rgba(255,255,255,.85);color:#15242
   #dropOverlay .dz{padding:34px 26px;font-size:17px;border-radius:14px}
   .m-card{padding:18px}
 }
+/* ---------- recording export option cards — unmistakable video vs voice ---------- */
+.rec-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
+@media (max-width:480px){ .rec-opts{grid-template-columns:1fr} }
+.rec-opt{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;border:1.5px solid var(--line2);background:var(--bg2);cursor:pointer;text-align:start;transition:transform .15s,border-color .15s,box-shadow .15s,background .15s}
+.rec-opt:hover{transform:translateY(-2px);box-shadow:0 10px 24px -10px rgba(0,0,0,.5)}
+.rec-opt:active{transform:translateY(0)}
+.rec-opt:disabled{opacity:.4;pointer-events:none}
+.rec-opt .ro-ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;flex:none}
+.rec-opt .ro-ico svg{width:20px;height:20px}
+.rec-opt .ro-txt{flex:1;min-width:0}
+.rec-opt .ro-txt b{display:block;font-size:13.5px}
+.rec-opt .ro-txt small{display:block;font-size:11px;color:var(--dim);margin-top:1px}
+.rec-opt .ro-go{color:var(--dim);font-size:15px;transition:transform .15s,color .15s}
+.rec-opt:hover .ro-go{transform:translateX(3px)}
+[dir="rtl"] .rec-opt:hover .ro-go{transform:translateX(-3px)}
+.rec-opt-mp4{border-color:rgba(245,168,60,.5)}
+.rec-opt-mp4:hover{border-color:var(--amber);background:rgba(245,168,60,.08)}
+.rec-opt-mp4 .ro-ico{background:rgba(245,168,60,.14);color:var(--amber)}
+.rec-opt-mp4 .ro-go{color:var(--amber)}
+.rec-opt-mp3{border-color:rgba(56,207,182,.5)}
+.rec-opt-mp3:hover{border-color:var(--teal);background:rgba(56,207,182,.08)}
+.rec-opt-mp3 .ro-ico{background:rgba(56,207,182,.14);color:var(--teal)}
+.rec-opt-mp3 .ro-go{color:var(--teal)}
+#recAudioBox{display:flex;align-items:center;gap:14px;background:var(--bg2);border:1.5px solid rgba(56,207,182,.4);border-radius:12px;padding:16px;margin-bottom:12px}
+#recAudioBox svg{width:34px;height:34px;flex:none}
+#recAudioBox b{display:block;font-size:14px}
+#recAudioBox small{color:var(--dim);font-size:12px}
 /* ---------- remote assistance ---------- */
 #rcBanner{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:130;display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,#3a1512,#2a0f0d);border:1px solid var(--red);color:#ffb9b2;border-radius:999px;padding:8px 10px 8px 16px;font-size:13px;box-shadow:0 12px 34px -10px rgba(255,97,87,.55);animation:msgIn .25s ease both;max-width:94vw}
 html[data-theme="light"] #rcBanner{background:linear-gradient(180deg,#fff3f2,#ffe7e4);color:#8c231c;border-color:#e5837b}
@@ -919,8 +946,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:15px">
     <button class="btn" id="rdCopyId" data-i18n="rd_copy_id">Copy ID</button>
     <button class="btn" id="rdCopyPw" data-i18n="rd_copy_pw">Copy password</button>
-    <button class="btn btn-primary" id="rdOpenWeb" style="grid-column:1/-1" data-i18n="rd_open_web">Open RustDesk web client</button>
-    <button class="btn" id="rdOpenApp" style="grid-column:1/-1" data-i18n="rd_open_app">Open desktop app (deep link)</button>
+    <button class="btn" id="rdOpenWeb" style="grid-column:1/-1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-inline-end:6px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span data-i18n="rd_open_web">Open RustDesk Web</span></button>
+    <button class="btn btn-primary" id="rdOpenApp" style="grid-column:1/-1" data-i18n="rd_open_app">Open desktop app (deep link)</button>
   </div>
   <p class="m-note" data-i18n="rd_card_note">The ID was copied to your clipboard. In any RustDesk client: paste it under “Control Remote Desktop”, enter the password — you now have full OS-level control.</p>
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
@@ -943,19 +970,33 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <!-- recording save dialog -->
 <div class="modal hidden" id="mRec"><div class="m-card">
   <h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="var(--red)" stroke="none"/></svg><span data-i18n="rec_ready">Recording ready</span></h3>
-  <video id="recPreview" controls playsinline style="width:100%;border-radius:10px;background:#000;max-height:44vh;margin-bottom:12px"></video>
+  <video id="recPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;max-height:42vh;margin-bottom:12px"></video>
+  <div id="recAudioBox" class="hidden">
+    <svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.8"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v4M8 22h8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><b data-i18n="rec_voice_rec">Voice recording</b><small id="recAudioDur" class="mono"></small></div>
+  </div>
   <div id="recMeta"></div>
+  <div class="rec-opts">
+    <button class="rec-opt rec-opt-mp4" id="recConv">
+      <span class="ro-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z" stroke-linejoin="round"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></span>
+      <span class="ro-txt"><b data-i18n="rec_mp4">Video · MP4</b><small data-i18n="rec_mp4_sub">Picture + sound</small></span>
+      <span class="ro-go">→</span>
+    </button>
+    <button class="rec-opt rec-opt-mp3" id="recMp3">
+      <span class="ro-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="ro-txt"><b data-i18n="rec_mp3">Voice · MP3</b><small data-i18n="rec_mp3_sub">Audio only · small file</small></span>
+      <span class="ro-go">→</span>
+    </button>
+  </div>
   <div id="recProg" class="hidden" style="margin:12px 0 4px">
     <div class="x-bar"><i id="recProgBar"></i></div>
     <span id="recProgTxt" class="mono" style="font-size:11px;color:var(--mut)"></span>
   </div>
-  <div class="m-row" style="flex-wrap:wrap">
+  <div class="m-row" style="justify-content:space-between">
     <button class="btn btn-ghost" data-close data-i18n="close">Close</button>
-    <button class="btn" id="recMp3" style="color:var(--teal);border-color:rgba(56,207,182,.5)"><span data-i18n="rec_mp3">Save as MP3</span></button>
-    <button class="btn" id="recConv"><span data-i18n="rec_conv">Convert to MP4</span></button>
-    <button class="btn btn-primary" id="recDl">Download</button>
+    <button class="btn" id="recDl"></button>
   </div>
-  <p class="m-note" data-i18n="rec_conv_note">MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.</p>
+  <p class="m-note" data-i18n="rec_conv_note">Conversion runs entirely in your browser — nothing is uploaded.</p>
 </div></div>
 
 <!-- remote assistance surfaces -->
@@ -1175,8 +1216,6 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <p class="m-note" data-i18n="turn_note">Public TURN/MQTT endpoints are best-effort. For production, run coturn or a hosted TURN (Cloudflare Calls, Metered, Twilio) and a private MQTT broker (EMQX/HiveMQ).</p>
       </div>
       <div class="cc-card"><h4 data-i18n="rd_card_title">Native access credentials</h4>
-        <div class="field"><label class="lbl" data-i18n="rd_web_lbl">RustDesk web client URL</label><input class="inp mono" id="cfgRdWeb" dir="ltr" placeholder="https://web.rustdesk.com/"></div>
-        <button class="btn" id="cfgRdSave" data-i18n="save_apply">Save &amp; apply on next room</button>
         <div class="hr"></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="btn" id="cfgTestIce" data-i18n="test_conn">Test connection</button>
@@ -1229,7 +1268,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.32.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.33.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1478,7 +1517,8 @@ en:{
  rd_id_lbl:'Your RustDesk ID', rd_pw_lbl:'One-time password', rd_send:'Send to Admin',
  rd_req_help:'Open RustDesk \u2014 \u201cYour ID\u201d is in the left panel, with a password under it.',
  rd_card_sub:'shared their RustDesk access:', rd_copy_id:'Copy ID', rd_copy_pw:'Copy password',
- rd_open_web:'Open RustDesk web client', rd_open_app:'Open desktop app (deep link)',
+ rd_open_web:'Open RustDesk Web', rd_open_app:'Open desktop app (deep link)',
+ rd_web_hint:'ID copied — paste it in the web controller. The remote device must run the RustDesk agent on your relay.',
  rd_card_note:'The ID was copied to your clipboard. In any RustDesk client: paste it under \u201cControl Remote Desktop\u201d, enter the password \u2014 you now have full OS-level control.',
  rd_copied:'Copied to clipboard', rd_need_id:'Please enter the RustDesk ID first',
  rd_opened_web:'RustDesk web client opened \u2014 the ID is already on your clipboard',
@@ -1499,7 +1539,8 @@ en:{
  rec_dur:'Duration', rec_size:'Size', rec_format:'Format',
  rec_loading:'Loading encoder…', rec_loading_core:'Downloading encoder (~32 MB, first time only)…', rec_decoding:'Decoding audio…', rec_conv_prog:'Converting', rec_conv_done:'Saved',
  rec_conv_fail:'Conversion failed — the original file is still available',
- rec_mp3:'Save as MP3',
+ rec_mp3:'Voice · MP3', rec_mp3_sub:'Audio only · small file',
+ rec_mp4:'Video · MP4', rec_mp4_sub:'Picture + sound', rec_voice_rec:'Voice recording',
  rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
  rc_canceled:'The request was canceled',
 },
@@ -1640,7 +1681,8 @@ ar:{
  rd_id_lbl:'معرّف RustDesk الخاص بك', rd_pw_lbl:'كلمة مرور مؤقتة', rd_send:'إرسال إلى المشرف',
  rd_req_help:'افتح RustDesk — «Your ID» في اللوحة اليسرى وتحته كلمة المرور.',
  rd_card_sub:'شارك بيانات الوصول الخاصة به:', rd_copy_id:'نسخ المعرّف', rd_copy_pw:'نسخ كلمة المرور',
- rd_open_web:'فتح عميل RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
+ rd_open_web:'فتح RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
+ rd_web_hint:'نُسخ المعرّف — ألصقه في المتحكم الويب. يجب أن يشغّل الجهاز البعيد وكيل RustDesk على الخادم الخاص بك.',
  rd_card_note:'نُسخ المعرّف إلى الحافظة. في أي عميل RustDesk: ألصق المعرّف تحت «Control Remote Desktop» وأدخل كلمة المرور — يصبح لديك تحكم كامل على مستوى النظام.',
  rd_copied:'نُسخ إلى الحافظة', rd_need_id:'أدخل معرّف RustDesk أولاً',
  rd_opened_web:'فُتح عميل RustDesk الويب — المعرّف منسوخ بالفعل في الحافظة',
@@ -1661,7 +1703,8 @@ ar:{
  rec_dur:'المدة', rec_size:'الحجم', rec_format:'الصيغة',
  rec_loading:'جارٍ تحميل المشفّر…', rec_loading_core:'جارٍ تنزيل المشفّر (~32 م.ب، أول مرة فقط)…', rec_decoding:'جارٍ فك ترميز الصوت…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ',
  rec_conv_fail:'فشل التحويل — الملف الأصلي لا يزال متاحاً',
- rec_mp3:'حفظ بصيغة MP3',
+ rec_mp3:'صوت · MP3', rec_mp3_sub:'صوت فقط · ملف صغير',
+ rec_mp4:'فيديو · MP4', rec_mp4_sub:'صورة + صوت', rec_voice_rec:'تسجيل صوتي',
  rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
  rc_canceled:'أُلغي الطلب',
 }
@@ -4010,10 +4053,9 @@ M.RC = {
     M.$('#rdCopyId').onclick=()=>{ if(M.RC._rd) M.RC.copyText(M.RC._rd.id); };
     M.$('#rdCopyPw').onclick=()=>{ if(M.RC._rd) M.RC.copyText(M.RC._rd.pw); };
     M.$('#rdOpenWeb').onclick=()=>{
-      const base=M.Store.get('rdweb')||'https://web.rustdesk.com/';
       if(M.RC._rd?.id) M.RC.copyText(M.RC._rd.id,false);
-      open(base,'_blank');
-      M.toast('ok',M.t('rd_btn'),M.t('rd_opened_web'));
+      open('https://rustdesk.com/web/','_blank');
+      M.toast('info',M.t('rd_btn'),M.t('rd_web_hint'),{ms:6500});
     };
     M.$('#rdOpenApp').onclick=()=>{
       if(M.RC._rd?.id){ M.RC.copyText(M.RC._rd.id,false); location.href='rustdesk://connection/new/'+M.RC._rd.id; }
@@ -4383,7 +4425,12 @@ M.Rec = {
   /* ---- "Recording ready" dialog: preview, download, and on-demand MP4 transcode ---- */
   showSave(){
     const r=M.Rec._last; if(!r) return;
-    const pv=M.$('#recPreview'); pv.src=r.url; pv.load?.();
+    const pv=M.$('#recPreview');
+    pv.style.display=r.audio?'none':'';
+    pv.src=r.url; pv.load?.();
+    const ab=M.$('#recAudioBox');
+    ab.classList.toggle('hidden',!r.audio);
+    if(r.audio) M.$('#recAudioDur').textContent=M.fmt.dur(r.dur)+' · '+M.fmt.bytes(r.blob.size);
     M.$('#recMeta').innerHTML=
       `<div class="cc-kv"><span class="k">${M.t('rec_dur')}</span><span class="v">${M.fmt.dur(r.dur)}</span></div>`+
       `<div class="cc-kv"><span class="k">${M.t('rec_size')}</span><span class="v">${M.fmt.bytes(r.blob.size)}</span></div>`+
@@ -4392,11 +4439,11 @@ M.Rec = {
     dl.textContent=M.t('rec_dl')+' (.'+r.ext+')';
     dl.onclick=()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name+'.'+r.ext; a.click(); M.toast('ok',M.t('rec_title'),M.t('rec_saved')); };
     const cv=M.$('#recConv');
-    cv.classList.toggle('hidden',r.audio||r.ext==='mp4');   /* MP4 only makes sense for video recordings */
-    cv.disabled=false; cv.querySelector('span').textContent=M.t('rec_conv');
+    cv.classList.toggle('hidden',r.audio||r.ext==='mp4');   /* video card only for video recordings */
+    cv.disabled=false;
     cv.onclick=()=>M.Rec.convert('mp4');
     const cm=M.$('#recMp3');
-    cm.disabled=false; cm.querySelector('span').textContent=M.t('rec_mp3');
+    cm.disabled=false;
     cm.onclick=()=>M.Rec.convert('mp3');
     M.$('#recProg').classList.add('hidden');
     M.$('#mRec').classList.remove('hidden');
@@ -4440,6 +4487,117 @@ M.Rec = {
       }
       if(!M.Rec._ff){ M.Rec._ffFetch=null; throw lastErr||new Error('encoder unavailable'); }
     }
+  },
+  /* ---- minimal EBML/WebM demuxer: pulls VP8 video frames + Opus audio packets
+     out of our own MediaRecorder output so WebCodecs can re-mux them into MP4
+     without any heavy download (the Firefox path) ---- */
+  _demuxWebM(buf){
+    const dv=new DataView(buf), N=dv.byteLength; let pos=0;
+    const readId=off=>{ const b=dv.getUint8(off); let len=1,m=0x80; while(m&&!(b&m)){m>>=1;len++;} let v=b; for(let i=1;i<len;i++) v=v*256+dv.getUint8(off+i); return [v,len]; };
+    const readSize=off=>{ const b=dv.getUint8(off); let len=1,m=0x80; while(m&&!(b&m)){m>>=1;len++;} let v=b&(m-1),unk=(v===(m-1)); for(let i=1;i<len;i++){ const nb=dv.getUint8(off+i); v=v*256+nb; if(nb!==0xff) unk=false; } return [v,len,unk]; };
+    let [id,il]=readId(pos); pos+=il; let [sz,sl]=readSize(pos); pos+=sl+sz;          /* EBML header */
+    [id,il]=readId(pos); pos+=il; [sz,sl]=readSize(pos); pos+=sl;                        /* Segment */
+    const segEnd=Math.min(N,pos+sz);
+    const vFrames=[],aFrames=[]; let vNum=0,aNum=0,clusterTs=0;
+    const parseBlock=(start,end)=>{
+      let p=start; const [tn,tl]=readId(p); p+=tl;   /* track number vint (small) */
+      const trackNum=dv.getUint8(start); p=start+1;
+      const rel=dv.getInt16(p); p+=2; p+=1;          /* relative timestamp + flags */
+      const flags=dv.getUint8(p-1);
+      const data=new Uint8Array(buf,p,end-p);
+      const ts=(clusterTs+rel)*1000;                /* ms → µs */
+      if(trackNum===vNum) vFrames.push({key:!!(flags&0x80),ts,data});
+      else if(trackNum===aNum) aFrames.push({key:true,ts,data});
+    };
+    while(pos<segEnd-2){
+      const [cid,cil]=readId(pos); pos+=cil;
+      const [csz,csl,cunk]=readSize(pos); pos+=csl;
+      const cend=cunk?segEnd:Math.min(segEnd,pos+csz);
+      if(cid===0x1654AE6B){                                   /* Tracks */
+        let p=pos;
+        while(p<cend){
+          const [tid,til]=readId(p); p+=til;
+          const [tsz,tsl]=readSize(p); p+=tsl; const tend=p+tsz;
+          if(tid===0xAE){
+            let q=p,num=0,kind='';
+            while(q<tend){
+              const [fid,fil]=readId(q); q+=fil;
+              const [fsz,fsl]=readSize(q); q+=fsl; const fend=q+fsz;
+              if(fid===0xD7) num=dv.getUint8(q);
+              else if(fid===0x86){ let s=''; for(let i=q;i<fend;i++) s+=String.fromCharCode(dv.getUint8(i)); kind=s.startsWith('V_')?'v':s.startsWith('A_')?'a':''; }
+              q=fend;
+            }
+            if(kind==='v') vNum=num; else if(kind==='a') aNum=num;
+          }
+          p=tend;
+        }
+      } else if(cid===0x1F43B675){                          /* Cluster */
+        let p=pos;
+        while(p<cend){
+          const [bid,bil]=readId(p); p+=bil;
+          const [bsz,bsl,bunk]=readSize(p); p+=bsl; const bend=bunk?cend:Math.min(cend,p+bsz);
+          if(bid===0xE7){ let v=0; for(let i=p;i<bend;i++) v=v*256+dv.getUint8(i); clusterTs=v; }
+          else if(bid===0xA3) parseBlock(p,bend);
+          else if(bid===0xA0){ let q=p; while(q<bend){ const [g2id,g2il]=readId(q); q+=g2il; const [g2sz,g2sl]=readSize(q); q+=g2sl; if(g2id===0xA1) parseBlock(q,q+g2sz); q+=g2sz; } }
+          p=bend;
+        }
+      }
+      pos=cend;
+    }
+    return {vFrames,aFrames};
+  },
+  /* ---- WebCodecs WebM→MP4: decode VP8/Opus, encode H.264/AAC, mux natively ---- */
+  async _webmToMp4(r,bar,txt){
+    if(typeof VideoDecoder==='undefined'||typeof VideoEncoder==='undefined') throw new Error('WebCodecs unavailable');
+    const {Muxer,ArrayBufferTarget}=await import('https://cdn.jsdelivr.net/npm/mp4-muxer@4.3.3/+esm');
+    txt.textContent=M.t('rec_decoding');
+    const {vFrames,aFrames}=M.Rec._demuxWebM(await r.blob.arrayBuffer());
+    if(!vFrames.length) throw new Error('no video frames');
+    /* decode video */
+    const vDecoded=[];
+    await new Promise((res,rej)=>{
+      const dec=new VideoDecoder({output:f=>vDecoded.push(f),error:rej});
+      dec.configure({codec:'vp8'});
+      vFrames.forEach(f=>dec.decode(new EncodedVideoChunk({type:f.key?'key':'delta',timestamp:f.ts,data:f.data})));
+      dec.flush().then(()=>{dec.close();res();}).catch(rej);
+    });
+    const W=vDecoded[0].codedWidth,H=vDecoded[0].codedHeight;
+    /* decode audio */
+    let aDecoded=[];
+    if(aFrames.length){
+      try{
+        await new Promise((res,rej)=>{
+          const dec=new AudioDecoder({output:a=>aDecoded.push(a),error:rej});
+          dec.configure({codec:'opus',sampleRate:48000,numberOfChannels:2});
+          aFrames.forEach(f=>dec.decode(new EncodedAudioChunk({type:'key',timestamp:f.ts,data:f.data})));
+          dec.flush().then(()=>{dec.close();res();}).catch(rej);
+        });
+      }catch(e){ aDecoded=[]; }
+    }
+    txt.textContent=M.t('rec_conv_prog')+' 0%';
+    /* mux */
+    const target=new ArrayBufferTarget();
+    const muxer=new Muxer({target,video:{codec:'avc',width:W,height:H},audio:aDecoded.length?{codec:'aac',sampleRate:48000,numberOfChannels:2}:undefined,firstTimestampBehavior:'offset'});
+    const vEnc=new VideoEncoder({output:(chunk,meta)=>muxer.addVideoChunk(chunk,meta),error:e=>{}});
+    await new Promise(async res=>{ const ok=await VideoEncoder.isConfigSupported({codec:'avc1.42E01E',width:W,height:H,bitrate:1500000}); res(ok.supported); });
+    vEnc.configure({codec:'avc1.42E01E',width:W,height:H,bitrate:1500000,framerate:30});
+    let done=0;
+    for(const f of vDecoded){ vEnc.encode(f,{keyFrame:done%60===0}); f.close(); done++; if(done%10===0){ bar.style.width=Math.round(done/vDecoded.length*90)+'%'; txt.textContent=M.t('rec_conv_prog')+' '+Math.round(done/vDecoded.length*90)+'%'; await new Promise(q=>setTimeout(q,0)); } }
+    await vEnc.flush(); vEnc.close();
+    if(aDecoded.length){
+      try{
+        const aEnc=new AudioEncoder({output:(chunk,meta)=>muxer.addAudioChunk(chunk,meta),error:()=>{}});
+        const sup=await AudioEncoder.isConfigSupported({codec:'mp4a.40.2',sampleRate:48000,numberOfChannels:2,bitrate:128000});
+        if(sup.supported){
+          aEnc.configure({codec:'mp4a.40.2',sampleRate:48000,numberOfChannels:2,bitrate:128000});
+          for(const a of aDecoded){ aEnc.encode(a); a.close(); }
+          await aEnc.flush(); aEnc.close();
+        } else aDecoded.forEach(a=>a.close());
+      }catch(e){ aDecoded.forEach(a=>a.close()); }
+    } else vDecoded.forEach(f=>f.close());
+    muxer.finalize();
+    bar.style.width='100%';
+    return new Blob([target.buffer],{type:'video/mp4'});
   },
   /* ---- lightweight MP3: decode in Web Audio, encode with lamejs (~150 KB) ----
      no 32 MB wasm download, so it works even on networks that block big fetches */
@@ -4490,11 +4648,16 @@ M.Rec = {
           out=new Blob([(await M.Rec._ff.readFile('out.mp3')).buffer],{type:'audio/mpeg'});
         }
       } else {
-        await M.Rec._ensureFF();
-        M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
-        await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
-        await M.Rec._ff.exec(['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4']);
-        out=new Blob([(await M.Rec._ff.readFile('out.mp4')).buffer],{type:'video/mp4'});
+        /* native WebCodecs path first (Firefox/Chrome, no big download); ffmpeg only as fallback */
+        try{ out=await M.Rec._webmToMp4(r,M.$('#recProgBar'),M.$('#recProgTxt')); }
+        catch(e){
+          M.log('warn','WebCodecs mp4 failed ('+e.message+') — falling back to ffmpeg');
+          await M.Rec._ensureFF();
+          M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
+          await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
+          await M.Rec._ff.exec(['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4']);
+          out=new Blob([(await M.Rec._ff.readFile('out.mp4')).buffer],{type:'video/mp4'});
+        }
       }
       const url=URL.createObjectURL(out);
       const a=M.el('a'); a.href=url; a.download=r.name+'.'+fmt; a.click();
@@ -6090,7 +6253,6 @@ M.CC = {
     const turn=M.Store.get('turn')||{};
     M.$('#cfgTurn').value=turn.urls||''; M.$('#cfgTurnUser').value=turn.user||''; M.$('#cfgTurnPass').value=turn.pass||'';
     M.$('#cfgBroker').value=M.Store.get('broker')||'';
-    M.$('#cfgRdWeb').value=M.Store.get('rdweb')||'';
     /* matrix */
     const mx=M.$('#ccMatrix'); const on=v=>v?'<span style="color:var(--ok)">● on</span>':'<span style="color:var(--err)">● off</span>';
     mx.innerHTML=[
@@ -6478,7 +6640,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       try{ M.Net.send('dupe',{t:'take',to:k},k); }catch(e){}   /* the older tab steps down */
       M.toast('ok',M.t('dupe_title'),M.t('dupe_taken'),{ms:4000});
     };
-    M.$('#cfgRdSave').onclick=()=>{ const rw=M.$('#cfgRdWeb').value.trim(); if(rw) M.Store.set('rdweb',rw); else safeDel(localStorage,'mj.rdweb'); M.toast('ok',M.t('settings_saved')); };
+
     /* live ICE/TURN health check — proves reachability before a call ever needs it */
     M.$('#cfgTestIce').onclick=async ()=>{
       const out=M.$('#iceTestOut'); out.textContent=M.t('testing')||'testing…';
