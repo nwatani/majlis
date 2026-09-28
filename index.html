@@ -494,6 +494,14 @@ html[data-theme="light"] .t-expand{background:rgba(255,255,255,.85);color:#15242
 .rec-opt-mp3 .ro-ico{background:rgba(56,207,182,.14);color:var(--teal)}
 .rec-opt-mp3 .ro-go{color:var(--teal)}
 #recAudioBox{display:flex;align-items:center;gap:14px;background:var(--bg2);border:1.5px solid rgba(56,207,182,.4);border-radius:12px;padding:16px;margin-bottom:12px}
+/* portable kit block in the native-access dialog */
+.rd-kit{margin-top:14px;border:1.5px dashed var(--line2);border-radius:12px;padding:13px 14px;background:var(--bg1)}
+.rd-kit-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.rd-kit-head b{font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--teal)}
+.rd-kit>p{font-size:12px;color:var(--mut);line-height:1.55;margin-bottom:10px}
+.rd-kit-row{display:flex;gap:8px;flex-wrap:wrap}
+.rd-steps{margin:11px 0 0;padding-inline-start:18px;font-size:11.5px;color:var(--dim);line-height:1.7}
+.rd-steps code{font-family:var(--mono);font-size:10.5px;background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--ink)}
 #recAudioBox svg{width:34px;height:34px;flex:none}
 #recAudioBox b{display:block;font-size:14px}
 #recAudioBox small{color:var(--dim);font-size:12px}
@@ -949,6 +957,22 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <button class="btn" id="rdOpenWeb" style="grid-column:1/-1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-inline-end:6px;vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span data-i18n="rd_open_web">Open RustDesk Web</span></button>
     <button class="btn btn-primary" id="rdOpenApp" style="grid-column:1/-1" data-i18n="rd_open_app">Open desktop app (deep link)</button>
   </div>
+  <div class="rd-kit">
+    <div class="rd-kit-head">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <b data-i18n="rd_kit">Portable kit</b>
+    </div>
+    <p data-i18n="rd_kit_sub">Keep RustDesk portable in Downloads — a one-time, two-click setup makes the button above launch it directly.</p>
+    <div class="rd-kit-row">
+      <button class="btn btn-sm" id="rdGetApp"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_get_app">Portable app</span></button>
+      <button class="btn btn-sm" id="rdGetReg"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5M9 13h6M9 17h4" stroke-linecap="round"/></svg><span data-i18n="rd_get_reg">Setup (.reg)</span></button>
+    </div>
+    <ol class="rd-steps">
+      <li data-i18n="rd_step1">Save the app to Downloads and rename it <code>RustDesk.exe</code></li>
+      <li data-i18n="rd_step2">Open the <code>.reg</code> once and accept the prompt</li>
+      <li data-i18n="rd_step3">Done — the deep-link button now launches the portable copy</li>
+    </ol>
+  </div>
   <p class="m-note" data-i18n="rd_card_note">The ID was copied to your clipboard. In any RustDesk client: paste it under “Control Remote Desktop”, enter the password — you now have full OS-level control.</p>
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
 </div></div>
@@ -1268,7 +1292,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.33.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.33.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1519,6 +1543,13 @@ en:{
  rd_card_sub:'shared their RustDesk access:', rd_copy_id:'Copy ID', rd_copy_pw:'Copy password',
  rd_open_web:'Open RustDesk Web', rd_open_app:'Open desktop app (deep link)',
  rd_web_hint:'ID copied — paste it in the web controller. The remote device must run the RustDesk agent on your relay.',
+ rd_kit:'Portable kit', rd_kit_sub:'Keep RustDesk portable in Downloads — a one-time, two-click setup makes the button above launch it directly.',
+ rd_get_app:'Portable app', rd_get_reg:'Setup (.reg)',
+ rd_step1:'Save the app to Downloads and rename it <code>RustDesk.exe</code>',
+ rd_step2:'Open the <code>.reg</code> once and accept the prompt',
+ rd_step3:'Done — the deep-link button now launches the portable copy',
+ rd_app_hint:'Grab the latest Windows <b>-x86_64.exe</b>, save it to Downloads, rename it RustDesk.exe',
+ rd_reg_hint:'Saved to Downloads — open it once to register the portable copy',
  rd_card_note:'The ID was copied to your clipboard. In any RustDesk client: paste it under \u201cControl Remote Desktop\u201d, enter the password \u2014 you now have full OS-level control.',
  rd_copied:'Copied to clipboard', rd_need_id:'Please enter the RustDesk ID first',
  rd_opened_web:'RustDesk web client opened \u2014 the ID is already on your clipboard',
@@ -1683,6 +1714,13 @@ ar:{
  rd_card_sub:'شارك بيانات الوصول الخاصة به:', rd_copy_id:'نسخ المعرّف', rd_copy_pw:'نسخ كلمة المرور',
  rd_open_web:'فتح RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
  rd_web_hint:'نُسخ المعرّف — ألصقه في المتحكم الويب. يجب أن يشغّل الجهاز البعيد وكيل RustDesk على الخادم الخاص بك.',
+ rd_kit:'حقيبة النسخة المحمولة', rd_kit_sub:'أبقِ RustDesk المحمول في التنزيلات — إعداد لمرة واحدة بنقرتين يجعل الزر أعلاه يشغّله مباشرة.',
+ rd_get_app:'التطبيق المحمول', rd_get_reg:'ملف الإعداد (.reg)',
+ rd_step1:'احفظ التطبيق في التنزيلات وأعد تسميته <code>RustDesk.exe</code>',
+ rd_step2:'افتح ملف <code>.reg</code> مرة واحدة واقبل الطلب',
+ rd_step3:'تم — زر الرابط المباشر يشغّل الآن النسخة المحمولة',
+ rd_app_hint:'نزّل أحدث <b>-x86_64.exe</b> لنظام Windows، احفظه في التنزيلات وأعد تسميته RustDesk.exe',
+ rd_reg_hint:'حُفظ في التنزيلات — افتحه مرة واحدة لتسجيل النسخة المحمولة',
  rd_card_note:'نُسخ المعرّف إلى الحافظة. في أي عميل RustDesk: ألصق المعرّف تحت «Control Remote Desktop» وأدخل كلمة المرور — يصبح لديك تحكم كامل على مستوى النظام.',
  rd_copied:'نُسخ إلى الحافظة', rd_need_id:'أدخل معرّف RustDesk أولاً',
  rd_opened_web:'فُتح عميل RustDesk الويب — المعرّف منسوخ بالفعل في الحافظة',
@@ -4058,7 +4096,36 @@ M.RC = {
       M.toast('info',M.t('rd_btn'),M.t('rd_web_hint'),{ms:6500});
     };
     M.$('#rdOpenApp').onclick=()=>{
-      if(M.RC._rd?.id){ M.RC.copyText(M.RC._rd.id,false); location.href='rustdesk://connection/new/'+M.RC._rd.id; }
+      if(M.RC._rd?.id){
+        M.RC.copyText(M.RC._rd.id,false);
+        let uri='rustdesk://connection/new/'+encodeURIComponent(M.RC._rd.id);
+        if(M.RC._rd.pw) uri+='?password='+encodeURIComponent(M.RC._rd.pw);   /* one-tap: app auto-fills ID + password */
+        location.href=uri;
+      }
+    };
+    /* portable kit: drop both pieces into Downloads; the .reg points the OS at
+       %USERPROFILE%\Downloads\RustDesk.exe (HKEY_CURRENT_USER → no admin rights) */
+    M.$('#rdGetApp').onclick=()=>{
+      open('https://github.com/rustdesk/rustdesk/releases/latest','_blank');
+      M.toast('info',M.t('rd_kit'),M.t('rd_app_hint'),{ms:6500});
+    };
+    M.$('#rdGetReg').onclick=()=>{
+      const reg=[
+        'Windows Registry Editor Version 5.00','',
+        '; Majlis · portable RustDesk handler — run once on this machine','',
+        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk]',
+        '@="URL:RustDesk Protocol"',
+        '"URL Protocol"=""','',
+        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk\\DefaultIcon]',
+        '@="%USERPROFILE%\\\\Downloads\\\\RustDesk.exe,0"','',
+        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk\\shell\\open\\command]',
+        '@="\\"%USERPROFILE%\\\\Downloads\\\\RustDesk.exe\\" --connect \\"%1\\""',''
+      ].join('\r\n');
+      const a=M.el('a');
+      a.href=URL.createObjectURL(new Blob([reg],{type:'text/plain'}));
+      a.download='majlis-rustdesk-portable.reg'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+      M.toast('ok',M.t('rd_kit'),M.t('rd_reg_hint'),{ms:6500});
     };
   },
   /* ---------------- Admin side ---------------- */
