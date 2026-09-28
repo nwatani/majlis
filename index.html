@@ -239,17 +239,12 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   .icon-btn{width:34px;height:34px}
   .btn{gap:5px}
 }
-@media (max-width:900px){
-  /* the four tabs always share the row and never scroll — Board is always one tap away */
-  #tabs{padding:0 6px;gap:2px;overflow:hidden}
-  .tabbtn{flex:1 1 0;min-width:0;justify-content:center;overflow:hidden;padding:12px 6px;gap:5px}
-  .tabbtn svg{width:15px;height:15px;flex:none}
-  .tabbtn span[data-i18n]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-}
 @media (max-width:640px){
-  #tabs{padding:0 4px;gap:1px}
-  .tabbtn{padding:11px 4px;font-size:11.5px;gap:4px}
-  .tabbtn svg{width:14px;height:14px}
+  /* the four tabs share the row on phones; labels stay whole (v1.31.7 look) */
+  #tabs{padding:0 5px;gap:1px}
+  .tabbtn{padding:11px 5px;font-size:11.5px;gap:4px;flex:1 1 0;min-width:0;justify-content:center}
+  .tabbtn svg{width:14px;height:14px;flex:none}
+  .tabbtn span[data-i18n]{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   /* the whiteboard toolbar uses the full width by wrapping — no sideways scroll */
   #boardBar{flex-wrap:wrap;overflow:visible;row-gap:2px;padding:6px 8px}
   #boardBar .btool{width:34px;height:32px}
@@ -335,9 +330,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 @media (max-width:620px){ #verTag{display:none} }
 
 #content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg);overflow:hidden}
-.tabbtn{display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;color:var(--mut);border-bottom:2px solid transparent;transition:color .14s;position:relative;white-space:nowrap;flex:0 1 auto;min-width:0}
-.tabbtn span[data-i18n]{min-width:0;overflow:hidden;text-overflow:ellipsis}
+#tabs{display:flex;gap:3px;padding:0 14px;border-bottom:1px solid var(--line);flex:none;background:var(--panel-bg);overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+.tabbtn{display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;color:var(--mut);border-bottom:2px solid transparent;transition:color .14s;position:relative;white-space:nowrap;flex:none}
 .tabbtn:hover{color:var(--ink)}
 .tabbtn.on{color:var(--ink);border-bottom-color:var(--amber)}
 .tabbtn svg{width:17px;height:17px}
@@ -1233,7 +1228,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.32.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.32.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
