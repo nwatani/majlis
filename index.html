@@ -8,9 +8,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Majlis">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <meta name="description" content="Majlis — serverless realtime rooms: chat, files, voice/video calls, collaborative whiteboard.">
 <title>Majlis · مجلس — Realtime Rooms</title>
 <script>
@@ -522,6 +519,7 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 .wb-tw-ok:active{transform:scale(.96)}
 .wb-tw-no{background:var(--bg2);border:1px solid var(--line2);color:var(--mut);border-radius:7px;padding:7px 12px;cursor:pointer;font-size:12.5px}
 #wbToolHint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);z-index:5;background:var(--bg1);border:1px solid var(--line2);color:var(--mut);font-size:12px;padding:6px 15px;border-radius:99px;box-shadow:var(--sh);pointer-events:none;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis}
+
 #wbMenu{position:absolute;z-index:22;min-width:182px;background:var(--bg1);border:1px solid var(--line2);border-radius:11px;box-shadow:0 22px 55px -18px rgba(0,0,0,.55);padding:5px;animation:menuIn .15s cubic-bezier(.2,.9,.3,1.15) both}
 @keyframes menuIn{from{opacity:0;transform:scale(.9) translateY(-4px)}to{opacity:1;transform:none}}
 #wbMenu button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);text-align:start;transition:background .12s}
@@ -543,7 +541,9 @@ html[data-theme="light"] #rcKey{background:rgba(255,255,255,.94)}
 #wbHud #wbHudCount{color:var(--ink);font-weight:700}
 #wbHud #wbHudMsg{color:var(--teal);font-weight:600;opacity:0;transition:opacity .25s}
 #wbHud #wbHudMsg.show{opacity:1}
-.wb-drop{position:absolute;z-index:7;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;gap:7px;background:var(--bg1);border:1.5px solid var(--ok);color:var(--ok);font-family:var(--mono);font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;box-shadow:var(--sh);animation:menuIn .2s cubic-bezier(.2,.9,.3,1.2) both;white-space:nowrap}
+.wb-drop{position:absolute;z-index:7;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;gap:7px;background:var(--bg1);border:1.5px solid var(--ok);color:var(--ok);font-family:var(--mono);font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;box-shadow:var(--sh);animation:dropIn .2s cubic-bezier(.2,.9,.3,1.2) both, dropPulse 1.4s ease .3s infinite;white-space:nowrap}
+@keyframes dropIn{from{opacity:0;transform:translate(-50%,-50%) scale(.7)}to{opacity:1;transform:translate(-50%,-50%)}}
+@keyframes dropPulse{0%,100%{box-shadow:0 0 0 0 rgba(62,207,142,.5)}50%{box-shadow:0 0 0 10px rgba(62,207,142,0)}}
 .wb-drop::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--ok);animation:ledPulse 1s infinite;flex:none}
 #boardFoot{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--line);flex:none;font-family:var(--mono);font-size:11.5px;color:var(--mut);overflow-x:auto}
 #boardFoot .grow{flex:1}
@@ -870,6 +870,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <span class="grow"></span>
           <div id="wbPeers"></div>
           <button class="btool" id="wbExport" title="Export PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+
           <button class="btool hidden" id="wbClear" title="Clear board (Admin)" style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
       </div>
@@ -1207,7 +1208,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.30.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.31.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1422,6 +1423,8 @@ en:{
  wb_paste_empty_sel:'Select at least one object to copy',
  wb_copy_nothing:'Nothing selected to copy — tap an object first (anything you just drew is already selected)',
  wb_clip_have:'Clipboard holds {n} object(s) — click to paste', wb_clip_empty:'Clipboard empty',
+ clip_sys_fail:'Browser blocked clipboard access — using Majlis\u2019s internal clipboard',
+ clip_other_room:'That was copied in another room',
  wb_objects:'objects',
  test_paste:'Test paste pipeline', copy_log:'Copy log',
  wb_duplicated:'{n} duplicated',
@@ -1581,6 +1584,8 @@ ar:{
  wb_paste_empty_sel:'حدّد عنصراً واحداً على الأقل للنسخ',
  wb_copy_nothing:'لا يوجد شيء محدد للنسخ — اضغط على عنصر أولاً (أي شيء رسمته للتو محدد بالفعل)',
  wb_clip_have:'الحافظة تحتوي {n} عنصر — انقر للصق', wb_clip_empty:'الحافظة فارغة',
+ clip_sys_fail:'منع المتصفح الوصول إلى الحافظة — تُستخدم حافظة Majlis الداخلية',
+ clip_other_room:'نُسخ هذا في غرفة أخرى',
  wb_objects:'عنصر',
  test_paste:'اختبار خط اللصق', copy_log:'نسخ السجل',
  wb_duplicated:'كرر {n}',
@@ -4497,6 +4502,32 @@ M.WB = {
     M.$('#wbDup').onclick=()=>M.WB.duplicateSel();
     M.$('#wbCopy').onclick=()=>M.WB.copySel();
     M.$('#wbPaste').onclick=()=>M.WB.paste();
+    /* Ctrl+V arrives here as a native paste event — the most reliable cross-browser
+       path, and the only one that carries images without async permission prompts */
+    window.addEventListener('paste',e=>{
+      if(M.UI.tab!=='board'||M.$('#panel-board').classList.contains('hidden')) return;
+      const ae=document.activeElement;
+      if(ae && (['INPUT','TEXTAREA','SELECT'].includes(ae.tagName)||ae.isContentEditable)) return;
+      if(M.$('#mCC')?.classList.contains('open') && M.$('#mCC').contains(ae)) return;
+      if(!M.WB.canEdit()) return;
+      const cd=e.clipboardData; if(!cd) return;
+      e.preventDefault();
+      const file=[...cd.items].map(i=>{ try{ return i.getAsFile(); }catch(_){ return null; } }).find(f=>f&&f.type.startsWith('image/'));
+      if(file){ M.WB._ingestImageFile(file); return; }
+      const txt=cd.getData('text/plain')||'';
+      if(txt){
+        try{
+          const j=JSON.parse(txt);
+          if(j&&j.mjwb===1&&Array.isArray(j.objs)&&j.objs.length){
+            if(j.room&&M.State.room&&j.room!==M.State.room.code){ M.WB.banner(M.t('clip_other_room'),'warn'); return; }
+            if(j.stamp&&j.stamp!==M.WB._lastStamp){ M.WB._clipN=0; M.WB._lastStamp=j.stamp; }
+            M.WB._materializeObjs(j.objs); return;
+          }
+        }catch(_){}
+        M.WB._materializeText(txt); return;
+      }
+      M.WB.paste();   /* nothing usable in the event data → internal fallback */
+    });
     M.$('#wbClipChip').onclick=()=>M.WB.paste();
     M.$('#wbZo').onclick=()=>M.WB.zoomBy(1/1.25);
     M.$('#wbZi').onclick=()=>M.WB.zoomBy(1.25);
@@ -4520,7 +4551,7 @@ M.WB = {
       if(o && M.WB.canEdit()){
         if(!M.WB.selSet.has(o.id)){ M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.dirty=true; }
         M.WB.openMenu(e.clientX-r.left, e.clientY-r.top);
-      } else if(M.WB._clip?.length && M.WB.canEdit()){
+      } else if(M.WB.hasClip() && M.WB.canEdit()){   /* empty canvas + clipboard → paste-only menu */
         M.WB.sel=null; M.WB.selSet=new Set();
         M.WB.openMenu(e.clientX-r.left, e.clientY-r.top);    /* empty canvas + clipboard → paste-only menu */
       } else M.WB.closeMenu();
@@ -4543,7 +4574,13 @@ M.WB = {
         else if(e.key==='y'){ e.preventDefault(); M.WB.doRedo(); }
         else if(e.key==='d'){ e.preventDefault(); M.WB.duplicateSel(); }
         else if(e.key==='c'){ e.preventDefault(); M.WB.copySel(); }   /* same rule as the button: selection, or your latest object */
-        else if(e.key==='v'){ e.preventDefault(); M.WB.paste(); }
+        else if(e.key==='v'){
+          /* PRIMARY keyboard path. Firefox never fires a `paste` event on
+             non-editable focus, so the keydown handler must own Ctrl+V.
+             preventDefault stops browsers that DO emit paste from firing twice. */
+          e.preventDefault();
+          M.WB.paste();
+        }
         return;
       }
       const k=e.key.toLowerCase();
@@ -4558,8 +4595,21 @@ M.WB = {
     M.WB._curSend=M.throttle(pt=>{ if(M.State.wb.open && M.Net.A.cur) M.Net.send('cur',pt); },90);
     M.bus.on('netReady',()=>{ M.Net.A.cur.onMessage=(d,{peerId})=>{ if(d&&typeof d.x==='number'){ M.WB.activePeers.set(peerId,{...d,t:Date.now()}); M.WB.dirty=true; M.WB.peersUI(); } }; });
     setInterval(()=>{ let ch=false; M.WB.activePeers.forEach((v,k)=>{ if(Date.now()-v.t>5000){ M.WB.activePeers.delete(k); ch=true; } }); if(ch){ M.WB.dirty=true; M.WB.peersUI(); } },2000);
-    /* render loop */
-    const loop=()=>{ if(M.WB.dirty && !M.$('#panel-board').classList.contains('hidden')){ M.WB.dirty=false; M.WB.syncCtx(); M.WB.draw(); } requestAnimationFrame(loop); };
+    /* render loop — UNKILLABLE: the next frame is scheduled FIRST, and a draw
+       error can never stop the chain or blank the board again */
+    const loop=()=>{
+      requestAnimationFrame(loop);
+      try{
+        if(M.WB.dirty && !M.$('#panel-board').classList.contains('hidden')){
+          M.WB.dirty=false; M.WB.syncCtx(); M.WB.draw();
+        }
+      }catch(e){
+        if(!M.WB._drawErrAt || Date.now()-M.WB._drawErrAt>5000){
+          M.WB._drawErrAt=Date.now();
+          M.log('err','[render] draw error (board keeps running): '+(e.message||e));
+        }
+      }
+    };
     requestAnimationFrame(loop);
     M.WB.readTheme();
     M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
@@ -4743,7 +4793,7 @@ M.WB = {
           M.WB.sel=null; M.WB.selSet=new Set(base);
           M.WB.drag={mode:'marquee',sx:wx,sy:wy,cx:wx,cy:wy,base};
           M.WB.dirty=true;
-          if(e.pointerType!=='mouse' && M.WB._clip?.length){   /* touch: holding empty canvas offers Paste here */
+          if(e.pointerType!=='mouse' && M.WB.hasClip()){   /* touch: holding empty canvas offers Paste here */
             clearTimeout(M.WB._lpT);
             M.WB._lp={x:pt.x,y:pt.y};
             M.WB._lpT=setTimeout(()=>{ M.WB._lp=null; M.WB.drag=null; M.WB.openMenu(pt.x,pt.y); },520);
@@ -4901,7 +4951,7 @@ M.WB = {
     const o=M.WB.hit(wx,wy);
     if(o && (o.type==='text'||o.type==='note')){ M.WB.openText(o.type==='text'?o.x:o.x+10, o.type==='text'?o.y:o.y+10, o); return; }
     /* empty-canvas double-click = paste the clipboard right here — the most direct gesture possible */
-    if(!o && (M.WB._clip?.length || M.Store.get('clip')?.length)) M.WB.paste({x:wx,y:wy});
+    if(!o && (M.WB.hasClip() || M.WB._clipDenied)) M.WB.paste({x:wx,y:wy});
   },
 
   /* ---------- text editing (native textarea = correct Arabic/RTL) ---------- */
@@ -4972,7 +5022,7 @@ M.WB = {
   /* ---------------- object context menu ---------------- */
   openMenu(x,y){
     const hasSel=M.WB.selSet.size>0;
-    const hasClip=!!M.WB._clip?.length;
+    const hasClip=M.WB.hasClip();
     if(!hasSel && !hasClip) return;                 /* nothing to offer */
     M.WB._menuPos=M.WB.s2w(x,y);                    /* paste anchor = where the user asked */
     const m=M.$('#wbMenu'); const w=M.$('#boardWrap');
@@ -5012,6 +5062,22 @@ M.WB = {
     M.WB.dirty=true;
   },
   sendOrder(){ if(M.State.wb.open) M.Net.sendEnc('wb',{t:'order',ids:M.WB.order}); },
+  /* ================= clipboard subsystem =================
+     Priority: the SYSTEM clipboard is always consulted first on paste (it is
+     by definition the freshest thing the user copied); the internal buffer is
+     a fallback for when system access is denied or empty. Internal storage is
+     scoped per room, so nothing leaks across rooms. */
+  _clip:null, _clipN:0, _lastStamp:null, _clipDenied:false,
+  _clipKey(){ return 'wbclip.'+(M.State.room?.code||'?'); },
+  hasClip(){ const c=M.WB._clip; return !!(c?.objs?.length) && (!M.State.room || c.room===M.State.room.code); },
+  _setClip(objs){
+    const stamp=M.uid(10);
+    M.WB._clip={room:M.State.room?.code||'', stamp, objs, at:Date.now()};
+    M.WB._clipN=0; M.WB._lastStamp=stamp;
+    try{ M.Store.set(M.WB._clipKey(),M.WB._clip); }catch(e){}   /* survives refresh, room-scoped */
+    M.WB.syncChip();
+    return stamp;
+  },
   copySel(){
     /* no explicit selection? copy what you touched last — the click is optional now */
     if(!M.WB.selSet.size && M.WB.order.length){
@@ -5031,28 +5097,104 @@ M.WB = {
       M.log('warn','copy: nothing selected');
       return;
     }
-    M.WB._clip=clips; M.WB._pasteN=0;
-    M.Store.set('clip',clips);                                    /* survives refresh */
-    try{ navigator.clipboard?.writeText?.(JSON.stringify({mjwb:1,objs:clips})); }catch(e){}   /* best-effort system clipboard bridge */
-    M.WB.syncChip();
+    const stamp=M.WB._setClip(clips);
+    /* system clipboard: our JSON (for Majlis round-trips) + a PNG render (for other apps) */
+    const json=JSON.stringify({mjwb:1,stamp,room:M.State.room?.code||'',objs:clips});
+    if(navigator.clipboard?.writeText){
+      navigator.clipboard.writeText(json).then(()=>{
+        M.WB._clipDenied=false;
+        try{ M.WB._writeImageClip(clips); }catch(e){}
+      }).catch(()=>{ M.WB.banner(M.t('clip_sys_fail'),'warn'); M.log('warn','copy: system clipboard denied — internal copy active'); });
+    } else { M.WB.banner(M.t('clip_sys_fail'),'warn'); }
     M.WB.hud(M.t('wb_copied_short',{n:clips.length}));
     M.WB.dirty=true;
-    M.log('info','copied '+clips.length+' object(s) to clipboard');
+    M.log('info','copied '+clips.length+' object(s) to clipboard (room-scoped)');
     M.toast('ok',M.t('tab_board'),M.t('wb_copied',{n:clips.length}));
   },
+  _writeImageClip(clips){   /* best-effort: lets you paste the drawing into other apps */
+    if(typeof ClipboardItem==='undefined'||!navigator.clipboard?.write) return;
+    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+    clips.forEach(o=>{ const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
+    if(!isFinite(x1)) return;
+    const pad=16, c=document.createElement('canvas');
+    c.width=Math.min(2000,Math.round(x2-x1)+pad*2); c.height=Math.min(2000,Math.round(y2-y1)+pad*2);
+    const ctx=c.getContext('2d');
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.translate(pad-x1,pad-y1);
+    clips.forEach(o=>M.WB.paintObj(ctx,o,1));
+    c.toBlob(b=>{ if(b) navigator.clipboard.write([new ClipboardItem({'image/png':b})]).catch(()=>{}); },'image/png');
+  },
+  _blobUrl(blob){ return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.target.result); r.onerror=()=>res(null); r.readAsDataURL(blob); }); },
+  async _sysRead(){
+    /* 1 · images (screenshots, copied pictures) — where the browser allows */
+    try{
+      if(navigator.clipboard?.read){
+        const items=await navigator.clipboard.read();
+        for(const it of (items||[])){
+          const t=(it.types||[]).find(x=>x.startsWith('image/'));
+          if(t){ const dataUrl=await M.WB._blobUrl(await it.getType(t)); if(dataUrl){ M.WB._clipDenied=false; return {kind:'image',dataUrl}; } }
+        }
+      }
+    }catch(e){ if(e.name==='NotAllowedError'||e.name==='SecurityError') M.WB._clipDenied=true; }
+    /* 2 · text: either our own objects or ordinary external text */
+    try{
+      const txt=await navigator.clipboard.readText();
+      if(txt){
+        M.WB._clipDenied=false;
+        try{
+          const j=JSON.parse(txt);
+          if(j&&j.mjwb===1&&Array.isArray(j.objs)&&j.objs.length) return {kind:'objs',objs:j.objs,stamp:j.stamp,room:j.room};
+        }catch(_){}
+        return {kind:'text',text:txt};
+      }
+    }catch(e){ if(e.name==='NotAllowedError'||e.name==='SecurityError') M.WB._clipDenied=true; }
+    return null;
+  },
   syncChip(){
+    const n=M.WB._clip?.objs?.length||0;
     const chip=M.$('#wbClipChip'); if(chip){
-      const n=M.WB._clip?.length||0;
       chip.textContent='📋 '+(n||'–');
-      chip.classList.toggle('on',n>0);
+      chip.classList.toggle('on',n>0 && M.WB.hasClip());
       chip.title=n?M.t('wb_clip_have',{n}):M.t('wb_clip_empty');
     }
-    const pb=M.$('#wbPaste'); if(pb) pb.classList.toggle('dim',!(M.WB._clip?.length));   /* dimmed, never dead — a click always explains itself */
+    const pb=M.$('#wbPaste'); if(pb) pb.classList.toggle('dim',!M.WB.hasClip());   /* dimmed, never dead — a click always explains itself */
   },
   restoreClip(){
-    const saved=M.Store.get('clip');
-    if(Array.isArray(saved) && saved.length){ M.WB._clip=saved; M.log('info','clipboard restored ('+saved.length+' objects)'); }
+    const c=M.Store.get(M.WB._clipKey());   /* room-scoped only — other rooms' clips never load */
+    if(c?.objs?.length && c.room===M.State.room?.code){ M.WB._clip=c; M.WB._lastStamp=c.stamp; M.log('info','clipboard restored for this room ('+c.objs.length+' objects)'); }
     M.WB.syncChip();
+  },
+  _ingestImageFile(file){ M.WB._blobUrl(file).then(u=>{ if(u) M.WB._ingestImage(u); else M.WB.banner(M.t('wb_paste_empty'),'err'); }); },
+  _ingestImage(dataUrl,at){
+    if(!at){ const cv=M.WB.cv; at=M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2); }
+    if(Array.isArray(at)) at={x:at[0],y:at[1]};
+    const img=new Image();
+    img.onload=()=>{
+      const maxW=1200, sc=Math.min(1,maxW/img.width);
+      let src=dataUrl, w=img.width*sc, h=img.height*sc;
+      if(sc<1){ const c=document.createElement('canvas'); c.width=Math.round(w); c.height=Math.round(h); c.getContext('2d').drawImage(img,0,0,c.width,c.height); src=c.toDataURL('image/jpeg',0.85); }
+      const cv=M.WB.cv, p=at||M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2);
+      const o={id:M.uid(9),type:'image',x:p.x-w/2,y:p.y-h/2,w,h,src,by:M.State.self.id};
+      M.WB.send({t:'up',o}); M.WB.applyUp(o);
+      M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+      M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
+      M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+      M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
+      M.log('info','image pasted ('+Math.round(w)+'×'+Math.round(h)+')');
+    };
+    img.onerror=()=>M.WB.banner(M.t('wb_paste_empty'),'err');
+    img.src=dataUrl;
+  },
+  _materializeText(text,at){
+    let p=at||M.WB.s2w((M.WB.cv.clientWidth||600)/2,(M.WB.cv.clientHeight||400)/2);
+    if(Array.isArray(p)) p={x:p[0],y:p[1]};
+    const o={id:M.uid(9),type:'text',x:p.x,y:p.y,text:String(text).slice(0,4000),size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),by:M.State.self.id};
+    M.WB.send({t:'up',o}); M.WB.applyUp(o);
+    M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+    M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
+    M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+    M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
+    M.log('info','external text pasted as whiteboard text ('+String(text).length+' chars)');
   },
   hud(msg){
     const c=M.$('#wbHudCount'); if(c) c.textContent=M.WB.objs.size;
@@ -5066,11 +5208,12 @@ M.WB = {
     if(!isFinite(x1)) return;
     const cv=M.WB.cv, cw=cv.clientWidth||600, ch=cv.clientHeight||400;
     const gw=Math.max(40,x2-x1), gh=Math.max(40,y2-y1);
-    const s=M.clamp(Math.min((cw*0.5)/gw,(ch*0.5)/gh),0.5,1.6);
+    const s=M.clamp(Math.min((cw*0.55)/gw,(ch*0.55)/gh),0.2,1.6);   /* wide zoom range — even a huge spread fits in view */
     M.WB.view.s=s;
     M.WB.view.x=cw/2-((x1+x2)/2)*s;
     M.WB.view.y=ch/2-((y1+y2)/2)*s;
     M.WB.zoomLbl();
+    return {x:x1,y:y1,w:x2-x1,h:y2-y1,s,cw,ch};   /* let callers prove where the group landed */
   },
   fitAll(){
     if(M.WB.objs.size===0){ M.WB.view={x:80,y:60,s:1}; M.WB.zoomLbl(); M.WB.dirty=true; return; }
@@ -5089,72 +5232,85 @@ M.WB = {
   async paste(at){
     try{
       if(!M.WB.canEdit()){ M.WB.banner(M.t('perm_denied'),'err'); return; }
-      /* gather material from every source: memory → local store → system clipboard */
-      let clip=M.WB._clip;
-      if(!clip?.length){ try{ const saved=M.Store.get('clip'); if(Array.isArray(saved)&&saved.length) clip=saved; }catch(e){} }
-      if(!clip?.length){
+      /* ---- priority: SYSTEM clipboard first (always freshest), internal only as fallback ----
+         BUT never let the system read stall the paste: in sandboxed/embedded contexts
+         readText() can hang on a permission prompt that never fires — race it with a
+         hard timeout, and skip it outright when we already know access is denied. */
+      let src=null;
+      if(navigator.clipboard && !M.WB._clipDenied){
         try{
-          const j=JSON.parse(await navigator.clipboard.readText());
-          if(j && j.mjwb===1 && Array.isArray(j.objs) && j.objs.length) clip=j.objs;
+          src=await Promise.race([
+            M.WB._sysRead(),
+            new Promise(res=>setTimeout(()=>{ M.WB._clipDenied=true; res(null); },900))
+          ]);
         }catch(e){}
       }
-      if(!clip?.length){
-        M.WB.banner(M.t('wb_paste_empty'),'warn');
-        M.log('warn','paste: clipboard empty (memory + storage + system)');
-        return;
+      if(src?.kind==='objs' && src.room && M.State.room && src.room!==M.State.room.code){
+        M.WB.banner(M.t('clip_other_room'),'warn');   /* clipboard belongs to another room — isolation */
+        src=null;
       }
-      M.WB._clip=clip; try{ M.Store.set('clip',clip); }catch(e){} M.WB.syncChip();
-      if(!at){ const cv=M.WB.cv; at=M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2); }
-      M.WB._pasteN=(M.WB._pasteN||0)+1;
-      const cascade=(M.WB._pasteN-1)*16;   /* repeated pastes step aside instead of stacking */
-      let mx=Infinity,my=Infinity;
-      clip.forEach(o=>{ try{ const [bx,by]=M.WB.bbox(o); mx=Math.min(mx,bx); my=Math.min(my,by); }catch(e){} });
-      let ox=at.x+cascade, oy=at.y+cascade;
-      if(isFinite(mx)){ ox-=mx; oy-=my; }
-      /* create each object independently — one bad item can never sink the paste */
-      const fresh=new Set(),u=[],r=[];
-      clip.forEach(src=>{
-        try{
-          const o=JSON.parse(JSON.stringify(src)); o.id=M.uid(9); o.by=M.State.self.id; delete o._img;
-          if(o.type==='pen'||o.type==='hi') o.pts=(o.pts||[]).map(p=>[p[0]+ox,p[1]+oy]);
-          else if(o.type==='line'||o.type==='arrow'){o.x1+=ox;o.y1+=oy;o.x2+=ox;o.y2+=oy;}
-          else {o.x=(o.x||0)+ox;o.y=(o.y||0)+oy;}
-          M.WB.objs.set(o.id,o);
-          if(!M.WB.order.includes(o.id)) M.WB.order.push(o.id);
-          try{ M.WB.send({t:'up',o}); }catch(e){}
-          u.push({t:'del',id:o.id}); r.push({t:'up',o});
-          fresh.add(o.id);
-        }catch(e){ M.log('err','paste: object failed — '+e.message); }
-      });
-      if(fresh.size===0){ M.WB.banner(M.t('wb_paste_empty'),'err'); return; }
-      M.WB.rev++;
-      M.WB.setTool('select');
-      M.WB.pushUndo(u,r);
-      M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
-      M.WB._flash={ids:fresh,t:Date.now()};
-      /* the camera zooms to a comfortable level AND centers on the pasted group — never a speck, never off-screen */
-      M.WB.focusGroup(fresh);
-      /* a plain HTML marker at the landing spot — proof that survives any canvas repaint bug */
-      let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
-      fresh.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); gx1=Math.min(gx1,x);gy1=Math.min(gy1,y);gx2=Math.max(gx2,x+w);gy2=Math.max(gy2,y+h); });
-      if(isFinite(gx1)){
-        const [sx,sy]=M.WB.w2s((gx1+gx2)/2,(gy1+gy2)/2);
-        const mk=M.el('div','wb-drop'); mk.textContent='✓ '+M.t('wb_pasted',{n:fresh.size});
-        mk.style.left=sx+'px'; mk.style.top=sy+'px';
-        M.$('#boardWrap').appendChild(mk);
-        setTimeout(()=>mk.remove(),2800);
-        M.WB.cv.style.opacity='0.998'; requestAnimationFrame(()=>{ M.WB.cv.style.opacity=''; });  /* force a composite pass */
-        M.log('info','paste marker at screen ('+Math.round(sx)+','+Math.round(sy)+') · canvas '+M.WB.cv.width+'×'+M.WB.cv.height+' / css '+M.WB.cv.clientWidth+'×'+M.WB.cv.clientHeight);
+      if(!src){
+        if(M.WB._clipDenied) M.WB.banner(M.t('clip_sys_fail'),'warn');   /* explain, then fall back below */
+        if(M.WB.hasClip()) src={kind:'objs',objs:M.WB._clip.objs,stamp:M.WB._clip.stamp,room:M.WB._clip.room};
       }
-      M.WB.dirty=true;
-      try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
-      M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
-      M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
-      M.log('info','pasted '+fresh.size+' object(s); view focused on group');
+      if(!src){ M.WB.banner(M.t('wb_paste_empty'),'warn'); return; }
+      if(src.kind==='image'){ M.WB._ingestImage(src.dataUrl,at); return; }
+      if(src.kind==='text'){ M.WB._materializeText(src.text,at); return; }
+      if(src.stamp && src.stamp!==M.WB._lastStamp){ M.WB._clipN=0; M.WB._lastStamp=src.stamp; }  /* new content → fresh cascade */
+      M.WB._materializeObjs(src.objs,at);
     }catch(err){
       M.log('err','paste crashed: '+(err.message||err));
       M.WB.banner('Paste error: '+(err.message||err),'err');
     }
+  },
+  _materializeObjs(clip,at){
+    if(!at){ const cv=M.WB.cv; at=M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2); }
+    if(Array.isArray(at)) at={x:at[0],y:at[1]};   /* s2w returns [x,y] — callers pass either shape */
+    M.WB._clipN=(M.WB._clipN||0)+1;
+    const cascade=(M.WB._clipN-1)*16;   /* repeated pastes step aside instead of stacking */
+    let mx=Infinity,my=Infinity;
+    clip.forEach(o=>{ try{ const [bx,by]=M.WB.bbox(o); mx=Math.min(mx,bx); my=Math.min(my,by); }catch(e){} });
+    let ox=at.x+cascade, oy=at.y+cascade;
+    if(isFinite(mx)){ ox-=mx; oy-=my; }
+    /* create each object independently — one bad item can never sink the paste */
+    const fresh=new Set(),u=[],r=[];
+    clip.forEach(src=>{
+      try{
+        const o=JSON.parse(JSON.stringify(src)); o.id=M.uid(9); o.by=M.State.self.id; delete o._img;
+        if(o.type==='pen'||o.type==='hi') o.pts=(o.pts||[]).map(p=>[p[0]+ox,p[1]+oy]);
+        else if(o.type==='line'||o.type==='arrow'){o.x1+=ox;o.y1+=oy;o.x2+=ox;o.y2+=oy;}
+        else {o.x=(o.x||0)+ox;o.y=(o.y||0)+oy;}
+        M.WB.objs.set(o.id,o);
+        if(!M.WB.order.includes(o.id)) M.WB.order.push(o.id);
+        try{ M.WB.send({t:'up',o}); }catch(e){}
+        u.push({t:'del',id:o.id}); r.push({t:'up',o});
+        fresh.add(o.id);
+      }catch(e){ M.log('err','paste: object failed — '+e.message); }
+    });
+    if(fresh.size===0){ M.WB.banner(M.t('wb_paste_empty'),'err'); return; }
+    M.WB.rev++;
+    M.WB.setTool('select');
+    M.WB.pushUndo(u,r);
+    M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
+    M.WB._flash={ids:fresh,t:Date.now()};
+    /* the camera zooms to a comfortable level AND centers on the pasted group — never a speck, never off-screen */
+    M.WB.focusGroup(fresh);
+    /* a plain HTML marker at the landing spot — proof that survives any canvas repaint bug */
+    let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
+    fresh.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); gx1=Math.min(gx1,x);gy1=Math.min(gy1,y);gx2=Math.max(gx2,x+w);gy2=Math.max(gy2,y+h); });
+    if(isFinite(gx1)){
+      const [sx,sy]=M.WB.w2s((gx1+gx2)/2,(gy1+gy2)/2);
+        const mk=M.el('div','wb-drop'); mk.textContent='✓ '+M.t('wb_pasted',{n:fresh.size});
+        mk.style.left=sx+'px'; mk.style.top=sy+'px';
+        M.$('#boardWrap').appendChild(mk);
+        setTimeout(()=>mk.remove(),5000);
+      M.WB.cv.style.opacity='0.998'; requestAnimationFrame(()=>{ M.WB.cv.style.opacity=''; });  /* force a composite pass */
+    }
+    M.WB.dirty=true;
+    try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
+    M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
+    M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
+    M.log('info','pasted '+fresh.size+' object(s); view focused on group');
   },
   eraseObj(id){
     const o=M.WB.objs.get(id); if(!o) return;
@@ -5364,7 +5520,7 @@ M.WB = {
     const ctx=c.getContext('2d');
     ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,W,H);
     ctx.translate(pad-x1,pad-y1);
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o) M.WB.paintObj(ctx,o,1); });
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o){ try{ M.WB.paintObj(ctx,o,1); }catch(e){} } });
     c.toBlob(b=>{
       if(!b){ M.toast('err',M.t('tab_board'),M.t('export_fail')); M.log('err','board export produced no blob'); return; }
       if(M.WB._expUrl) URL.revokeObjectURL(M.WB._expUrl);
@@ -5404,8 +5560,8 @@ M.WB = {
     ctx.fillStyle=M.WB._grid||'rgba(140,166,174,.13)';
     const gx0=Math.floor(wx0/step)*step, gy0=Math.floor(wy0/step)*step;
     for(let gx=gx0; gx<wx1; gx+=step) for(let gy=gy0; gy<wy1; gy+=step) ctx.fillRect(gx-1,gy-1,2,2);
-    /* objects */
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o) M.WB.paintObj(ctx,o,v.s); });
+    /* objects — each paint is isolated: one bad object can never blank the board */
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o){ try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } } });
     /* selection outlines — every captured object wears one */
     M.WB.selSet.forEach(id=>{
       const o=M.WB.objs.get(id); if(!o) return;
@@ -5978,7 +6134,7 @@ M.CC = {
         const before=M.WB.objs.size;
         const probe={id:M.uid(9),type:'rect',x:200,y:200,w:120,h:80,color:'#e5484d',size:4,by:M.State.self.id};
         M.WB.objs.set(probe.id,probe); M.WB.order.push(probe.id); M.WB.rev++;      /* 1 · create probe */
-        M.WB._clip=[JSON.parse(JSON.stringify(probe))]; M.Store.set('clip',M.WB._clip); M.WB.syncChip();   /* 2 · fill clipboard */
+        M.WB._setClip([JSON.parse(JSON.stringify(probe))]);   /* 2 · fill the room-scoped clipboard */
         const mid2=M.WB.objs.size;
         M.WB.paste();                                                                /* 3 · paste */
         setTimeout(()=>{
