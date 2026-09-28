@@ -950,7 +950,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 
 <!-- native access bridge (RustDesk) -->
 <div class="modal hidden" id="mRdReq"><div class="m-card sm">
-  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_req_title">Native remote access (RustDesk)</span></h3>
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_req_title">Remote control (RustDesk)</span></h3>
   <p style="font-size:13.5px;line-height:1.65;color:var(--mut)" data-i18n="rd_req_body">The Admin requests full OS-level remote control of this device. Browsers cannot do that themselves, so it runs through the free open-source RustDesk agent: install or open it, then share your ID (and one-time password) below. Nothing is sent unless you press Send.</p>
   <div class="field" style="margin-top:13px"><label class="lbl" data-i18n="rd_id_lbl">Your RustDesk ID</label><input class="inp mono" id="rdIdInp" inputmode="numeric" placeholder="123 456 789" dir="ltr"></div>
   <div class="field"><label class="lbl" data-i18n="rd_pw_lbl">One-time password (optional)</label><input class="inp mono" id="rdPwInp" dir="ltr" placeholder="······"></div>
@@ -961,7 +961,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   </div>
 </div></div>
 <div class="modal hidden" id="mRdCard"><div class="m-card sm">
-  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_card_title">Native access credentials</span></h3>
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_card_title">Remote control · RustDesk</span></h3>
   <p style="font-size:13.5px;color:var(--mut)"><b id="rdCardName" style="color:var(--ink)">—</b> <span data-i18n="rd_card_sub">shared their RustDesk access:</span></p>
   <div class="cc-kv" style="margin-top:10px"><span class="k">ID</span><span class="v mono" id="rdCardId" style="font-size:16px;letter-spacing:.14em">—</span></div>
   <div class="cc-kv"><span class="k" data-i18n="rd_pw_lbl">One-time password (optional)</span><span class="v mono" id="rdCardPw">—</span></div>
@@ -1053,7 +1053,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 <div id="rcWin" class="hidden" tabindex="0">
   <div class="rc-head">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
-    <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
+    <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote view</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
     <span id="rcCamChip" class="hidden" style="font-size:10.5px;font-family:var(--mono);background:rgba(245,168,60,.14);color:var(--amber2);border:1px solid rgba(245,168,60,.45);padding:2px 9px;border-radius:99px;white-space:nowrap">📷 <span data-i18n="rc_cam_chip">camera view</span></span>
     <button class="icon-btn" id="rcShare" title="Mirror my screen to the member"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M12 7v5M9.5 9.5L12 7l2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="icon-btn" id="rcMax" title="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -1063,7 +1063,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <div class="rc-foot" id="rcFoot" data-i18n="rc_hint">Your pointer, clicks, scrolling and typing are mirrored on the member's screen as live guidance. The member can revoke access at any moment.</div>
 </div>
 <div class="modal hidden" id="mRCReq"><div class="m-card sm">
-  <h3 style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 8v5M9.5 10.5L12 13l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rc_request_title">Remote control request</span></h3>
+  <h3 style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 8v5M9.5 10.5L12 13l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rc_request_title">Remote view request</span></h3>
   <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span id="rcBodyScreen" data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span><span id="rcBodyCam" class="hidden" data-i18n="rc_request_cam_body">wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only — point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.</span></p>
   <div style="display:flex;gap:11px;margin-top:20px">
     <button class="btn btn-danger btn-big" id="rcReqDeny" style="flex:1" data-i18n="decline">Decline</button>
@@ -1254,14 +1254,14 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <button class="btn btn-primary" id="cfgSave" data-i18n="save_apply">Save &amp; apply on next room</button>
         <p class="m-note" data-i18n="turn_note">Public TURN/MQTT endpoints are best-effort. For production, run coturn or a hosted TURN (Cloudflare Calls, Metered, Twilio) and a private MQTT broker (EMQX/HiveMQ).</p>
       </div>
-      <div class="cc-card"><h4 data-i18n="rd_card_title">Native access credentials</h4>
+      <div class="cc-card"><h4 data-i18n="rd_card_title">Remote control · RustDesk</h4>
         <div class="hr"></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="btn" id="cfgTestIce" data-i18n="test_conn">Test connection</button>
           <span id="iceTestOut" class="mono" style="font-size:11.5px"></span>
         </div>
         <p class="m-note" data-i18n="test_conn_sub">Gathers real ICE candidates with your current STUN/TURN settings and shows which paths are reachable.</p>
-        <p class="m-note" data-i18n="rd_cc_note">For full help-desk use: run RustDesk’s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use “Native access” on a member to exchange IDs and connect — true OS-level control, end-to-end encrypted by RustDesk.</p>
+        <p class="m-note" data-i18n="rd_cc_note">For full help-desk use: run RustDesk’s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use “Remote control” on a member to exchange IDs and connect — true OS-level control, end-to-end encrypted by RustDesk.</p>
       </div>
     </section>
     <section class="cc-sec" data-sec="diag"><h2 data-i18n="cc_diag">Diagnostics</h2><p class="cc-sub" data-i18n="cc_diag_sub">Live signaling, peer and session health. Safe to ignore for normal use.</p>
@@ -1540,21 +1540,22 @@ en:{
  screen_share:'Screen share', screen_on:'You are sharing your screen', screen_canceled:'Screen selection was canceled',
  spot_on:'Focus this view', spot_off:'Back to grid', cw_max:'Expand', cw_min:'Restore', cw_fs:'Fullscreen',
  screen_blocked:'Screen capture is blocked here — embedded previews often forbid it; open the site directly in its own tab', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
- rc_btn:'Remote control', rc_win_title:'Remote control', rc_request_title:'Remote control request',
- rc_request_body:'wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.',
+ rc_btn:'Remote view', rc_win_title:'Remote view', rc_request_title:'Remote view request',
+ rc_request_body:'wants to view your screen in real time. Your screen is shared with the Admin only, and you can revoke access at any time.',
  rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
  rc_wait:'awaiting member approval…', rc_connect:'member approved — connecting…',
  rc_start_ok:'Session active — click the window, then move, click, scroll or type', rc_declined:'The member declined the request',
  rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call', select_all:'Select all', clear_all:'Clear selection',
  rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
  rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
- rc_request_cam_body:'wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only \u2014 point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.',
+ rc_request_cam_body:'wants to view your device in real time. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only \u2014 point it at your screen. You can revoke at any time.',
  rc_member_on_cam:'The Admin can see your camera \u2014 point it at your screen. Revoke anytime from the red banner',
  rc_hint_cam:'The member is sharing their phone\u2019s camera \u2014 ask them to point it at their screen. Your pointer, clicks, scrolling and typing are mirrored as live guidance. They can revoke at any moment.',
- rd_btn:'Native access', rd_req_title:'Native remote access (RustDesk)',
+ rd_btn:'Remote control', rd_req_title:'Remote control (RustDesk)',
  rd_req_body:'The Admin requests full OS-level remote control of this device. Browsers cannot do that themselves, so it runs through the free open-source RustDesk agent: install or open it, then share your ID (and one-time password) below. Nothing is sent unless you press Send.',
  rd_id_lbl:'Your RustDesk ID', rd_pw_lbl:'One-time password', rd_send:'Send to Admin',
  rd_req_help:'Open RustDesk \u2014 \u201cYour ID\u201d is in the left panel, with a password under it.',
+ rd_card_title:'Remote control · RustDesk',
  rd_card_sub:'shared their RustDesk access:', rd_copy_id:'Copy ID', rd_copy_pw:'Copy password',
  rd_open_web:'Open RustDesk Web', rd_open_app:'Open desktop app (deep link)',
  rd_web_hint:'ID copied — paste it in the web controller. The remote device must run the RustDesk agent on your relay.',
@@ -1574,7 +1575,7 @@ en:{
  rd_declined:'The member declined the native-access request',
  rd_wait:'Request sent \u2014 the member will share their RustDesk ID',
  rd_web_lbl:'RustDesk web client URL',
- rd_cc_note:'For full help-desk use: run RustDesk\u2019s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use \u201cNative access\u201d on a member to exchange IDs and connect \u2014 true OS-level control, encrypted by RustDesk.',
+ rd_cc_note:'For full help-desk use: run RustDesk\u2019s hbbs/hbbr relay (two Docker containers or binaries), install the free RustDesk agent on supported machines, then use \u201cRemote control\u201d on a member to exchange IDs and connect \u2014 true OS-level control, encrypted by RustDesk.',
  rc_wait_cam:'awaiting member approval \u2014 they will share their phone\u2019s camera',
  rc_banner_cam:'is viewing your camera feed', rc_cam_chip:'camera view', rc_allow_cam:'Allow \u2014 share camera',
  rc_mob_cam:'This member is on mobile \u2014 they\u2019ll be asked to share their camera instead (mobile browsers cannot capture the screen)',
@@ -1713,21 +1714,22 @@ ar:{
  screen_share:'مشاركة الشاشة', screen_on:'أنت تشارك شاشتك', screen_canceled:'أُلغي اختيار الشاشة',
  spot_on:'تركيز على هذا العرض', spot_off:'العودة إلى الشبكة', cw_max:'توسيع', cw_min:'استعادة', cw_fs:'ملء الشاشة',
  screen_blocked:'التقاط الشاشة محظور هنا — المعاينات المضمّنة غالباً تمنعه؛ افتح الموقع مباشرة في تبويب مستقل', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
- rc_btn:'تحكم عن بُعد', rc_win_title:'تحكم عن بُعد', rc_request_title:'طلب تحكم عن بُعد',
- rc_request_body:'يرغب في مشاهدة شاشتك وإرشادك عن بُعد. تُشارَك شاشتك مع المشرف فقط، ويظهر مؤشره ونقراته وحروفه كطبقة حية فوق شاشتك. يمكنك إلغاء الوصول في أي لحظة.',
+ rc_btn:'عرض عن بُعد', rc_win_title:'عرض عن بُعد', rc_request_title:'طلب عرض عن بُعد',
+ rc_request_body:'يرغب في مشاهدة شاشتك مباشرة. تُشارَك شاشتك مع المشرف فقط، ويمكنك إلغاء الوصول في أي لحظة.',
  rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
  rc_wait:'بانتظار موافقة العضو…', rc_connect:'وافق العضو — جارٍ الاتصال…',
  rc_start_ok:'الجلسة نشطة — انقر النافذة ثم حرّك وانقر واكتب', rc_declined:'رفض العضو الطلب',
  rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال', select_all:'تحديد الكل', clear_all:'إلغاء التحديد',
  rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
  rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
- rc_request_cam_body:'يرغب في إرشادك عن بُعد. لا تستطيع الهواتف مشاركة شاشتها داخل المتصفحات، لذا ستُشارَك كاميرتك مع المشرف فقط — وجّهها نحو شاشتك. تظهر إشاراته وحروفه كطبقة حية فوق العرض. يمكنك الإلغاء في أي وقت.',
+ rc_request_cam_body:'يرغب في مشاهدة جهازك مباشرة. لا تستطيع الهواتف مشاركة شاشتها داخل المتصفحات، لذا ستُشارَك كاميرتك مع المشرف فقط — وجّهها نحو شاشتك. يمكنك الإلغاء في أي وقت.',
  rc_member_on_cam:'أصبح المشرف يرى كاميرتك — وجّهها نحو شاشتك. يمكنك الإلغاء من الشريط الأحمر في أي وقت',
  rc_hint_cam:'يشارك العضو كاميرا هاتفه — اطلب منه توجيهها نحو شاشته. تظهر حركات مؤشرك ونقراتك وكتابتك كإرشاد حي. يمكنه الإلغاء في أي لحظة.',
- rd_btn:'وصول أصيل', rd_req_title:'تحكم أصيل عن بُعد (RustDesk)',
+ rd_btn:'تحكم عن بُعد', rd_req_title:'تحكم عن بُعد (RustDesk)',
  rd_req_body:'يطلب المشرف تحكماً كاملاً على مستوى النظام بهذا الجهاز. لا تستطيع المتصفحات فعل ذلك بنفسها، لذا يتم عبر وكيل RustDesk المجاني مفتوح المصدر: ثبّته أو افتحه ثم شارك معرّفك (وكلمة المرور المؤقتة) أدناه. لا يُرسَل شيء ما لم تضغط إرسال.',
  rd_id_lbl:'معرّف RustDesk الخاص بك', rd_pw_lbl:'كلمة مرور مؤقتة', rd_send:'إرسال إلى المشرف',
  rd_req_help:'افتح RustDesk — «Your ID» في اللوحة اليسرى وتحته كلمة المرور.',
+ rd_card_title:'تحكم عن بُعد · RustDesk',
  rd_card_sub:'شارك بيانات الوصول الخاصة به:', rd_copy_id:'نسخ المعرّف', rd_copy_pw:'نسخ كلمة المرور',
  rd_open_web:'فتح RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
  rd_web_hint:'نُسخ المعرّف — ألصقه في المتحكم الويب. يجب أن يشغّل الجهاز البعيد وكيل RustDesk على الخادم الخاص بك.',
@@ -1747,7 +1749,7 @@ ar:{
  rd_declined:'رفض العضو طلب الوصول الأصيل',
  rd_wait:'أُرسل الطلب — سيشارك العضو معرّف RustDesk الخاص به',
  rd_web_lbl:'رابط عميل RustDesk الويب',
- rd_cc_note:'لاستخدام كامل كمكتب مساعدة: شغّل وسيط RustDesk (hbbs/hbbr) عبر حاويتَي Docker أو ملفَّين تنفيذيين، وثبّت وكيل RustDesk المجاني على الأجهزة المدعومة، ثم استخدم «وصول أصيل» على العضو لتبادل المعرّفات والاتصال — تحكم حقيقي على مستوى النظام ومشفّر بواسطة RustDesk.',
+ rd_cc_note:'لاستخدام كامل كمكتب مساعدة: شغّل وسيط RustDesk (hbbs/hbbr) عبر حاويتَي Docker أو ملفَّين تنفيذيين، وثبّت وكيل RustDesk المجاني على الأجهزة المدعومة، ثم استخدم «تحكم عن بُعد» على العضو لتبادل المعرّفات والاتصال — تحكم حقيقي على مستوى النظام ومشفّر بواسطة RustDesk.',
  rc_wait_cam:'بانتظار موافقة العضو — سيشارك كاميرا هاتفه',
  rc_banner_cam:'يشاهد بث الكاميرا لديك', rc_cam_chip:'بث كاميرا', rc_allow_cam:'سماح — مشاركة الكاميرا',
  rc_mob_cam:'هذا العضو يستخدم الجوال — سيُطلب منه مشاركة الكاميرا بدلاً من الشاشة (متصفحات الجوال لا تلتقط الشاشة)',
