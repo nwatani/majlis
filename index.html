@@ -530,8 +530,13 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 @media (max-width:760px){ #rcWin{inset-inline:8px;top:auto;bottom:10px;width:auto} }
 #rcOverlay{position:fixed;inset:0;z-index:120;pointer-events:none}
 /* member-side floating viewer for the admin's mirrored screen */
-#rcMirror{position:fixed;right:14px;bottom:14px;width:min(46vw,520px);max-width:calc(100vw - 28px);background:var(--bg1);border:1.5px solid var(--teal);border-radius:13px;box-shadow:0 20px 60px -18px rgba(0,0,0,.6);overflow:hidden;z-index:110;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+#rcMirror{position:fixed;right:14px;bottom:14px;width:min(56vw,720px);max-width:calc(100vw - 28px);background:var(--bg1);border:1.5px solid var(--teal);border-radius:13px;box-shadow:0 20px 60px -18px rgba(0,0,0,.6);overflow:hidden;z-index:110;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+#rcMirror .rcm-body{position:relative}
 #rcMirror video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+/* the admin's live cursor, mapped onto the mirrored screen so content + pointer stay fused */
+#rcMirrorCur{position:absolute;z-index:3;pointer-events:none;transform:translate(-2px,-2px);filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));transition:opacity .3s}
+#rcMirrorCur svg{width:20px;height:20px;color:var(--amber)}
+#rcMirrorCur span{position:absolute;top:17px;left:13px;background:var(--amber);color:#221503;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap}
 #rcMirror .rcm-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg2);border-bottom:1px solid var(--line);cursor:grab;user-select:none;font-size:12px;font-weight:700}
 #rcMirror .rcm-head:active{cursor:grabbing}
 #rcMirror .rcm-live{width:8px;height:8px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
@@ -1047,7 +1052,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <button class="btn btn-sm btn-danger" id="rcRevoke" data-i18n="rc_revoke">Revoke access</button>
 </div>
 <div id="rcOverlay" class="hidden"><div id="rcCur"><span id="rcCurLbl"></span></div><div id="rcKey" class="hidden"></div></div>
-<div id="rcMirror" class="hidden"><div class="rcm-head"><span data-i18n="rc_mirror">Admin's screen</span><span class="rcm-live"></span><button class="rcm-x" title="Hide">–</button></div><video autoplay playsinline muted></video></div>
+<div id="rcMirror" class="hidden"><div class="rcm-head"><span data-i18n="rc_mirror">Admin's screen</span><span class="rcm-live"></span><button class="rcm-x" title="Hide">–</button></div><div class="rcm-body"><video autoplay playsinline muted></video><div id="rcMirrorCur" class="hidden"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l16 7.5-7 1.8L9.5 19 4 2z"/></svg><span id="rcMirrorCurLbl"></span></div></div></div>
 <div id="rcWin" class="hidden" tabindex="0">
   <div class="rc-head">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
@@ -1305,7 +1310,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.33.8';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.33.9';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4198,6 +4203,7 @@ M.RC = {
       try{ M.Net.room.removeStream(M.RC.shareStream,{target:a.peerId}); }catch(e){}
       M.RC.shareStream.getTracks().forEach(t=>{ t.onended=null; t.stop(); });
       M.RC.shareStream=null;
+      if(M.RC._shareMove){ document.removeEventListener('pointermove',M.RC._shareMove); M.RC._shareMove=null; }
       M.$('#rcShare').classList.remove('on');
       M.log('info','admin screen mirror stopped');
       return;
@@ -4208,6 +4214,13 @@ M.RC = {
       M.RC.shareStream=sc;
       try{ M.Net.room.addStream(sc,{target:a.peerId,metadata:{kind:'rc-admin'}}); }catch(e){ M.log('err','rc mirror addStream failed: '+e.message); }
       sc.getVideoTracks()[0].addEventListener('ended',()=>{ if(M.RC.shareStream) M.RC.toggleShare(); });
+      /* stream the admin's live cursor (normalized to their viewport) so the member can
+         render it on top of the mirrored screen — content and pointer move as one */
+      M.RC._shareMove=M.throttle(e=>{
+        if(!M.RC.shareStream||!M.RC.admin) return;
+        try{ M.Net.send('rc',{t:'cur2',x:e.clientX/innerWidth,y:e.clientY/innerHeight},M.RC.admin.peerId); }catch(_){}
+      },33);
+      document.addEventListener('pointermove',M.RC._shareMove);
       M.$('#rcShare').classList.add('on');
       M.toast('ok',M.t('rc_win_title'),M.t('rc_mirror_on'),{ms:5000});
       M.log('info','admin screen mirrored to member');
@@ -4229,8 +4242,26 @@ M.RC = {
     }
     mw.classList.remove('hidden');
     mw.querySelector('video').srcObject=stream;
-    stream.getVideoTracks()[0].addEventListener('ended',()=>{ m.adminScreen=null; mw.classList.add('hidden'); });
+    stream.getVideoTracks()[0].addEventListener('ended',()=>{ m.adminScreen=null; mw.classList.add('hidden'); M.$('#rcMirrorCur').classList.add('hidden'); });
+    const lbl=M.$('#rcMirrorCurLbl'); if(lbl) lbl.textContent=M.Members.name(peerId);
     M.log('info','admin screen mirror received — viewer shown');
+  },
+  /* position the admin's cursor over the video's actual content box, honoring
+     object-fit:contain letterboxing so the pointer sits exactly where it should */
+  placeMirrorCursor(nx,ny){
+    const mw=M.$('#rcMirror'), cur=M.$('#rcMirrorCur');
+    if(!mw||!cur||mw.classList.contains('hidden')||mw.classList.contains('rcm-min')) return;
+    const v=mw.querySelector('video');
+    const vr=v.getBoundingClientRect(), mr=mw.getBoundingClientRect();
+    const vw=v.videoWidth||16, vh=v.videoHeight||9;
+    const scale=Math.min(vr.width/vw,vr.height/vh);
+    const cw=vw*scale, ch=vh*scale;
+    const ox=(vr.left-mr.left)+(vr.width-cw)/2, oy=(vr.top-mr.top)+(vr.height-ch)/2;
+    cur.style.left=(ox+M.clamp(nx,0,1)*cw)+'px';
+    cur.style.top=(oy+M.clamp(ny,0,1)*ch)+'px';
+    cur.classList.remove('hidden');
+    clearTimeout(M.RC._curHide);
+    M.RC._curHide=setTimeout(()=>cur.classList.add('hidden'),3000);
   },
   hideMirror(){
     const mw=M.$('#rcMirror'); if(!mw) return;
@@ -4259,6 +4290,7 @@ M.RC = {
       M.RC.shareStream.getTracks().forEach(t=>t.stop());
       M.RC.shareStream=null;
     }
+    if(M.RC._shareMove){ document.removeEventListener('pointermove',M.RC._shareMove); M.RC._shareMove=null; }
     M.$('#rcShare')?.classList.remove('on');
     M.RC.admin=null;
     M.$('#rcWin').classList.add('hidden'); M.$('#rcVideo').srcObject=null;
@@ -4327,6 +4359,13 @@ M.RC = {
       }
       case 'ev': {
         if(M.RC.member && from===M.RC.member.adminId) M.RC.paintEvent(d);
+        break;
+      }
+      case 'cur2': {
+        /* the admin's real cursor, mapped onto the mirrored screen's content area */
+        const m2=M.RC.member;
+        if(!m2||from!==m2.adminId||!m2.adminScreen) break;
+        M.RC.placeMirrorCursor(d.x,d.y);
         break;
       }
       /* native access bridge */
