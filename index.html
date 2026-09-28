@@ -1207,7 +1207,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.30.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.30.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1891,6 +1891,11 @@ M.Net = {
     R.onPeerJoin = peerId => {
       M.log('info','peer joined '+M.fmt.idShort(peerId));
       if(!M.State.peers.has(peerId)) M.Members.upsert(peerId,{status:'connecting'});
+      /* the room announces itself: anyone already inside answers newcomers the
+         moment their transport exists — existence no longer depends on the
+         newcomer's question arriving first */
+      try{ M.Net.send('probe',{t:'ack'},peerId); }catch(e){}
+      if(M.Net._probeResolve) M.Net._probeResolve();   /* and merely SEEING a peer means the room exists */
       /* names matter — announce ourselves redundantly so a dropped packet
          can never leave either side stuck on a generic guest label */
       const hi=()=>{ try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
@@ -2096,13 +2101,17 @@ M.Net = {
     try{ const pc=M.Net.room?.getPeers?.()?.[pid]; if(pc) pc.restartIce?.(); M.log('info','ICE restart toward '+M.fmt.idShort(pid)); }catch(e){}
     try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:!!(M.Admin.priv||M.Admin.legacy),v:M.Version},pid); }catch(e){}
   },
-  /* ask the namespace "is anyone home?" — resolves true on the first ack */
+  /* ask the namespace "is anyone home?" — the question is RETRIED until a
+     transport actually exists, and any ack (or any peer simply appearing)
+     settles it. A single lost packet can no longer read as "no room." */
   probeRoom(ms){
     return new Promise(res=>{
       let done=false;
-      const finish=v=>{ if(done) return; done=true; M.Net._probeResolve=null; res(v); };
+      const finish=v=>{ if(done) return; done=true; clearInterval(iv); M.Net._probeResolve=null; res(v); };
       M.Net._probeResolve=()=>finish(true);
-      try{ M.Net.send('probe',{t:'q'}); }catch(e){}
+      const ask=()=>{ if(!done){ try{ M.Net.send('probe',{t:'q'}); }catch(e){} } };
+      ask();
+      const iv=setInterval(ask,600);
       setTimeout(()=>finish(false),ms);
     });
   },
@@ -5541,7 +5550,7 @@ M.App = {
         M.State.room={code, created:Date.now(), isCreator:true};
         await M.Net.join(code,{isCreator:true});
         M.State.self.id=M.T.selfId;
-        occupied=await M.Net.probeRoom(1400);
+        occupied=await M.Net.probeRoom(2000);
         if(occupied){ M.log('warn','code '+code+' already in use — rolling again'); try{ M.Net.leave(); }catch(e){} M.App.resetState(); }
       }
       if(occupied){ M.lobbyMsg(M.t('create_busy'),true); M.$('#btnCreate').disabled=false; return; }
@@ -5583,13 +5592,19 @@ M.App = {
       if(!bypass){
         /* someone must answer for the room to exist — a terminated or unknown code
            stays silent and is reported as not found */
-        const found=await M.Net.probeRoom(3500);
+        const found=await M.Net.probeRoom(6000);
         if(!found){
           try{ M.Net.leave(); }catch(e){}
           M.App.resetState();
           safeDel(localStorage,'mj.grace.'+code);   /* a room that never existed must leave no trace behind */
-          M.lobbyMsg(M.t('room_not_found'),true);
-          M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500});
+          if(M.Recovery._lastOk===false){
+            /* the relay itself is unreachable — existence can't be judged; say so honestly */
+            M.lobbyMsg(M.t('join_failed'),true);
+            M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500});
+          } else {
+            M.lobbyMsg(M.t('room_not_found'),true);
+            M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500});
+          }
           M.$('#btnJoin').disabled=false;
           return;
         }
