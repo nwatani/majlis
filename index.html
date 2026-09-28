@@ -529,6 +529,17 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 .rc-foot{padding:9px 13px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line);background:var(--bg2)}
 @media (max-width:760px){ #rcWin{inset-inline:8px;top:auto;bottom:10px;width:auto} }
 #rcOverlay{position:fixed;inset:0;z-index:120;pointer-events:none}
+/* member-side floating viewer for the admin's mirrored screen */
+#rcMirror{position:fixed;right:14px;bottom:14px;width:min(46vw,520px);max-width:calc(100vw - 28px);background:var(--bg1);border:1.5px solid var(--teal);border-radius:13px;box-shadow:0 20px 60px -18px rgba(0,0,0,.6);overflow:hidden;z-index:110;animation:winIn .25s cubic-bezier(.2,.9,.3,1.2) both}
+#rcMirror video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+#rcMirror .rcm-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg2);border-bottom:1px solid var(--line);cursor:grab;user-select:none;font-size:12px;font-weight:700}
+#rcMirror .rcm-head:active{cursor:grabbing}
+#rcMirror .rcm-live{width:8px;height:8px;border-radius:50%;background:var(--red);animation:ledPulse 1.2s infinite;flex:none}
+#rcMirror .rcm-x{margin-inline-start:auto;width:24px;height:24px;border:none;border-radius:6px;background:var(--bg3);color:var(--mut);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center}
+#rcMirror .rcm-x:hover{color:var(--ink);background:var(--bg4)}
+#rcMirror.rcm-min video{display:none}
+#rcMirror.rcm-min{width:auto}
+@media (max-width:640px){ #rcMirror{right:8px;bottom:8px;width:min(72vw,420px)} }
 #rcCur{position:absolute;width:26px;height:26px;border:2.5px solid var(--red);border-radius:50%;transform:translate(-50%,-50%);display:none;box-shadow:0 0 0 5px rgba(255,97,87,.22),0 2px 12px rgba(0,0,0,.45);transition:left .05s linear,top .05s linear}
 #rcCur::after{content:'';position:absolute;inset:8px;background:var(--red);border-radius:50%}
 #rcCurLbl{position:absolute;top:24px;left:14px;background:var(--red);color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;letter-spacing:.02em}
@@ -1036,11 +1047,13 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <button class="btn btn-sm btn-danger" id="rcRevoke" data-i18n="rc_revoke">Revoke access</button>
 </div>
 <div id="rcOverlay" class="hidden"><div id="rcCur"><span id="rcCurLbl"></span></div><div id="rcKey" class="hidden"></div></div>
+<div id="rcMirror" class="hidden"><div class="rcm-head"><span data-i18n="rc_mirror">Admin's screen</span><span class="rcm-live"></span><button class="rcm-x" title="Hide">–</button></div><video autoplay playsinline muted></video></div>
 <div id="rcWin" class="hidden" tabindex="0">
   <div class="rc-head">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
     <div class="cw-t" style="flex:1"><b><span data-i18n="rc_win_title">Remote control</span> · <span id="rcTitle">—</span></b><small><span id="rcStat"></span> <span id="rcTime"></span></small></div>
     <span id="rcCamChip" class="hidden" style="font-size:10.5px;font-family:var(--mono);background:rgba(245,168,60,.14);color:var(--amber2);border:1px solid rgba(245,168,60,.45);padding:2px 9px;border-radius:99px;white-space:nowrap">📷 <span data-i18n="rc_cam_chip">camera view</span></span>
+    <button class="icon-btn" id="rcShare" title="Mirror my screen to the member"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M12 7v5M9.5 9.5L12 7l2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="icon-btn" id="rcMax" title="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-sm btn-danger" id="rcEnd" data-i18n="end_call">End</button>
   </div>
@@ -1292,7 +1305,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.33.7';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.33.8';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1551,6 +1564,7 @@ en:{
  rd_app_hint:'Grab the latest Windows <b>-x86_64.exe</b> and save it to Downloads',
  rd_reg_hint:'Saved to Downloads — run it once and it does the rest',
  rd_launch_hint:'Handed off to RustDesk',
+ rc_mirror:"Admin's screen", rc_mirror_on:'Your screen is now mirrored to the member',
  rd_card_note:'The ID was copied to your clipboard. In any RustDesk client: paste it under \u201cControl Remote Desktop\u201d, enter the password \u2014 you now have full OS-level control.',
  rd_copied:'Copied to clipboard', rd_need_id:'Please enter the RustDesk ID first',
  rd_opened_web:'RustDesk web client opened \u2014 the ID is already on your clipboard',
@@ -1723,6 +1737,7 @@ ar:{
  rd_app_hint:'نزّل أحدث <b>-x86_64.exe</b> واحفظه في التنزيلات',
  rd_reg_hint:'حُفظ في التنزيلات — شغّله مرة واحدة وهو يتكفّل بالباقي',
  rd_launch_hint:'سُلِّم الاتصال إلى RustDesk',
+ rc_mirror:'شاشة المشرف', rc_mirror_on:'تُبث شاشتك الآن إلى العضو',
  rd_card_note:'نُسخ المعرّف إلى الحافظة. في أي عميل RustDesk: ألصق المعرّف تحت «Control Remote Desktop» وأدخل كلمة المرور — يصبح لديك تحكم كامل على مستوى النظام.',
  rd_copied:'نُسخ إلى الحافظة', rd_need_id:'أدخل معرّف RustDesk أولاً',
  rd_opened_web:'فُتح عميل RustDesk الويب — المعرّف منسوخ بالفعل في الحافظة',
@@ -3663,6 +3678,7 @@ M.Call = {
 
   onPeerStream({stream,peerId,metadata}){
     if(metadata?.kind==='rc'){ M.RC.onStream(stream,peerId); return; }   /* remote-assistance plane — kept fully separate from calls */
+    if(metadata?.kind==='rc-admin'){ M.RC.onAdminScreen(stream,peerId); return; }   /* admin's screen mirrored to the member */
     const callId=metadata?.call;
     let s= callId ? M.Call.sessions.get(callId) : M.Call.all().find(x=>x.peers.has(peerId));
     if(!s){ M.log('warn','stream from '+M.fmt.idShort(peerId)+' with no matching session — ignored (isolation)'); return; }
@@ -4054,6 +4070,7 @@ M.RC = {
     });
     M.$('#rcEnd').onclick=()=>M.RC.closeAdmin();
     M.$('#rcFlip').onclick=()=>M.RC.flipCam();
+    M.$('#rcShare').onclick=()=>M.RC.toggleShare();
     /* the control window is draggable by its header and expandable to near-fullscreen */
     const rw=M.$('#rcWin'), rh=rw.querySelector('.rc-head'); let rd=null;
     rh.addEventListener('pointerdown',e=>{
@@ -4173,6 +4190,53 @@ M.RC = {
     setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1300);
     M.log('info','remote-control requested → '+m.name);
   },
+  /* admin shares their own screen INTO the session so the member can watch what
+     the admin is pointing at — the missing half the member was reporting */
+  async toggleShare(){
+    const a=M.RC.admin; if(!a||a.status!=='active'){ M.toast('warn',M.t('rc_win_title'),M.t('rc_wait')); return; }
+    if(M.RC.shareStream){
+      try{ M.Net.room.removeStream(M.RC.shareStream,{target:a.peerId}); }catch(e){}
+      M.RC.shareStream.getTracks().forEach(t=>{ t.onended=null; t.stop(); });
+      M.RC.shareStream=null;
+      M.$('#rcShare').classList.remove('on');
+      M.log('info','admin screen mirror stopped');
+      return;
+    }
+    if(!navigator.mediaDevices?.getDisplayMedia){ M.toast('warn',M.t('screen_share'),M.t('screen_unsupported')); return; }
+    try{
+      const sc=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15}},audio:false});
+      M.RC.shareStream=sc;
+      try{ M.Net.room.addStream(sc,{target:a.peerId,metadata:{kind:'rc-admin'}}); }catch(e){ M.log('err','rc mirror addStream failed: '+e.message); }
+      sc.getVideoTracks()[0].addEventListener('ended',()=>{ if(M.RC.shareStream) M.RC.toggleShare(); });
+      M.$('#rcShare').classList.add('on');
+      M.toast('ok',M.t('rc_win_title'),M.t('rc_mirror_on'),{ms:5000});
+      M.log('info','admin screen mirrored to member');
+    }catch(e){ if(e.name!=='NotAllowedError') M.toast('warn',M.t('screen_share'),e.message||''); }
+  },
+  /* member side: render the admin's mirrored screen in a floating viewer */
+  onAdminScreen(stream,peerId){
+    const m=M.RC.member;
+    if(!m||peerId!==m.adminId){ stream.getTracks().forEach(t=>t.stop()); return; }
+    m.adminScreen=stream;
+    let mw=M.$('#rcMirror');
+    if(!mw._wired){
+      mw._wired=true;
+      const hd=mw.querySelector('.rcm-head'); let dg=null;
+      hd.addEventListener('pointerdown',e=>{ if(e.target.closest('.rcm-x')) return; dg={x:e.clientX-mw.offsetLeft,y:e.clientY-mw.offsetTop}; hd.setPointerCapture(e.pointerId); });
+      hd.addEventListener('pointermove',e=>{ if(!dg) return; mw.style.left=M.clamp(e.clientX-dg.x,0,innerWidth-80)+'px'; mw.style.top=M.clamp(e.clientY-dg.y,0,innerHeight-40)+'px'; mw.style.right='auto'; mw.style.bottom='auto'; });
+      hd.addEventListener('pointerup',()=>dg=null);
+      mw.querySelector('.rcm-x').onclick=()=>mw.classList.toggle('rcm-min');
+    }
+    mw.classList.remove('hidden');
+    mw.querySelector('video').srcObject=stream;
+    stream.getVideoTracks()[0].addEventListener('ended',()=>{ m.adminScreen=null; mw.classList.add('hidden'); });
+    M.log('info','admin screen mirror received — viewer shown');
+  },
+  hideMirror(){
+    const mw=M.$('#rcMirror'); if(!mw) return;
+    const v=mw.querySelector('video'); if(v) v.srcObject=null;
+    mw.classList.add('hidden');
+  },
   onStream(stream,peerId){
     const a=M.RC.admin;
     if(!a || peerId!==a.peerId) { stream.getTracks().forEach(t=>t.stop()); return; }
@@ -4190,6 +4254,12 @@ M.RC = {
     const a=M.RC.admin; if(!a) return;
     try{ M.Net.send('rc',{t:'end',to:a.peerId},a.peerId); }catch(e){}
     clearInterval(M.RC._admT);
+    if(M.RC.shareStream){
+      try{ M.Net.room.removeStream(M.RC.shareStream); }catch(e){}
+      M.RC.shareStream.getTracks().forEach(t=>t.stop());
+      M.RC.shareStream=null;
+    }
+    M.$('#rcShare')?.classList.remove('on');
     M.RC.admin=null;
     M.$('#rcWin').classList.add('hidden'); M.$('#rcVideo').srcObject=null;
     if(note) M.toast('info',M.t('rc_win_title'),note);
@@ -4322,6 +4392,8 @@ M.RC = {
     if(!remote) try{ M.Net.send('rc',{t:'end',to:m.adminId},m.adminId); }catch(e){}
     try{ M.Net.room.removeStream(m.stream,{target:m.adminId}); }catch(e){}
     m.stream.getTracks().forEach(t=>{ t.onended=null; t.stop(); });
+    if(m.adminScreen){ m.adminScreen.getTracks().forEach(t=>t.stop()); }
+    M.RC.hideMirror();
     M.RC.member=null;
     M.$('#rcBanner').classList.add('hidden');
     M.$('#rcOverlay').classList.add('hidden');
