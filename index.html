@@ -965,11 +965,11 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
     <p data-i18n="rd_kit_sub">Keep RustDesk portable in Downloads — a one-time, two-click setup makes the button above launch it directly.</p>
     <div class="rd-kit-row">
       <button class="btn btn-sm" id="rdGetApp"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_get_app">Portable app</span></button>
-      <button class="btn btn-sm" id="rdGetReg"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5M9 13h6M9 17h4" stroke-linecap="round"/></svg><span data-i18n="rd_get_reg">Setup (.reg)</span></button>
+      <button class="btn btn-sm" id="rdGetReg"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5M9 13h6M9 17h4" stroke-linecap="round"/></svg><span data-i18n="rd_get_reg">One-click setup (.bat)</span></button>
     </div>
     <ol class="rd-steps">
-      <li data-i18n="rd_step1">Save the app to Downloads and rename it <code>RustDesk.exe</code></li>
-      <li data-i18n="rd_step2">Open the <code>.reg</code> once and accept the prompt</li>
+      <li data-i18n="rd_step1">Save the RustDesk app to Downloads — any filename works</li>
+      <li data-i18n="rd_step2">Run the setup once; it renames and registers the copy</li>
       <li data-i18n="rd_step3">Done — the deep-link button now launches the portable copy</li>
     </ol>
   </div>
@@ -1292,7 +1292,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.33.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.33.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1543,13 +1543,14 @@ en:{
  rd_card_sub:'shared their RustDesk access:', rd_copy_id:'Copy ID', rd_copy_pw:'Copy password',
  rd_open_web:'Open RustDesk Web', rd_open_app:'Open desktop app (deep link)',
  rd_web_hint:'ID copied — paste it in the web controller. The remote device must run the RustDesk agent on your relay.',
- rd_kit:'Portable kit', rd_kit_sub:'Keep RustDesk portable in Downloads — a one-time, two-click setup makes the button above launch it directly.',
- rd_get_app:'Portable app', rd_get_reg:'Setup (.reg)',
- rd_step1:'Save the app to Downloads and rename it <code>RustDesk.exe</code>',
- rd_step2:'Open the <code>.reg</code> once and accept the prompt',
+ rd_kit:'Portable kit', rd_kit_sub:'Installed RustDesk already works with the button above. The kit below is only if you use the portable copy.',
+ rd_get_app:'Portable app', rd_get_reg:'One-click setup (.bat)',
+ rd_step1:'Save the RustDesk app to Downloads — any filename works',
+ rd_step2:'Run the setup once; it renames and registers the copy',
  rd_step3:'Done — the deep-link button now launches the portable copy',
- rd_app_hint:'Grab the latest Windows <b>-x86_64.exe</b>, save it to Downloads, rename it RustDesk.exe',
- rd_reg_hint:'Saved to Downloads — open it once to register the portable copy',
+ rd_app_hint:'Grab the latest Windows <b>-x86_64.exe</b> and save it to Downloads',
+ rd_reg_hint:'Saved to Downloads — run it once and it does the rest',
+ rd_launch_hint:'Handed off to RustDesk',
  rd_card_note:'The ID was copied to your clipboard. In any RustDesk client: paste it under \u201cControl Remote Desktop\u201d, enter the password \u2014 you now have full OS-level control.',
  rd_copied:'Copied to clipboard', rd_need_id:'Please enter the RustDesk ID first',
  rd_opened_web:'RustDesk web client opened \u2014 the ID is already on your clipboard',
@@ -1714,13 +1715,14 @@ ar:{
  rd_card_sub:'شارك بيانات الوصول الخاصة به:', rd_copy_id:'نسخ المعرّف', rd_copy_pw:'نسخ كلمة المرور',
  rd_open_web:'فتح RustDesk الويب', rd_open_app:'فتح تطبيق سطح المكتب (رابط مباشر)',
  rd_web_hint:'نُسخ المعرّف — ألصقه في المتحكم الويب. يجب أن يشغّل الجهاز البعيد وكيل RustDesk على الخادم الخاص بك.',
- rd_kit:'حقيبة النسخة المحمولة', rd_kit_sub:'أبقِ RustDesk المحمول في التنزيلات — إعداد لمرة واحدة بنقرتين يجعل الزر أعلاه يشغّله مباشرة.',
- rd_get_app:'التطبيق المحمول', rd_get_reg:'ملف الإعداد (.reg)',
- rd_step1:'احفظ التطبيق في التنزيلات وأعد تسميته <code>RustDesk.exe</code>',
- rd_step2:'افتح ملف <code>.reg</code> مرة واحدة واقبل الطلب',
+ rd_kit:'حقيبة النسخة المحمولة', rd_kit_sub:'RustDesk المثبّت يعمل مباشرة مع الزر أعلاه. الحقيبة أدناه فقط إذا كنت تستخدم النسخة المحمولة.',
+ rd_get_app:'التطبيق المحمول', rd_get_reg:'إعداد بنقرة (.bat)',
+ rd_step1:'احفظ تطبيق RustDesk في التنزيلات — أي اسم ملف يعمل',
+ rd_step2:'شغّل ملف الإعداد مرة واحدة؛ سيعيد التسمية ويسجّل النسخة',
  rd_step3:'تم — زر الرابط المباشر يشغّل الآن النسخة المحمولة',
- rd_app_hint:'نزّل أحدث <b>-x86_64.exe</b> لنظام Windows، احفظه في التنزيلات وأعد تسميته RustDesk.exe',
- rd_reg_hint:'حُفظ في التنزيلات — افتحه مرة واحدة لتسجيل النسخة المحمولة',
+ rd_app_hint:'نزّل أحدث <b>-x86_64.exe</b> واحفظه في التنزيلات',
+ rd_reg_hint:'حُفظ في التنزيلات — شغّله مرة واحدة وهو يتكفّل بالباقي',
+ rd_launch_hint:'سُلِّم الاتصال إلى RustDesk',
  rd_card_note:'نُسخ المعرّف إلى الحافظة. في أي عميل RustDesk: ألصق المعرّف تحت «Control Remote Desktop» وأدخل كلمة المرور — يصبح لديك تحكم كامل على مستوى النظام.',
  rd_copied:'نُسخ إلى الحافظة', rd_need_id:'أدخل معرّف RustDesk أولاً',
  rd_opened_web:'فُتح عميل RustDesk الويب — المعرّف منسوخ بالفعل في الحافظة',
@@ -4100,30 +4102,53 @@ M.RC = {
         M.RC.copyText(M.RC._rd.id,false);
         let uri='rustdesk://connection/new/'+encodeURIComponent(M.RC._rd.id);
         if(M.RC._rd.pw) uri+='?password='+encodeURIComponent(M.RC._rd.pw);   /* one-tap: app auto-fills ID + password */
-        location.href=uri;
+        /* launch via hidden iframe — navigating the tab itself would unload the
+           page, fire the goodbye handshake, and wrongly arm the members'
+           10-minute countdown. The iframe never touches the page lifecycle. */
+        const f=document.createElement('iframe');
+        f.style.display='none'; f.src=uri;
+        document.body.appendChild(f);
+        setTimeout(()=>f.remove(),2500);
+        M.toast('info',M.t('rd_btn'),M.t('rd_launch_hint'),{ms:4500});
       }
     };
-    /* portable kit: drop both pieces into Downloads; the .reg points the OS at
-       %USERPROFILE%\Downloads\RustDesk.exe (HKEY_CURRENT_USER → no admin rights) */
+    /* portable kit: the .bat finds any rustdesk*.exe in Downloads, renames it to
+       RustDesk.exe, and registers rustdesk:// at HKEY_CURRENT_USER (no admin
+       rights). One double-click replaces the old download+rename+.reg dance. */
     M.$('#rdGetApp').onclick=()=>{
-      open('https://github.com/rustdesk/rustdesk/releases/latest','_blank');
+      open('https://github.com/rustdesk/rustdesk/releases','_blank');
       M.toast('info',M.t('rd_kit'),M.t('rd_app_hint'),{ms:6500});
     };
     M.$('#rdGetReg').onclick=()=>{
-      const reg=[
-        'Windows Registry Editor Version 5.00','',
-        '; Majlis · portable RustDesk handler — run once on this machine','',
-        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk]',
-        '@="URL:RustDesk Protocol"',
-        '"URL Protocol"=""','',
-        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk\\DefaultIcon]',
-        '@="%USERPROFILE%\\\\Downloads\\\\RustDesk.exe,0"','',
-        '[HKEY_CURRENT_USER\\Software\\Classes\\rustdesk\\shell\\open\\command]',
-        '@="\\"%USERPROFILE%\\\\Downloads\\\\RustDesk.exe\\" --connect \\"%1\\""',''
+      const bat=[
+        '@echo off',
+        'setlocal enabledelayedexpansion',
+        'REM Majlis portable RustDesk setup - run once',
+        'set "DL=%USERPROFILE%\\Downloads"',
+        'set "TARGET=%DL%\\RustDesk.exe"',
+        'set "FOUND="',
+        'for /f "delims=" %%f in (\'dir /b /od "%DL%\\rustdesk*.exe" 2^>nul\') do set "FOUND=%%f"',
+        'if not defined FOUND (',
+        '  echo No rustdesk*.exe found in Downloads.',
+        '  echo Download the portable app there first, then run this setup again.',
+        '  pause',
+        '  exit /b 1',
+        ')',
+        'if /i not "%FOUND%"=="RustDesk.exe" (',
+        '  echo Renaming %FOUND% to RustDesk.exe ...',
+        '  copy /y "%DL%\\%FOUND%" "%TARGET%" >nul',
+        ')',
+        'reg add "HKCU\\Software\\Classes\\rustdesk" /ve /d "URL:RustDesk Protocol" /f >nul',
+        'reg add "HKCU\\Software\\Classes\\rustdesk" /v "URL Protocol" /d "" /f >nul',
+        'reg add "HKCU\\Software\\Classes\\rustdesk\\DefaultIcon" /ve /d "\\"%TARGET%,0\\"" /f >nul',
+        'reg add "HKCU\\Software\\Classes\\rustdesk\\shell\\open\\command" /ve /d "\\"%TARGET%\\" --connect \\"%%1\\"" /f >nul',
+        'echo.',
+        'echo Done - portable RustDesk registered for Majlis.',
+        'pause'
       ].join('\r\n');
       const a=M.el('a');
-      a.href=URL.createObjectURL(new Blob([reg],{type:'text/plain'}));
-      a.download='majlis-rustdesk-portable.reg'; a.click();
+      a.href=URL.createObjectURL(new Blob([bat],{type:'application/octet-stream'}));
+      a.download='majlis-rustdesk-setup.bat'; a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),5000);
       M.toast('ok',M.t('rd_kit'),M.t('rd_reg_hint'),{ms:6500});
     };
