@@ -951,6 +951,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   </div>
   <div class="m-row" style="flex-wrap:wrap">
     <button class="btn btn-ghost" data-close data-i18n="close">Close</button>
+    <button class="btn" id="recMp3" style="color:var(--teal);border-color:rgba(56,207,182,.5)"><span data-i18n="rec_mp3">Save as MP3</span></button>
     <button class="btn" id="recConv"><span data-i18n="rec_conv">Convert to MP4</span></button>
     <button class="btn btn-primary" id="recDl">Download</button>
   </div>
@@ -1228,7 +1229,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.32.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.32.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1497,7 +1498,8 @@ en:{
  rec_ready:'Recording ready', rec_dl:'Download', rec_conv:'Convert to MP4',
  rec_dur:'Duration', rec_size:'Size', rec_format:'Format',
  rec_loading:'Loading encoder…', rec_conv_prog:'Converting', rec_conv_done:'MP4 saved',
- rec_conv_fail:'Conversion failed — the WebM file is still available',
+ rec_conv_fail:'Conversion failed — the original file is still available',
+ rec_mp3:'Save as MP3',
  rec_conv_note:'MP4 conversion runs entirely in your browser (ffmpeg.wasm, loaded on first use) — nothing is uploaded.',
  rc_canceled:'The request was canceled',
 },
@@ -1658,7 +1660,8 @@ ar:{
  rec_ready:'التسجيل جاهز', rec_dl:'تنزيل', rec_conv:'تحويل إلى MP4',
  rec_dur:'المدة', rec_size:'الحجم', rec_format:'الصيغة',
  rec_loading:'جارٍ تحميل المشفّر…', rec_conv_prog:'جارٍ التحويل', rec_conv_done:'حُفظ MP4',
- rec_conv_fail:'فشل التحويل — ملف WebM لا يزال متاحاً',
+ rec_conv_fail:'فشل التحويل — الملف الأصلي لا يزال متاحاً',
+ rec_mp3:'حفظ بصيغة MP3',
  rec_conv_note:'يعمل تحويل MP4 بالكامل داخل متصفحك (ffmpeg.wasm، يُحمّل عند أول استخدام) — لا يُرفع شيء.',
  rc_canceled:'أُلغي الطلب',
 }
@@ -4283,6 +4286,7 @@ M.Rec = {
     if(!s||s.status!=='active'){ return; }
     if(M.Rec.active){ M.toast('warn',M.t('rec_title'),M.t('rec_one')); return; }
     if(!M.Rec.supported()){ M.toast('warn',M.t('rec_title'),M.t('rec_unsup')); return; }
+    const isVoice=s.kind==='voice';
     const cv=document.createElement('canvas'); cv.width=960; cv.height=540;
     const ctx=cv.getContext('2d');
     let ac=null; try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
@@ -4291,24 +4295,32 @@ M.Rec = {
     const wire=st=>{ try{ if(ac&&st&&st.getAudioTracks().some(t=>t.readyState==='live')){ ac.createMediaStreamSource(st).connect(dest); wired.push(st.id); } }catch(e){} };
     if(s.localStream) wire(s.localStream);
     s.remotes.forEach(r=>wire(r.stream));
-    const vTrack=cv.captureStream(15).getVideoTracks()[0];
-    const mix=new MediaStream([vTrack,...(dest?dest.stream.getAudioTracks():[])]);
-    /* prefer MP4 when the browser can mux it natively (Chrome 126+, Safari) */
-    const mp4=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4'];
-    let mime=mp4.find(m=>MediaRecorder.isTypeSupported?.(m))||'video/webm;codecs=vp8,opus';
-    if(!MediaRecorder.isTypeSupported?.(mime)) mime='video/webm';
-    const ext=mime.startsWith('video/mp4')?'mp4':'webm';
+    /* voice calls record pure audio — no canvas, no composite, tiny files */
+    let vTrack=null, mix, mime, ext;
+    if(isVoice){
+      mix=dest?dest.stream:new MediaStream();
+      mime=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(m=>MediaRecorder.isTypeSupported?.(m))||'audio/webm';
+      ext=mime.startsWith('audio/mp4')?'m4a':'webm';
+    } else {
+      vTrack=cv.captureStream(15).getVideoTracks()[0];
+      mix=new MediaStream([vTrack,...(dest?dest.stream.getAudioTracks():[])]);
+      /* prefer MP4 when the browser can mux it natively (Chrome 126+, Safari) */
+      const mp4=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4'];
+      mime=mp4.find(m=>MediaRecorder.isTypeSupported?.(m))||'video/webm;codecs=vp8,opus';
+      if(!MediaRecorder.isTypeSupported?.(mime)) mime='video/webm';
+      ext=mime.startsWith('video/mp4')?'mp4':'webm';
+    }
     const rec=new MediaRecorder(mix,{mimeType:mime,videoBitsPerSecond:1500000});
     const chunks=[];
     rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
     rec.onstop=()=>{
       clearInterval(M.Rec.active?.int); clearInterval(M.Rec.active?.tt);
       try{ ac?.close(); }catch(e){}
-      vTrack.stop();
+      if(vTrack) vTrack.stop();
       const blob=new Blob(chunks,{type:mime});
       const dur=(Date.now()-(M.Rec.active?.startedAt||Date.now()))/1000;
       if(M.Rec._last?.url) URL.revokeObjectURL(M.Rec._last.url);
-      M.Rec._last={blob,url:URL.createObjectURL(blob),ext,dur,
+      M.Rec._last={blob,url:URL.createObjectURL(blob),ext,dur,audio:isVoice,
         name:'majlis-'+M.State.room.code+'-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')};
       M.Rec.showSave();
       M.Rec.active=null;
@@ -4317,6 +4329,17 @@ M.Rec = {
       M.Call.renderWin(s);
     };
     rec.start(1000);
+    if(isVoice){
+      M.Rec.active={callId,rec,chunks,int:null,startedAt:Date.now()};
+      const tt0=setInterval(()=>{ const el=M.$('#recTime'); if(el&&M.Rec.active) el.textContent=M.fmt.dur((Date.now()-M.Rec.active.startedAt)/1000); },1000);
+      M.Rec.active.tt=tt0;
+      M.$('#recBanner').classList.remove('hidden');
+      s.peers.forEach(pid=>{ try{ M.Net.send('sig',{t:'rec',on:true,callId},pid); }catch(e){} });
+      M.Call.renderWin(s);
+      M.toast('info',M.t('rec_title'),M.t('rec_started'));
+      M.log('warn','voice recording STARTED for call '+callId+' ('+wired.length+' audio sources)');
+      return;
+    }
     /* composite painter — what the admin sees is what gets recorded */
     const paint=()=>{
       ctx.fillStyle='#0a1013'; ctx.fillRect(0,0,960,540);
@@ -4369,52 +4392,67 @@ M.Rec = {
     dl.textContent=M.t('rec_dl')+' (.'+r.ext+')';
     dl.onclick=()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name+'.'+r.ext; a.click(); M.toast('ok',M.t('rec_title'),M.t('rec_saved')); };
     const cv=M.$('#recConv');
-    cv.classList.toggle('hidden',r.ext==='mp4');
-    cv.disabled=false; cv.textContent=M.t('rec_conv');
-    cv.onclick=()=>M.Rec.convert();
+    cv.classList.toggle('hidden',r.audio||r.ext==='mp4');   /* MP4 only makes sense for video recordings */
+    cv.disabled=false; cv.querySelector('span').textContent=M.t('rec_conv');
+    cv.onclick=()=>M.Rec.convert('mp4');
+    const cm=M.$('#recMp3');
+    cm.disabled=false; cm.querySelector('span').textContent=M.t('rec_mp3');
+    cm.onclick=()=>M.Rec.convert('mp3');
     M.$('#recProg').classList.add('hidden');
     M.$('#mRec').classList.remove('hidden');
-    M.log('info','recording ready: '+M.fmt.dur(r.dur)+' · '+M.fmt.bytes(r.blob.size)+' ('+r.ext+')');
+    M.log('info','recording ready: '+M.fmt.dur(r.dur)+' · '+M.fmt.bytes(r.blob.size)+' ('+r.ext+(r.audio?', audio':'')+')');
   },
-  async convert(){
-    const r=M.Rec._last; if(!r||r.ext==='mp4') return;
-    const btn=M.$('#recConv'); btn.disabled=true; btn.textContent=M.t('rec_loading');
-    const prog=M.$('#recProg'); prog.classList.remove('hidden');
-    const bar=M.$('#recProgBar'); const txt=M.$('#recProgTxt');
-    bar.style.width='2%'; txt.textContent=M.t('rec_loading');
-    try{
-      if(!M.Rec._ff){
-        const [{FFmpeg},{fetchFile,toBlobURL}]=await Promise.all([
-          import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm'),
-          import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm')
-        ]);
-        const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-        M.Rec._ff=new FFmpeg();
-        M.Rec._ff.on('progress',({progress})=>{ const p=Math.round(Math.max(0,Math.min(1,progress))*100); bar.style.width=p+'%'; txt.textContent=M.t('rec_conv_prog')+' '+p+'%'; });
-        M.Rec._ff.on('log',({message})=>{ if(/frame=/.test(message)) { const m=message.match(/time=(\d+:\d+:\d+\.\d+)/); if(m) txt.textContent=M.t('rec_conv_prog')+' · '+m[1]; } });
+  async _ensureFF(){
+    /* load ffmpeg.wasm once; the file-reader is bound BEFORE load so a failed
+       load can never leave a half-built engine (the old _ffFetch bug) */
+    if(M.Rec._ff && M.Rec._ffFetch) return;
+    const [{FFmpeg},{fetchFile,toBlobURL}]=await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm'),
+      import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm')
+    ]);
+    M.Rec._ffFetch=fetchFile;
+    if(!M.Rec._ff){
+      const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+      M.Rec._ff=new FFmpeg();
+      M.Rec._ff.on('progress',({progress})=>{ const p=Math.round(Math.max(0,Math.min(1,progress))*100); M.$('#recProgBar').style.width=p+'%'; M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' '+p+'%'; });
+      M.Rec._ff.on('log',({message})=>{ const m=message.match(/time=(\d+:\d+:\d+\.\d+)/); if(m) M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' · '+m[1]; });
+      try{
         await M.Rec._ff.load({
           coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
           wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm')
         });
-        M.Rec._ffFetch=fetchFile;
-      }
-      txt.textContent=M.t('rec_conv_prog')+' 0%';
-      await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
-      await M.Rec._ff.exec(['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4']);
-      const data=await M.Rec._ff.readFile('out.mp4');
-      const mp4=new Blob([data.buffer],{type:'video/mp4'});
-      const url=URL.createObjectURL(mp4);
-      const a=M.el('a'); a.href=url; a.download=r.name+'.mp4'; a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),8000);
-      bar.style.width='100%'; txt.textContent=M.t('rec_conv_done')+' · '+M.fmt.bytes(mp4.size);
-      M.toast('ok',M.t('rec_title'),M.t('rec_conv_done')+' · '+M.fmt.bytes(mp4.size),{ms:7000});
-      M.log('info','transcoded to MP4: '+M.fmt.bytes(mp4.size));
-    }catch(e){
-      txt.textContent='✗ '+(e.message||e);
-      M.toast('err',M.t('rec_title'),M.t('rec_conv_fail'));
-      M.log('err','mp4 transcode failed: '+(e.message||e));
+      }catch(e){ M.Rec._ff=null; M.Rec._ffFetch=null; throw e; }   /* clean slate → next attempt retries fully */
     }
-    btn.disabled=false; btn.textContent=M.t('rec_conv');
+  },
+  async convert(fmt){
+    const r=M.Rec._last; if(!r) return;
+    if(fmt==='mp4'&&(r.ext==='mp4'||r.audio)) return;
+    const btn=fmt==='mp3'?M.$('#recMp3'):M.$('#recConv');
+    btn.disabled=true;
+    M.$('#recProg').classList.remove('hidden');
+    M.$('#recProgBar').style.width='2%'; M.$('#recProgTxt').textContent=M.t('rec_loading');
+    try{
+      await M.Rec._ensureFF();
+      M.$('#recProgTxt').textContent=M.t('rec_conv_prog')+' 0%';
+      await M.Rec._ff.writeFile('in.'+r.ext, await M.Rec._ffFetch(r.blob));
+      const args=fmt==='mp3'
+        ? ['-i','in.'+r.ext,'-vn','-c:a','libmp3lame','-q:a','4','out.mp3']
+        : ['-i','in.'+r.ext,'-c:v','libx264','-preset','fast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart','out.mp4'];
+      await M.Rec._ff.exec(args);
+      const data=await M.Rec._ff.readFile('out.'+fmt);
+      const out=new Blob([data.buffer],{type:fmt==='mp3'?'audio/mpeg':'video/mp4'});
+      const url=URL.createObjectURL(out);
+      const a=M.el('a'); a.href=url; a.download=r.name+'.'+fmt; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),8000);
+      M.$('#recProgBar').style.width='100%'; M.$('#recProgTxt').textContent=M.t('rec_conv_done')+' · '+M.fmt.bytes(out.size);
+      M.toast('ok',M.t('rec_title'),M.t('rec_conv_done')+' · '+fmt.toUpperCase()+' · '+M.fmt.bytes(out.size),{ms:7000});
+      M.log('info','transcoded to '+fmt.toUpperCase()+': '+M.fmt.bytes(out.size));
+    }catch(e){
+      M.$('#recProgTxt').textContent='✗ '+(e.message||e);
+      M.toast('err',M.t('rec_title'),M.t('rec_conv_fail'));
+      M.log('err',fmt+' transcode failed: '+(e.message||e));
+    }
+    btn.disabled=false;
   }
 };
 
