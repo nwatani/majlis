@@ -1207,7 +1207,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.30.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.30.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1349,6 +1349,7 @@ en:{
  admin_off:'Admin offline',
  room_dead:'This room has ended.',
  room_not_found:'Room not found. Please check the room code and try again.',
+ enc_msg:'Encrypted message — join via the invite link to read it',
  create_busy:'Could not allocate a free room code — please try again.',
  dupe_title:'Already in this room',
  dupe_body:"You're already connected to this room in another tab on this device. Only one session per member is allowed.",
@@ -1507,6 +1508,7 @@ ar:{
  admin_off:'المشرف غير متصل',
  room_dead:'انتهت هذه الغرفة.',
  room_not_found:'الغرفة غير موجودة. تحقق من رمز الغرفة وحاول مجدداً.',
+ enc_msg:'رسالة مشفّرة — انضم عبر رابط الدعوة لقراءتها',
  create_busy:'تعذّر تخصيص رمز غرفة متاح — حاول مجدداً.',
  dupe_title:'أنت في هذه الغرفة بالفعل',
  dupe_body:'أنت متصل بهذه الغرفة في تبويب آخر على هذا الجهاز. يُسمح بجلسة واحدة فقط لكل عضو.',
@@ -1849,8 +1851,12 @@ M.Net = {
     if(M.Net.onProgress) M.Net.onProgress('Loading signaling module…');
     M.T=await M.Net.loadTrystero();
     if(M.Net.onProgress) M.Net.onProgress('Connecting to relay network…');
+    /* NOTE: no relay-level password here. Coupling "can connect" to the E2EE key
+       made manual-code joins to private rooms silently impossible (mismatched
+       passwords never complete the handshake → real rooms read as "not found").
+       Connectivity stays open; content remains E2EE via the app-level AES-GCM
+       layer for invite-link holders. */
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() } };
-    if(M.Crypto.has()) cfg.password=M.Crypto.passB64||M.State.room.roomKeyB64;
     /* redundant signaling relays — if one broker dies, the others keep the room alive */
     const custom=M.Store.get('broker');
     cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
@@ -1894,8 +1900,9 @@ M.Net = {
       /* the room announces itself: anyone already inside answers newcomers the
          moment their transport exists — existence no longer depends on the
          newcomer's question arriving first */
+      M.log('info','[discovery] onPeerJoin fired for '+M.fmt.idShort(peerId)+' — room is live, announcing existence');
       try{ M.Net.send('probe',{t:'ack'},peerId); }catch(e){}
-      if(M.Net._probeResolve) M.Net._probeResolve();   /* and merely SEEING a peer means the room exists */
+      if(M.Net._probeResolve){ M.log('info','[discovery] peer observed in namespace — room FOUND'); M.Net._probeResolve(); }
       /* names matter — announce ourselves redundantly so a dropped packet
          can never leave either side stuck on a generic guest label */
       const hi=()=>{ try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
@@ -1924,8 +1931,12 @@ M.Net = {
        learns whether a code belongs to a live (or recoverable) room */
     M.Net.A.probe.onMessage = (d,{peerId}) => {
       if(d?.t==='q'){
+        M.log('info','[discovery] existence question received from '+M.fmt.idShort(peerId)+' — answering ack');
         try{ M.Net.send('probe',{t:'ack',adm:!!(M.Admin.priv||M.Admin.legacy)},peerId); }catch(e){}
-      } else if(d?.t==='ack' && M.Net._probeResolve){ M.Net._probeResolve(); }
+      } else if(d?.t==='ack' && M.Net._probeResolve){
+        M.log('info','[discovery] existence ACK received from '+M.fmt.idShort(peerId)+' — room FOUND');
+        M.Net._probeResolve();
+      }
     };
     M.Net.A.dupe.onMessage = (d,{peerId}) => {
       /* a newer session of the same member is claiming the seat — this tab steps down */
@@ -2039,7 +2050,7 @@ M.Net = {
         }
       });
     },6000);
-    M.log('info','joined room '+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.T.selfId));
+    M.log('info','[discovery] namespace joined: mj-'+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.T.selfId));
     return R;
   },
   _early:new Map(),
@@ -2316,6 +2327,11 @@ M.Chat = {
   },
   onIn(d){
     if(!d||d.sys) { if(d?.text) M.Chat.append('room',{sys:true,text:d.text,ts:d.ts||Date.now()},false); return; }
+    if(d.e){   /* encrypted content we hold no key for (private room, manual join) */
+      const key=d.to ? d.peerId : 'room';
+      M.Chat.append(key,{id:M.uid(8),ts:Date.now(),text:'🔒 '+M.t('enc_msg'),from:d.peerId,name:d.name||M.Members.name(d.peerId)},false);
+      return;
+    }
     if(d.to && d.to!==M.State.self.id) return;               // not for us
     const key=d.to ? d.peerId : 'room';
     const mine=M.State.chatTarget;
@@ -5592,7 +5608,9 @@ M.App = {
       if(!bypass){
         /* someone must answer for the room to exist — a terminated or unknown code
            stays silent and is reported as not found */
+        M.log('info','[discovery] probing namespace mj-'+code+' — waiting for a participant to answer');
         const found=await M.Net.probeRoom(6000);
+        M.log('info','[discovery] probe result: '+(found?'FOUND':'no answer')+' · relay ok='+M.Recovery._lastOk);
         if(!found){
           try{ M.Net.leave(); }catch(e){}
           M.App.resetState();
