@@ -40,7 +40,7 @@ catch(e){ document.documentElement.dataset.theme='light'; }
   --overlay:rgba(6,11,13,.66);
   --bar-bg:rgba(15,25,30,.86); --panel-bg:rgba(15,25,30,.5);
   --glow1:rgba(56,207,182,.07); --glow2:rgba(245,168,60,.06);
-  --board-bg:#0D171C; --board-grid:rgba(140,166,174,.13); --board-text:#E9F3F4;
+  --board-bg:#0D171C; --board-grid:rgba(140,166,174,.13); --board-text:#E9F3F4; --board-desk:#2A353D;
 }
 html[data-theme="light"]{
   --bg0:#E9EEF0; --bg1:#FFFFFF; --bg2:#F2F6F7; --bg3:#E7EEF0; --bg4:#D8E3E6;
@@ -55,7 +55,7 @@ html[data-theme="light"]{
   --overlay:rgba(21,36,43,.45);
   --bar-bg:rgba(255,255,255,.88); --panel-bg:rgba(244,248,249,.66);
   --glow1:rgba(14,156,132,.10); --glow2:rgba(222,133,18,.09);
-  --board-bg:#F7F5EF; --board-grid:rgba(81,112,121,.17); --board-text:#15242B;
+  --board-bg:#F7F5EF; --board-grid:rgba(81,112,121,.17); --board-text:#15242B; --board-desk:#DDD7CB;
 }
 html[data-theme="light"] .msg.me .m-body{background:linear-gradient(180deg,#DCF3EE,#CDEDE6);border-color:#8FD6C6;color:#08312A}
 html[data-theme="light"] .btn-primary{box-shadow:0 6px 18px -8px rgba(222,133,18,.45)}
@@ -580,6 +580,12 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 .wb-pg-x:hover{background:var(--err);color:#fff}
 .wb-pg-add{border-style:dashed;color:var(--teal)}
 .wb-pg-add:hover{border-color:var(--teal);background:rgba(56,207,182,.1)}
+/* canvas format switch */
+.wb-mode{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--line2);border-radius:8px;background:var(--bg2);flex:none}
+.wb-mode button{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:6px;border:none;background:transparent;color:var(--mut);font-size:11px;font-weight:700;cursor:pointer;transition:color .14s,background .14s}
+.wb-mode button:hover{color:var(--ink)}
+.wb-mode button.on{background:rgba(245,168,60,.14);color:var(--amber2)}
+.wb-mode button svg{flex:none}
 #wbPalette button.on{outline:2px solid var(--amber);outline-offset:1px}
 .wb-pal-row{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:3px;padding-top:7px;border-top:1px dashed var(--line)}
 #wbPalette input[type=color]{width:36px;height:25px;border:1px solid var(--line2);border-radius:6px;background:var(--bg1);padding:1px;cursor:pointer}
@@ -944,6 +950,11 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         </div>
         <div id="boardFoot">
           <div id="wbPages"></div>
+          <span class="bsep"></span>
+          <div id="wbMode" class="wb-mode" title="Canvas format">
+            <button data-m="a4"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z" stroke-linejoin="round"/><path d="M14 2v6h6" stroke-linejoin="round"/></svg>A4</button>
+            <button data-m="free" title="Free canvas"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
           <span class="bsep"></span>
           <button class="btool" id="wbZo" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6" stroke-linecap="round"/></svg></button>
           <span id="wbZl" style="min-width:44px;text-align:center">100%</span>
@@ -1321,7 +1332,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.38.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.39.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1526,6 +1537,7 @@ en:{
  export_ready:'Export ready', export_dl:'Download PNG', export_empty:'Nothing on the board to export yet',
  wb_page:'Page {n}', wb_add_page:'Add page', wb_del_page:'Delete page',
  wb_pdf_render:'Rendering {n} page(s)…', wb_pdf_done:'PDF saved · {n} page(s)',
+ wb_m_a4:'A4 page mode — sized for printing', wb_m_free:'Free canvas mode',
  wb_del_page_q:'Delete this page?', wb_del_page_body:'“{n}” and everything drawn on it will be removed for everyone. This cannot be undone.',
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
@@ -1703,6 +1715,7 @@ ar:{
  export_ready:'التصدير جاهز', export_dl:'تنزيل PNG', export_empty:'لا يوجد شيء على السبورة لتصديره بعد',
  wb_page:'صفحة {n}', wb_add_page:'إضافة صفحة', wb_del_page:'حذف الصفحة',
  wb_pdf_render:'جارٍ عرض {n} صفحة…', wb_pdf_done:'حُفظ PDF · {n} صفحة',
+ wb_m_a4:'وضع صفحة A4 — مهيأ للطباعة', wb_m_free:'وضع اللوحة الحرة',
  wb_del_page_q:'حذف هذه الصفحة؟', wb_del_page_body:'ستُحذف «{n}» وكل ما رُسم عليها لدى الجميع. لا يمكن التراجع.',
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
@@ -1947,7 +1960,7 @@ M.Admin = {
       case 'wbCtrl':
         M.bus.emit('wbCtrl',body);
         if((M.Admin.priv||M.Admin.legacy) && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
-          M.Store.set('wb.'+M.State.room.code,{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors});
+          M.Store.set('wb.'+M.State.room.code,{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,cvm:M.WB.mode});
         break;
     }
     B.emit('ccRefresh');
@@ -2076,7 +2089,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if((M.Admin.priv||M.Admin.legacy) && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -4878,6 +4891,7 @@ M.Rec = {
 M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
+  mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default; admin can switch to free canvas */
   tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
@@ -5254,9 +5268,10 @@ M.WB = {
     const pt={x:e.clientX-r.left, y:e.clientY-r.top, id:e.pointerId};
     M.WB.pointers.set(e.pointerId,pt);
     if(M.WB.pointers.size===2){ M.WB.pinch={d:M.WB.pinchDist(), mid:M.WB.pinchMid(), view:{...M.WB.view}}; M.WB.cancelDrawing(); return; }
-    const [wx,wy]=M.WB.s2w(pt.x,pt.y);
+    let [wx,wy]=M.WB.s2w(pt.x,pt.y);
     const edit=M.WB.canEdit();
     const tool = (!edit && M.WB.tool!=='pan' && M.WB.tool!=='select') ? 'pan' : M.WB.tool;
+    if(M.WB.inA4() && !['select','pan'].includes(tool)) [wx,wy]=M.WB.clampPt(wx,wy);   /* keep new marks on the sheet */
     if(e.button===2 && tool==='select' && M.WB.hit(wx,wy)) return;   /* right-click on an object → the contextmenu event opens its menu */
     if(e.button===1 || tool==='pan' || (tool==='select' && e.button===2)){ M.WB.drag={mode:'pan',sx:pt.x,sy:pt.y,view:{...M.WB.view}}; return; }
     if(!edit){ M.WB.drag={mode:'pan',sx:pt.x,sy:pt.y,view:{...M.WB.view}}; return; }
@@ -5337,7 +5352,12 @@ M.WB = {
     if(d?.mode==='pan'){ M.WB.view.x=d.view.x+(pt.x-d.sx); M.WB.view.y=d.view.y+(pt.y-d.sy); M.WB.dirty=true; return; }
     if(d?.mode==='erase'){ const o=M.WB.hit(wx,wy); if(o) M.WB.eraseObj(o.id); return; }
     if(d?.mode==='move' && M.WB.sel){
-      const dx=wx-d.wx, dy=wy-d.wy; if(Math.abs(dx)+Math.abs(dy)>0.01) d.moved=true;
+      let dx=wx-d.wx, dy=wy-d.wy; if(Math.abs(dx)+Math.abs(dy)>0.01) d.moved=true;
+      if(M.WB.inA4()){   /* keep the whole selection on the sheet */
+        let b1=1e9,t1=1e9,b2=-1e9,t2=-1e9;
+        d.os.forEach(src=>{ const [x,y,w,h]=M.WB.bbox(src); b1=Math.min(b1,x); t1=Math.min(t1,y); b2=Math.max(b2,x+w); t2=Math.max(t2,y+h); });
+        if(b1+dx<0)dx=-b1; if(t1+dy<0)dy=-t1; if(b2+dx>M.WB.A4.w)dx=M.WB.A4.w-b2; if(t2+dy>M.WB.A4.h)dy=M.WB.A4.h-t2;
+      }
       d.os.forEach((src,id)=>{
         const o=M.WB.objs.get(id); if(!o) return;
         if(src.type==='pen'||src.type==='hi') o.pts=src.pts.map(p=>[p[0]+dx,p[1]+dy]);
@@ -5736,6 +5756,27 @@ M.WB = {
   },
   pgOf(o){ return o.pg||M.WB.pages[0].id; },
   onPg(o){ return M.WB.pgOf(o)===M.WB.pageId; },
+  inA4(){ return M.WB.mode==='a4'; },
+  clampPt(wx,wy){ return M.WB.inA4()? [M.clamp(wx,10,M.WB.A4.w-10),M.clamp(wy,10,M.WB.A4.h-10)] : [wx,wy]; },
+  fitSheet(){
+    const cv=M.WB.cv, cw=cv.clientWidth||600, ch=cv.clientHeight||400;
+    const s=M.clamp(Math.min(cw/M.WB.A4.w,ch/M.WB.A4.h)*0.92,0.15,2.5);
+    M.WB.view.s=s; M.WB.view.x=(cw-M.WB.A4.w*s)/2; M.WB.view.y=(ch-M.WB.A4.h*s)/2;
+    M.WB.zoomLbl(); M.WB.dirty=true;
+  },
+  applyMode(){
+    const changed=M.WB._lastMode!==M.WB.mode; M.WB._lastMode=M.WB.mode;
+    M.$$('#wbMode [data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===M.WB.mode));
+    const sw=M.$('#wbMode'); if(sw) sw.classList.toggle('hidden',!(M.Admin.priv||M.Admin.legacy));
+    if(M.WB.inA4()){
+      /* light ink would vanish on white paper — nudge it to black on entering A4 */
+      const c=(M.WB.color||'').replace('#','');
+      if(c.length===6){ const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+        if(0.299*r+0.587*g+0.114*b>200){ M.WB.color='#111111'; const d=M.$('#wbColorDot'); if(d) d.style.background=M.WB.color; } }
+      if(changed) M.WB.fitSheet();
+    }
+    M.WB.dirty=true;
+  },
   /* wipe a single page's objects; optionally tell the room */
   clearPage(pg,broadcast){
     const gone=new Set();
@@ -5770,6 +5811,13 @@ M.WB = {
       add.onclick=()=>M.WB.addPage();
       box.appendChild(add);
     }
+  },
+  /* admin-only: switch the whole board between A4 sheet and free canvas */
+  wireModeToggle(){
+    M.$$('#wbMode [data-m]').forEach(b=>{
+      if(b._wired) return; b._wired=true;
+      b.onclick=()=>{ if(b.dataset.m===M.WB.mode) return; M.Admin.cmd('wbCtrl',{sub:'mode-canvas',m:b.dataset.m}); };
+    });
   },
   addPage(){
     const pg={id:M.uid(6),name:M.t('wb_page',{n:M.WB.pages.length+1})};
@@ -5812,6 +5860,7 @@ M.WB = {
     return {x:x1,y:y1,w:x2-x1,h:y2-y1,s,cw,ch};   /* let callers prove where the group landed */
   },
   fitAll(){
+    if(M.WB.inA4()){ M.WB.fitSheet(); return; }
     if(M.WB.objs.size===0){ M.WB.view={x:80,y:60,s:1}; M.WB.zoomLbl(); M.WB.dirty=true; return; }
     M.WB.focusGroup([...M.WB.objs.keys()]);
     M.WB.dirty=true;
@@ -5979,6 +6028,7 @@ M.WB = {
           if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
           M.WB.renderPages();
         }
+        if(b.cvm){ M.WB.mode=b.cvm; }
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
@@ -6025,6 +6075,12 @@ M.WB = {
         M.log('warn','board page deleted: '+id+' ('+gone.size+' objects removed)');
         break;
       }
+      case 'mode-canvas':
+        M.WB.mode=(b.m==='free')?'free':'a4';
+        M.WB.applyMode();
+        M.toast('info',M.t('tab_board'),M.t(M.WB.mode==='a4'?'wb_m_a4':'wb_m_free'),{ms:4500});
+        M.log('info','canvas mode → '+M.WB.mode);
+        break;
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
       case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
     }
@@ -6034,6 +6090,8 @@ M.WB = {
     const open=M.State.wb.open;
     M.$('#boardOff').classList.toggle('hidden',open);
     M.WB.renderPages();
+    M.WB.wireModeToggle();
+    M.WB.applyMode();
     const bb=M.$('#btnBoard');
     if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
@@ -6147,8 +6205,17 @@ M.WB = {
     };
     inp.click();
   },
-  /* render one page's objects to an offscreen canvas — shared by PNG and PDF export */
+  /* render one page's objects to an offscreen canvas — shared by PNG and PDF export.
+     In A4 mode the output is the exact sheet, so it maps 1:1 onto a printed page. */
   _pageCanvas(pg){
+    if(M.WB.inA4()){
+      const c=document.createElement('canvas'); c.width=1588; c.height=2246;   /* A4 @ 2x for crisp print */
+      const ctx=c.getContext('2d');
+      ctx.fillStyle='#FFFFFF'; ctx.fillRect(0,0,1588,2246);
+      ctx.scale(2,2);
+      M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o&&M.WB.pgOf(o)===pg){ try{ M.WB.paintObj(ctx,o,1); }catch(e){} } });
+      return c;
+    }
     let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9,count=0;
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||M.WB.pgOf(o)!==pg) return; count++; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
     if(!count) return null;
@@ -6195,19 +6262,29 @@ M.WB = {
          fit the page and centered — structurally impossible to crop, printable
          and shareable on any viewer */
       const PW=842, PH=595, MARGIN=30;
-      const bg=M.WB._bg||'#0D171C';
+      const a4=M.WB.inA4();
+      const bg=a4?'#FFFFFF':(M.WB._bg||'#0D171C');
       const br=parseInt(bg.slice(1,3),16)||13, bgr=parseInt(bg.slice(3,5),16)||23, bb=parseInt(bg.slice(5,7),16)||28;
-      const light=(0.299*br+0.587*bgr+0.114*bb)>150;
+      const light=a4||((0.299*br+0.587*bgr+0.114*bb)>150);
       let doc=null;
       pages.forEach(({p,c},i)=>{
-        if(i===0) doc=new jsPDF({unit:'pt',format:'a4',orientation:'landscape'});
-        else doc.addPage('a4','landscape');
-        doc.setFillColor(br,bgr,bb); doc.rect(0,0,PW,PH,'F');
-        const s=Math.min((PW-MARGIN*2)/c.width,(PH-MARGIN*2-16)/c.height);
-        const dw=c.width*s, dh=c.height*s;
-        doc.addImage(c.toDataURL('image/png'),'PNG',(PW-dw)/2,(PH-16-dh)/2,dw,dh);
-        doc.setFontSize(8.5); doc.setTextColor(light?110:150);
-        doc.text(p.name+'   ·   Majlis '+(M.State.room?.code||'')+'   ·   '+(i+1)+' / '+pages.length, MARGIN, PH-12);
+        if(a4){
+          /* the sheet is exactly A4 ratio — map it 1:1 onto a portrait page for true print */
+          if(i===0) doc=new jsPDF({unit:'pt',format:'a4',orientation:'portrait'});
+          else doc.addPage('a4','portrait');
+          doc.addImage(c.toDataURL('image/png'),'PNG',0,0,595,842);
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(p.name+'   ·   Majlis '+(M.State.room?.code||'')+'   ·   '+(i+1)+' / '+pages.length, 30, 830);
+        } else {
+          if(i===0) doc=new jsPDF({unit:'pt',format:'a4',orientation:'landscape'});
+          else doc.addPage('a4','landscape');
+          doc.setFillColor(br,bgr,bb); doc.rect(0,0,PW,PH,'F');
+          const s=Math.min((PW-MARGIN*2)/c.width,(PH-MARGIN*2-16)/c.height);
+          const dw=c.width*s, dh=c.height*s;
+          doc.addImage(c.toDataURL('image/png'),'PNG',(PW-dw)/2,(PH-16-dh)/2,dw,dh);
+          doc.setFontSize(8.5); doc.setTextColor(light?110:150);
+          doc.text(p.name+'   ·   Majlis '+(M.State.room?.code||'')+'   ·   '+(i+1)+' / '+pages.length, MARGIN, PH-12);
+        }
       });
       const name='majlis-board-'+(M.State.room?.code||'board')+'-'+pages.length+'p.pdf';
       doc.save(name);
@@ -6234,15 +6311,27 @@ M.WB = {
     M.WB.dpr=dpr;
     const v=M.WB.view;
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,cw,ch);
+    ctx.fillStyle=M.WB.inA4()? (getComputedStyle(document.documentElement).getPropertyValue('--board-desk')||'#E4DFD6').trim()||'#E4DFD6' : (M.WB._bg||'#0D171C');
+    ctx.fillRect(0,0,cw,ch);
     ctx.translate(v.x,v.y); ctx.scale(v.s,v.s);
+    if(M.WB.inA4()){   /* the A4 sheet: white paper on the desk, print-faithful */
+      ctx.save();
+      ctx.shadowColor='rgba(0,0,0,.4)'; ctx.shadowBlur=22/v.s; ctx.shadowOffsetY=8/v.s;
+      ctx.fillStyle='#FFFFFF'; ctx.fillRect(0,0,M.WB.A4.w,M.WB.A4.h);
+      ctx.restore();
+      ctx.strokeStyle='#B9C6CD'; ctx.lineWidth=1.2/v.s; ctx.strokeRect(0,0,M.WB.A4.w,M.WB.A4.h);
+    }
     /* grid (adaptive density) */
     const [wx0,wy0]=M.WB.s2w(0,0);
     const [wx1,wy1]=M.WB.s2w(cw,ch);
-    let step=40; while(((wx1-wx0)/step)*((wy1-wy0)/step)>3600) step*=2;
+    /* grid: confined to the sheet in A4 mode, free everywhere otherwise */
+    const a4=M.WB.inA4();
+    const bx1=a4?M.WB.A4.w:wx1, by1=a4?M.WB.A4.h:wy1;
+    const sx0=a4?0:Math.floor(wx0/40)*40, sy0=a4?0:Math.floor(wy0/40)*40;
+    let step=40; while(((bx1-sx0)/step)*((by1-sy0)/step)>3600) step*=2;
     ctx.fillStyle=M.WB._grid||'rgba(140,166,174,.13)';
-    const gx0=Math.floor(wx0/step)*step, gy0=Math.floor(wy0/step)*step;
-    for(let gx=gx0; gx<wx1; gx+=step) for(let gy=gy0; gy<wy1; gy+=step) ctx.fillRect(gx-1,gy-1,2,2);
+    const gd=Math.max(2,1.6/v.s);
+    for(let gx=sx0; gx<bx1; gx+=step) for(let gy=sy0; gy<by1; gy+=step) ctx.fillRect(gx-gd/2,gy-gd/2,gd,gd);
     /* objects — each paint is isolated: one bad object can never blank the board */
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return; try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } });
     /* selection outlines — every captured object wears one */
@@ -6485,7 +6574,7 @@ M.App = {
     /* session continuity: an admin refresh restores the board's open/mode/lock state; everyone restores a running timer */
     if(M.Admin.priv||M.Admin.legacy){
       const ws=M.Store.get('wb.'+code);
-      if(ws) Object.assign(M.State.wb,ws);
+      if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; }
     }
     const tu=M.Store.get('timer.'+code);
     if(tu && tu>Date.now()) M.State.timerUntil=tu;
