@@ -590,7 +590,7 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #wbModeBadge.lock{background:rgba(255,97,87,.15);color:var(--red);border:1px solid rgba(255,97,87,.5)}
 #boardWrap{flex:1;position:relative;min-height:0;background:var(--board-bg);touch-action:none;overflow:hidden}
 #boardCanvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
-#wbTextWrap{position:absolute;z-index:6;display:flex;flex-direction:column;gap:6px;max-width:min(430px,82%);animation:msgIn .16s ease both}
+#wbTextWrap{position:absolute;z-index:6;display:flex;flex-direction:column;gap:6px;max-width:min(452px,86%);animation:msgIn .16s ease both}
 #wbText{min-width:216px;min-height:66px;background:var(--bg1);border:2px solid var(--amber);border-radius:8px;color:var(--ink);padding:8px 11px;outline:none;font-family:var(--body);resize:both;overflow:auto;box-shadow:var(--sh);line-height:1.45}
 #wbText:focus{box-shadow:0 0 0 4px rgba(245,168,60,.16),var(--sh)}
 .wb-tw-row{display:flex;gap:6px;justify-content:flex-end}
@@ -1321,7 +1321,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.36.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.37.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -5085,6 +5085,7 @@ M.WB = {
     };
     requestAnimationFrame(loop);
     M.WB.readTheme();
+    M.WB._mctx=document.createElement('canvas').getContext('2d');   /* scratch context for text metrics — must exist before any hit-test */
     M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
     M.WB.resize();
     M.WB.setTool('select');   /* the highlighted tool and the active tool must agree from the first frame */
@@ -5118,7 +5119,11 @@ M.WB = {
       case 'pen': case 'hi': { let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; for(const [x,y] of o.pts){ x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x);y2=Math.max(y2,y);} const p=(o.size||2)/2; return [x1-p,y1-p,x2-x1+p*2,y2-y1+p*2]; }
       case 'line': case 'arrow': { const x=Math.min(o.x1,o.x2),y=Math.min(o.y1,o.y2); return [x-6,y-6,Math.abs(o.x2-o.x1)+12,Math.abs(o.y2-o.y1)+12]; }
       case 'rect': case 'ellipse': case 'image': case 'note': return [o.x,o.y,o.w,o.h];
-      case 'text': { const s=o.size||22; const lines=String(o.text||'').split('\n'); const w=(o.w&&o.w>4)?o.w:Math.max(...lines.map(l=>l.length))*s*0.62; return [o.x-4,o.y-4,Math.max(w,40)+8,lines.length*s*1.35+8]; }
+      case 'text': { const s=o.size||22; const wrapW=(o.w&&o.w>4)?Math.max(o.w,s*6):null;
+        M.WB._mctx.font=`${(o.style||'').includes('italic')?'italic ':''}${(o.style||'').includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+        const lines=wrapW? M.WB._wrap(M.WB._mctx,o.text,wrapW):String(o.text||'').split('\n');
+        let mw=0; lines.forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
+        const w=Math.max(mw,(o.w&&o.w>4)?o.w:0,40); return [o.x-4,o.y-4,w+8,lines.length*s*1.35+8]; }
       default: return [o.x||0,o.y||0,40,40];
     }
   },
@@ -5175,6 +5180,14 @@ M.WB = {
     ta.style.height='auto';
     const maxH=Math.round((M.$('#boardWrap').clientHeight||400)*0.5);
     ta.style.height=Math.max(66,Math.min(ta.scrollHeight+8,maxH))+'px';
+    /* the editor box mirrors the exact column the posted text will use — same
+       measurement, same cap — so typing width and placed width always agree */
+    const size=parseFloat(ta.dataset.wbsize)||M.WB.font;
+    const style=ta.dataset.wbstyle||'';
+    const colW=M.WB._measureCol(ta.value,size,style);   /* world units, capped at 420 */
+    const cs=getComputedStyle(ta);
+    const padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0)+4;
+    ta.style.width=Math.max(140,colW*M.WB.view.s+padX)+'px';
   },
   /* controls exist only when something can use them — no dead stroke slider over text, no type tools over shapes */
   syncCtx(){
@@ -5437,6 +5450,8 @@ M.WB = {
     sy=M.clamp(sy,8,Math.max(8,Math.min(bh*0.6,bh-160)));   /* stays clear of the mobile keyboard zone */
     wrap.style.left=sx+'px'; wrap.style.top=sy+'px';
     ta.style.fontSize=((obj?.size||(obj?.type==='note'?15:M.WB.font))*M.WB.view.s)+'px';   /* exact WYSIWYG size */
+    ta.dataset.wbsize=obj?.size||(obj?.type==='note'?15:M.WB.font);
+    ta.dataset.wbstyle=obj?.style||M.WB.styleStr();
     ta.style.color=obj?.type==='note'?M.WB._noteText(obj.bg):(obj?obj.color:M.WB.color);
     ta.style.borderColor=obj?.type==='note'?'rgba(0,0,0,.4)':'var(--amber)';
     ta.style.background=obj?.type==='note'?(obj.bg||'#F5D76E'):'var(--bg1)';
@@ -5465,16 +5480,21 @@ M.WB = {
       else {
         const prev=JSON.parse(JSON.stringify(obj));
         obj.text=val;
-        if(obj.type==='text'){ obj.w=Math.max(40,ta.clientWidth-22)/M.WB.view.s; }          /* keep alignment faithful to the editor box */
-        if(obj.type==='note'){ const lines=val.split('\n').length; obj.h=Math.max(125,lines*(obj.size||15)*1.5+34); }
+        if(obj.type==='text'){ obj.w=M.WB._measureCol(obj.text,obj.size,obj.style); }
+        if(obj.type==='note'){
+          const nSize=obj.size||15;   /* grow the note to fit wrapped lines, not just hard returns */
+          M.WB._mctx.font=`400 ${nSize}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+          const lines=M.WB._wrap(M.WB._mctx,val,(obj.w||190)-20).length;
+          obj.h=Math.max(125,Math.ceil(lines*nSize*1.45)+34);
+        }
         M.WB.send({t:'up',o:obj}); M.WB.pushUndo([{t:'up',o:prev}],[{t:'up',o:JSON.parse(JSON.stringify(obj))}]);
         M.WB._flash={ids:new Set([obj.id]),t:Date.now()};
       }
     } else if(val.trim()){
       /* +13/+10 screen px = border+padding of the editor → text lands exactly where it was typed */
       const [wx,wy]=M.WB.s2w(parseFloat(wrap.style.left)+13, parseFloat(wrap.style.top)+10);
-      const o={id:M.uid(9),type:'text',x:wx,y:wy,text:val,size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),by:M.State.self.id,
-               w:Math.max(40,ta.clientWidth-22)/M.WB.view.s};
+      const o={id:M.uid(9),type:'text',x:wx,y:wy,text:val,size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),pg:M.WB.pageId,by:M.State.self.id,
+               w:M.WB._measureCol(val,M.WB.font,M.WB.styleStr())};
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB._flash={ids:new Set([o.id]),t:Date.now()};
@@ -5662,7 +5682,9 @@ M.WB = {
   _materializeText(text,at){
     let p=at||M.WB.s2w((M.WB.cv.clientWidth||600)/2,(M.WB.cv.clientHeight||400)/2);
     if(Array.isArray(p)) p={x:p[0],y:p[1]};
-    const o={id:M.uid(9),type:'text',x:p.x,y:p.y,text:String(text).slice(0,4000),size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),pg:M.WB.pageId,by:M.State.self.id};
+    /* give pasted text a real column width so long passages wrap as prose, not one line or one word */
+    const colW=M.WB._measureCol(text,M.WB.font,'');
+    const o={id:M.uid(9),type:'text',x:p.x,y:p.y,text:String(text).slice(0,4000),size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),w:colW,pg:M.WB.pageId,by:M.State.self.id};
     M.WB.send({t:'up',o}); M.WB.applyUp(o);
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
@@ -5674,6 +5696,38 @@ M.WB = {
     const c=M.$('#wbHudCount'); if(c) c.textContent=M.WB.objs.size;
     const hm=M.$('#wbHudMsg');
     if(hm && msg){ hm.textContent='· '+msg; hm.classList.add('show'); clearTimeout(M.WB._hmT); M.WB._hmT=setTimeout(()=>hm.classList.remove('show'),2600); }
+  },
+  /* exact rendered width of a text object, measured with the same font the painter uses */
+  _textW(o){
+    const s=o.size||22, st=o.style||'';
+    M.WB._mctx ??= document.createElement('canvas').getContext('2d');
+    M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+    let max=0;
+    String(o.text||'').split('\n').forEach(l=>{ const w=M.WB._mctx.measureText(l).width; if(w>max) max=w; });
+    return max;
+  },
+  /* the single source of truth for a text block's column width — used by first
+     placement, re-edits, and pastes alike so they can never disagree */
+  _measureCol(text,size,style){
+    const st=style||'';
+    M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+    let mw=0; String(text).split('\n').forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
+    return Math.min(420,Math.max(mw+16,140));
+  },
+  /* real word-wrapping for any canvas context (sticky notes) — splits long lines
+     into as many rows as needed to fit maxW, in either script direction */
+  _wrap(c,text,maxW){
+    const out=[];
+    String(text||'').split('\n').forEach(line=>{
+      if(!line.trim()){ out.push(''); return; }
+      const words=line.split(/\s+/); let cur='';
+      words.forEach(w=>{
+        const t=cur?cur+' '+w:w;
+        if(c.measureText(t).width>maxW&&cur){ out.push(cur); cur=w; } else cur=t;
+      });
+      if(cur) out.push(cur);
+    });
+    return out;
   },
   pgOf(o){ return o.pg||M.WB.pages[0].id; },
   onPg(o){ return M.WB.pgOf(o)===M.WB.pageId; },
@@ -5720,7 +5774,15 @@ M.WB = {
   },
   askDelPage(p){
     M.confirm(M.t('wb_del_page_q'),M.t('wb_del_page_body',{n:p.name})).then(ok=>{
-      if(ok) M.Admin.cmd('wbCtrl',{sub:'pg-del',pg:p.id});
+      if(!ok) return;
+      /* capture the page and everything on it so Ctrl+Z can bring it all back */
+      const objs=[...M.WB.objs.values()].filter(o=>M.WB.pgOf(o)===p.id).map(o=>JSON.parse(JSON.stringify(o)));
+      const idx=M.WB.pages.findIndex(x=>x.id===p.id);
+      M.WB.pushUndo(
+        [{t:'pg-add',pg:{id:p.id,name:p.name,idx}}, ...objs.map(o=>({t:'up',o}))],   /* idx → restore to its old position */
+        [{t:'pg-del',pg:p.id}]
+      );
+      M.Admin.cmd('wbCtrl',{sub:'pg-del',pg:p.id});
     });
   },
   /* pick readable text for a sticky note from its background luminance */
@@ -5934,19 +5996,27 @@ M.WB = {
       case 'editors': W.editors=b.map||{}; break;
       case 'clear': M.WB.clearPage(M.WB.pageId,!!M.Admin.priv||!!M.Admin.legacy); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
       case 'pg-add':
-        if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){ M.WB.pages.push(b.pg); M.WB.renderPages(); M.log('info','board page added: '+b.pg.name); }
+        if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){
+          const at=(typeof b.pg.idx==='number'&&b.pg.idx>=0)?Math.min(b.pg.idx,M.WB.pages.length):-1;
+          if(at>=0) M.WB.pages.splice(at,0,{id:b.pg.id,name:b.pg.name});   /* undo restores the page where it used to sit */
+          else M.WB.pages.push({id:b.pg.id,name:b.pg.name});                /* manual + still appends */
+          M.WB.pages.forEach((p,i)=>{ p.name=M.t('wb_page',{n:i+1}); });   /* keep numbering contiguous */
+          if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=b.pg.id;
+          M.WB.renderPages(); M.WB.dirty=true; M.log('info','board page added: '+b.pg.name+(at>=0?' at position '+(at+1):''));
+        }
         break;
       case 'pg-del': {
         const id=b.pg;
         M.WB.pages=M.WB.pages.filter(p=>p.id!==id);
         if(!M.WB.pages.length) M.WB.pages=[{id:'pg1',name:'Page 1'}];
+        M.WB.pages.forEach((p,i)=>{ p.name=M.t('wb_page',{n:i+1}); });   /* keep numbering contiguous: 1, 2, 3… */
         const gone=new Set(); M.WB.objs.forEach((o,oid)=>{ if(M.WB.pgOf(o)===id){ gone.add(oid); M.WB.objs.delete(oid); } });
         if(gone.size) M.WB.order=M.WB.order.filter(x=>!gone.has(x));
         M.WB.selSet.forEach(sid=>{ if(gone.has(sid)) M.WB.selSet.delete(sid); });
         if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
         if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
-        M.WB.undo=[]; M.WB.redo=[];
         M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
+        M.log('info','pages renumbered: '+M.WB.pages.map(p=>p.name).join(', '));
         M.log('warn','board page deleted: '+id+' ('+gone.size+' objects removed)');
         break;
       }
@@ -5995,17 +6065,28 @@ M.WB = {
 
   /* ---------- undo / redo / misc ---------- */
   pushUndo(u,r){ M.WB.undo.push({u,r}); if(M.WB.undo.length>80) M.WB.undo.shift(); M.WB.redo=[]; },
-  applyOps(ops){ ops.forEach(op=>{ if(op.t==='up') M.WB.applyUp(op.o); else if(op.t==='del'){ M.WB.send({t:'del',id:op.id}); M.WB.localDel(op.id); } }); },
+  applyOps(ops){ ops.forEach(op=>M.WB._runOp(op)); },
+  /* apply one undo/redo op; page ops travel as signed admin commands so every
+     participant's board follows — undo restores a deleted page with its contents,
+     redo deletes it again */
+  _runOp(op){
+    if(op.t==='up'){ M.WB.send({t:'up',o:op.o}); M.WB.applyUp(op.o); }
+    else if(op.t==='del'){ M.WB.send({t:'del',id:op.id}); M.WB.localDel(op.id); }
+    else if((op.t==='pg-add'||op.t==='pg-del') && (M.Admin.priv||M.Admin.legacy)){
+      M.Admin.cmd('wbCtrl',{sub:op.t,pg:op.pg});
+    }
+    M.WB.dirty=true;
+  },
   doUndo(){
     if(!M.WB.canEdit()) return;
     const e=M.WB.undo.pop(); if(!e) return;
-    e.u.forEach(op=>{ if(op.t==='up'){ M.WB.send({t:'up',o:op.o}); M.WB.applyUp(op.o); } else { M.WB.send({t:'del',id:op.id}); M.WB.localDel(op.id); } });
+    e.u.forEach(op=>M.WB._runOp(op));
     M.WB.redo.push(e);
   },
   doRedo(){
     if(!M.WB.canEdit()) return;
     const e=M.WB.redo.pop(); if(!e) return;
-    e.r.forEach(op=>{ if(op.t==='up'){ M.WB.send({t:'up',o:op.o}); M.WB.applyUp(op.o); } else { M.WB.send({t:'del',id:op.id}); M.WB.localDel(op.id); } });
+    e.r.forEach(op=>M.WB._runOp(op));
     M.WB.undo.push(e);
   },
   deleteSel(){
@@ -6235,9 +6316,11 @@ M.WB = {
         ctx.textBaseline='top';
         const align=o.align||(dir==='rtl'?'right':'left');
         ctx.textAlign=align;
-        const lines=String(o.text||'').split('\n');
+        /* wrap at the editor's own width so the posted text breaks exactly where it did while typing */
+        const wrapW=(o.w&&o.w>4)?Math.max(o.w,(o.size||22)*6):null;
+        const lines=wrapW? M.WB._wrap(ctx,o.text,wrapW):String(o.text||'').split('\n');
         let maxW=0; for(const ln of lines){ const wdt=ctx.measureText(ln).width; if(wdt>maxW) maxW=wdt; }
-        const W=(o.w&&o.w>4)?o.w:maxW;   /* the editor's box width → alignment is faithful to what was typed */
+        const W=Math.max(maxW,(o.w&&o.w>4)?o.w:0,40);   /* same width the selection box uses → text and box always agree, both directions */
         const ax= align==='center'? o.x+W/2 : align==='right'? o.x+W : o.x;
         lines.forEach((ln,i)=>ctx.fillText(ln,ax,o.y+i*size*1.35));
         break;
@@ -6257,9 +6340,11 @@ M.WB = {
         const nAlign=o.align||(dir==='rtl'?'right':'left');
         ctx.textAlign=nAlign;
         const ax= nAlign==='center'? o.x+o.w/2 : nAlign==='right'? o.x+o.w-10 : o.x+10;
-        const words=String(o.text||'').split('\n');
+        const lines=M.WB._wrap(ctx,o.text,o.w-20);
         let y=o.y+10;
-        words.forEach(ln=>{ ctx.fillText(ln,ax,y,o.w-20); y+=nSize*1.45; });
+        ctx.save(); ctx.beginPath(); ctx.rect(o.x+2,o.y+2,o.w-4,Math.max(0,o.h-18)); ctx.clip();   /* text stays inside the note */
+        lines.forEach(ln=>{ ctx.fillText(ln,ax,y); y+=nSize*1.45; });
+        ctx.restore();
         break;
       }
       case 'image': {
