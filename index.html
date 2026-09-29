@@ -1321,7 +1321,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.37.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.37.8';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -5180,11 +5180,14 @@ M.WB = {
     ta.style.height='auto';
     const maxH=Math.round((M.$('#boardWrap').clientHeight||400)*0.5);
     ta.style.height=Math.max(66,Math.min(ta.scrollHeight+8,maxH))+'px';
-    /* the editor box mirrors the exact column the posted text will use — same
-       measurement, same cap — so typing width and placed width always agree */
+    /* the editor box mirrors the exact column the posted object will use:
+       existing objects keep their stored width (notes wrap 20 units inside,
+       like the painter); fresh text grows with content up to the cap */
     const size=parseFloat(ta.dataset.wbsize)||M.WB.font;
     const style=ta.dataset.wbstyle||'';
-    const colW=M.WB._measureCol(ta.value,size,style);   /* world units, capped at 420 */
+    const type=ta.dataset.wbtype||'text';
+    const storedW=parseFloat(ta.dataset.wbw)||0;
+    const colW=storedW>0 ? (type==='note'?Math.max(80,storedW-20):storedW) : M.WB._measureCol(ta.value,size,style);
     const cs=getComputedStyle(ta);
     const padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0)+4;
     ta.style.width=Math.max(140,colW*M.WB.view.s+padX)+'px';
@@ -5452,6 +5455,8 @@ M.WB = {
     ta.style.fontSize=((obj?.size||(obj?.type==='note'?15:M.WB.font))*M.WB.view.s)+'px';   /* exact WYSIWYG size */
     ta.dataset.wbsize=obj?.size||(obj?.type==='note'?15:M.WB.font);
     ta.dataset.wbstyle=obj?.style||M.WB.styleStr();
+    ta.dataset.wbtype=obj?.type||'text';
+    ta.dataset.wbw=obj?.w||0;
     ta.style.color=obj?.type==='note'?M.WB._noteText(obj.bg):(obj?obj.color:M.WB.color);
     ta.style.borderColor=obj?.type==='note'?'rgba(0,0,0,.4)':'var(--amber)';
     ta.style.background=obj?.type==='note'?(obj.bg||'#F5D76E'):'var(--bg1)';
@@ -6147,13 +6152,15 @@ M.WB = {
     let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9,count=0;
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||M.WB.pgOf(o)!==pg) return; count++; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
     if(!count) return null;
-    const pad=48;
-    const W=Math.max(64,Math.min(4096,Math.round(x2-x1)+pad*2));
-    const H=Math.max(64,Math.min(4096,Math.round(y2-y1)+pad*2));
-    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    const pad=64;
+    const W=Math.max(64,Math.round(x2-x1)+pad*2), H=Math.max(64,Math.round(y2-y1)+pad*2);
+    /* scale the whole page down proportionally when it exceeds canvas limits —
+       shrinking preserves every stroke; the old hard clamp silently cropped */
+    const sc=Math.min(1,4000/W,4000/H);
+    const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(W*sc)); c.height=Math.max(1,Math.round(H*sc));
     const ctx=c.getContext('2d');
-    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,W,H);
-    ctx.translate(pad-x1,pad-y1);
+    ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.scale(sc,sc); ctx.translate(pad-x1,pad-y1);
     M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o&&M.WB.pgOf(o)===pg){ try{ M.WB.paintObj(ctx,o,1); }catch(e){} } });
     return c;
   },
