@@ -569,6 +569,17 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #wbPalette{position:fixed;z-index:160;background:var(--bg1);border:1px solid var(--line2);border-radius:11px;box-shadow:var(--sh);padding:10px;display:grid;grid-template-columns:repeat(7,25px);gap:6px;animation:msgIn .15s ease both}
 #wbPalette button{width:25px;height:25px;border-radius:7px;border:1.5px solid rgba(127,140,150,.35);cursor:pointer;transition:transform .12s;padding:0}
 #wbPalette button:hover{transform:scale(1.15)}
+/* board page strip */
+#wbPages{display:flex;align-items:center;gap:5px;overflow-x:auto;max-width:46%;scrollbar-width:none;padding-inline-end:2px;flex:none}
+#wbPages::-webkit-scrollbar{display:none}
+.wb-pg{position:relative;display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:8px;border:1px solid var(--line2);background:var(--bg2);color:var(--mut);font-size:11.5px;font-weight:600;white-space:nowrap;cursor:pointer;transition:color .14s,background .14s,border-color .14s;flex:none}
+.wb-pg:hover{color:var(--ink);background:var(--bg3)}
+.wb-pg.on{color:var(--ink);border-color:var(--amber);background:rgba(245,168,60,.12)}
+.wb-pg-x{display:none;width:15px;height:15px;border-radius:50%;background:var(--bg4);color:var(--mut);font-size:11px;line-height:14px;text-align:center;flex:none}
+.wb-pg:hover .wb-pg-x{display:block}
+.wb-pg-x:hover{background:var(--err);color:#fff}
+.wb-pg-add{border-style:dashed;color:var(--teal)}
+.wb-pg-add:hover{border-color:var(--teal);background:rgba(56,207,182,.1)}
 #wbPalette button.on{outline:2px solid var(--amber);outline-offset:1px}
 .wb-pal-row{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:3px;padding-top:7px;border-top:1px dashed var(--line)}
 #wbPalette input[type=color]{width:36px;height:25px;border:1px solid var(--line2);border-radius:6px;background:var(--bg1);padding:1px;cursor:pointer}
@@ -932,6 +943,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <div class="board-off" id="boardOff"><div class="card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><b id="boardOffTitle" data-i18n="board_closed">Whiteboard is closed</b><p class="dim" style="margin-top:8px;font-size:13px" id="boardOffSub" data-i18n="board_closed_sub">The Admin has not opened the board for this room yet.</p></div></div>
         </div>
         <div id="boardFoot">
+          <div id="wbPages"></div>
+          <span class="bsep"></span>
           <button class="btool" id="wbZo" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6" stroke-linecap="round"/></svg></button>
           <span id="wbZl" style="min-width:44px;text-align:center">100%</span>
           <button class="btool" id="wbZi" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6" stroke-linecap="round"/></svg></button>
@@ -939,6 +952,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <span class="grow"></span>
           <div id="wbPeers"></div>
           <button class="btool" id="wbExport" title="Export PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="btool" id="wbPdf" title="Save PDF (all pages)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5h1.2a1.3 1.3 0 0 0 0-2.6H8.5v4M13 17v-4h1.4a1.5 1.5 0 0 1 0 3H13M17.5 17v-4h2M17.5 15h1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
 
           <button class="btool hidden" id="wbClear" title="Clear board (Admin)" style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
@@ -1307,7 +1321,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.34.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.36.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1510,6 +1524,9 @@ en:{
  board_you:'You', wb_export_denied:'Export is disabled by the Admin', wb_img_denied:'Image insertion is disabled by the Admin',
  wb_place:'Place', wb_ph:'Type here… — Enter places · Shift+Enter for a new line · Esc cancels', wb_close_short:'Close whiteboard',
  export_ready:'Export ready', export_dl:'Download PNG', export_empty:'Nothing on the board to export yet',
+ wb_page:'Page {n}', wb_add_page:'Add page', wb_del_page:'Delete page',
+ wb_pdf_render:'Rendering {n} page(s)…', wb_pdf_done:'PDF saved · {n} page(s)',
+ wb_del_page_q:'Delete this page?', wb_del_page_body:'“{n}” and everything drawn on it will be removed for everyone. This cannot be undone.',
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
@@ -1684,6 +1701,9 @@ ar:{
  board_you:'أنت', wb_export_denied:'عطّل المشرف التصدير', wb_img_denied:'عطّل المشرف إدراج الصور',
  wb_place:'وضع', wb_ph:'اكتب هنا… — Enter للوضع · Shift+Enter سطر جديد · Esc إلغاء', wb_close_short:'إغلاق السبورة',
  export_ready:'التصدير جاهز', export_dl:'تنزيل PNG', export_empty:'لا يوجد شيء على السبورة لتصديره بعد',
+ wb_page:'صفحة {n}', wb_add_page:'إضافة صفحة', wb_del_page:'حذف الصفحة',
+ wb_pdf_render:'جارٍ عرض {n} صفحة…', wb_pdf_done:'حُفظ PDF · {n} صفحة',
+ wb_del_page_q:'حذف هذه الصفحة؟', wb_del_page_body:'ستُحذف «{n}» وكل ما رُسم عليها لدى الجميع. لا يمكن التراجع.',
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
@@ -2056,7 +2076,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if((M.Admin.priv||M.Admin.legacy) && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -4857,6 +4877,7 @@ M.Rec = {
    ===================================================================== */
 M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
+  pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
   tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
@@ -4984,6 +5005,7 @@ M.WB = {
     M.$('#wbZi').onclick=()=>M.WB.zoomBy(1.25);
     M.$('#wbFit').onclick=()=>M.WB.fitAll();   /* fits every object on screen — your safety net for "where did it go?" */
     M.$('#wbExport').onclick=()=>M.WB.exportPNG();
+    M.$('#wbPdf').onclick=()=>M.WB.exportPDF();
     M.$('#wbClear').onclick=async ()=>{ if(await M.confirm(M.t('clear_q'),M.t('clear_q_body'))) M.Admin.cmd('wbCtrl',{sub:'clear'}); };
     /* canvas pointer events */
     cv.addEventListener('pointerdown', e=>M.WB.pDown(e));
@@ -5103,7 +5125,7 @@ M.WB = {
   hit(px,py){
     const tol=6/M.WB.view.s;
     for(let i=M.WB.order.length-1;i>=0;i--){
-      const o=M.WB.objs.get(M.WB.order[i]); if(!o) continue;
+      const o=M.WB.objs.get(M.WB.order[i]); if(!o||!M.WB.onPg(o)) continue;
       if(o.type==='pen'||o.type==='hi'){
         const r=(o.size||2)/2+tol;
         for(let j=1;j<o.pts.length;j++){ if(M.WB.distSeg(px,py,o.pts[j-1][0],o.pts[j-1][1],o.pts[j][0],o.pts[j][1])<r) return o; }
@@ -5253,7 +5275,7 @@ M.WB = {
         break;
       }
       case 'pen': case 'hi':
-        M.WB.drawing={id:M.uid(9), type:tool, pts:[[wx,wy]], color:M.WB.color, size: tool==='hi'? M.WB.size*2.6 : M.WB.size, alpha: tool==='hi'?0.32:1, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, pts:[[wx,wy]], color:M.WB.color, size: tool==='hi'? M.WB.size*2.6 : M.WB.size, alpha: tool==='hi'?0.32:1, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true;
         break;
       case 'eraser': {
@@ -5261,14 +5283,14 @@ M.WB = {
         M.WB.drag={mode:'erase'}; break;
       }
       case 'line': case 'arrow':
-        M.WB.drawing={id:M.uid(9), type:tool, x1:wx,y1:wy,x2:wx,y2:wy, color:M.WB.color, size:M.WB.size, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, x1:wx,y1:wy,x2:wx,y2:wy, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'rect': case 'ellipse':
-        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, size:M.WB.size, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'text': M.WB.openText(wx,wy,null); break;
       case 'note': {
-        const o={id:M.uid(9), type:'note', x:wx-90,y:wy-60,w:190,h:125, text:'', bg:M.WB.color, by:M.State.self.id};
+        const o={id:M.uid(9), type:'note', x:wx-90,y:wy-60,w:190,h:125, text:'', bg:'#F5D76E', pg:M.WB.pageId, by:M.State.self.id};   /* classic sticky yellow — notes keep their own palette, independent of the pen color */
         M.WB.send({t:'up',o}); M.WB.applyUp(o); M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
         M.WB._flash={ids:new Set([o.id]),t:Date.now()};
         M.WB.openText(o.x+10,o.y+10,o);
@@ -5357,7 +5379,7 @@ M.WB = {
       if(w>4/M.WB.view.s || h>4/M.WB.view.s){
         const hit=[];
         M.WB.order.forEach(id=>{
-          const o=M.WB.objs.get(id); if(!o) return;
+          const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return;
           const [bx,by,bw,bh]=M.WB.bbox(o);
           if(bx<x+w && bx+bw>x && by<y+h && by+bh>y) hit.push(id);
         });
@@ -5415,9 +5437,9 @@ M.WB = {
     sy=M.clamp(sy,8,Math.max(8,Math.min(bh*0.6,bh-160)));   /* stays clear of the mobile keyboard zone */
     wrap.style.left=sx+'px'; wrap.style.top=sy+'px';
     ta.style.fontSize=((obj?.size||(obj?.type==='note'?15:M.WB.font))*M.WB.view.s)+'px';   /* exact WYSIWYG size */
-    ta.style.color=obj?(obj.type==='note'?'#241d05':obj.color):M.WB.color;
+    ta.style.color=obj?.type==='note'?M.WB._noteText(obj.bg):(obj?obj.color:M.WB.color);
     ta.style.borderColor=obj?.type==='note'?'rgba(0,0,0,.4)':'var(--amber)';
-    ta.style.background=obj?.type==='note'?'rgba(255,255,255,.88)':'var(--bg1)';
+    ta.style.background=obj?.type==='note'?(obj.bg||'#F5D76E'):'var(--bg1)';
     const st0=obj?.style||M.WB.styleStr();
     ta.style.fontWeight=st0.includes('bold')?'700':'400';
     ta.style.fontStyle=st0.includes('italic')?'italic':'normal';
@@ -5465,6 +5487,7 @@ M.WB = {
   send(op){ if(M.State.wb.open) M.Net.sendEnc('wb',op); M.WB.dirty=true; },
   localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; },
   applyUp(o){
+    if(!o.pg) o.pg=M.WB.pages[0].id;   /* legacy/older-build objects belong to the first page */
     const existed=M.WB.objs.has(o.id);
     M.WB.objs.set(o.id,o);
     if(!existed){ M.WB.order.push(o.id); M.WB.hud(); }
@@ -5625,7 +5648,7 @@ M.WB = {
       let src=dataUrl, w=img.width*sc, h=img.height*sc;
       if(sc<1){ const c=document.createElement('canvas'); c.width=Math.round(w); c.height=Math.round(h); c.getContext('2d').drawImage(img,0,0,c.width,c.height); src=c.toDataURL('image/jpeg',0.85); }
       const cv=M.WB.cv, p=at||M.WB.s2w((cv.clientWidth||600)/2,(cv.clientHeight||400)/2);
-      const o={id:M.uid(9),type:'image',x:p.x-w/2,y:p.y-h/2,w,h,src,by:M.State.self.id};
+      const o={id:M.uid(9),type:'image',x:p.x-w/2,y:p.y-h/2,w,h,src,pg:M.WB.pageId,by:M.State.self.id};
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
@@ -5639,7 +5662,7 @@ M.WB = {
   _materializeText(text,at){
     let p=at||M.WB.s2w((M.WB.cv.clientWidth||600)/2,(M.WB.cv.clientHeight||400)/2);
     if(Array.isArray(p)) p={x:p[0],y:p[1]};
-    const o={id:M.uid(9),type:'text',x:p.x,y:p.y,text:String(text).slice(0,4000),size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),by:M.State.self.id};
+    const o={id:M.uid(9),type:'text',x:p.x,y:p.y,text:String(text).slice(0,4000),size:M.WB.font,color:M.WB.color,align:M.WB.align,style:M.WB.styleStr(),pg:M.WB.pageId,by:M.State.self.id};
     M.WB.send({t:'up',o}); M.WB.applyUp(o);
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
@@ -5651,6 +5674,61 @@ M.WB = {
     const c=M.$('#wbHudCount'); if(c) c.textContent=M.WB.objs.size;
     const hm=M.$('#wbHudMsg');
     if(hm && msg){ hm.textContent='· '+msg; hm.classList.add('show'); clearTimeout(M.WB._hmT); M.WB._hmT=setTimeout(()=>hm.classList.remove('show'),2600); }
+  },
+  pgOf(o){ return o.pg||M.WB.pages[0].id; },
+  onPg(o){ return M.WB.pgOf(o)===M.WB.pageId; },
+  /* wipe a single page's objects; optionally tell the room */
+  clearPage(pg,broadcast){
+    const gone=new Set();
+    M.WB.objs.forEach((o,id)=>{ if(M.WB.pgOf(o)===pg){ gone.add(id); M.WB.objs.delete(id); } });
+    if(gone.size) M.WB.order=M.WB.order.filter(id=>!gone.has(id));
+    M.WB.selSet.forEach(id=>{ if(gone.has(id)) M.WB.selSet.delete(id); });
+    if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
+    M.WB.undo=[]; M.WB.redo=[];
+    if(broadcast) try{ M.WB.send({t:'clear',pg}); }catch(e){}
+    M.WB.hud(); M.WB.dirty=true;
+  },
+  /* ---- multi-page management (admin-authored, signed via wbCtrl) ---- */
+  renderPages(){
+    const box=M.$('#wbPages'); if(!box) return;
+    box.innerHTML='';
+    const isAdmin=!!(M.Admin.priv||M.Admin.legacy);
+    M.WB.pages.forEach(p=>{
+      const c=M.el('button','wb-pg'+(p.id===M.WB.pageId?' on':''));
+      c.appendChild(document.createTextNode(p.name));
+      c.onclick=()=>{ if(M.WB.pageId===p.id) return; M.WB.pageId=p.id; M.WB.selSet.clear(); M.WB.sel=null; M.WB.renderPages(); M.WB.dirty=true; M.log('info','viewing board page: '+p.name); };
+      if(isAdmin && M.WB.pages.length>1){
+        const x=M.el('span','wb-pg-x','×');
+        x.title=M.t('wb_del_page');
+        x.onclick=e=>{ e.stopPropagation(); M.WB.askDelPage(p); };
+        c.appendChild(x);
+      }
+      box.appendChild(c);
+    });
+    if(isAdmin){
+      const add=M.el('button','wb-pg wb-pg-add','+');
+      add.title=M.t('wb_add_page');
+      add.onclick=()=>M.WB.addPage();
+      box.appendChild(add);
+    }
+  },
+  addPage(){
+    const pg={id:M.uid(6),name:M.t('wb_page',{n:M.WB.pages.length+1})};
+    M.Admin.cmd('wbCtrl',{sub:'pg-add',pg});   /* signed: broadcast + local dispatch adds it */
+    M.WB.pageId=pg.id; M.WB.renderPages(); M.WB.dirty=true;
+    M.toast('ok',M.t('tab_board'),pg.name);
+  },
+  askDelPage(p){
+    M.confirm(M.t('wb_del_page_q'),M.t('wb_del_page_body',{n:p.name})).then(ok=>{
+      if(ok) M.Admin.cmd('wbCtrl',{sub:'pg-del',pg:p.id});
+    });
+  },
+  /* pick readable text for a sticky note from its background luminance */
+  _noteText(bg){
+    const c=String(bg||'#F5D76E').replace('#','');
+    if(c.length<6) return '#241d05';
+    const r=parseInt(c.substr(0,2),16), g=parseInt(c.substr(2,2),16), b=parseInt(c.substr(4,2),16);
+    return (0.299*r+0.587*g+0.114*b)>150 ? '#241d05' : '#F7F3E8';
   },
   /* zoom & center so a given group fills ~half the viewport — never a microscopic speck */
   focusGroup(ids){
@@ -5784,7 +5862,7 @@ M.WB = {
       M.WB.applyUp(d.o); return;
     }
     if(d.t==='del'){ if(!M.WB.peerCanEdit(from)) return; M.WB.localDel(d.id); return; }
-    if(d.t==='clear'){ M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.undo=[]; M.WB.redo=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_cleared')); return; }
+    if(d.t==='clear'){ M.WB.clearPage(d.pg||M.WB.pages[0].id,false); M.toast('warn',M.t('wb_cleared')); return; }
     if(d.t==='close'){ if(M.State.wb.open){ M.State.wb.open=false; M.WB.refreshUI(); M.toast('warn',M.t('wb_closed_ev')); M.log('info','board session ended by admin'); } return; }
     if(d.t==='order'){
       if(!M.WB.peerCanEdit(from)) return;
@@ -5817,7 +5895,7 @@ M.WB = {
   },
   sendState(target){
     const objects=[...M.WB.objs.values()];
-    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects},target);
+    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,pages:M.WB.pages},target);
   },
   maybeReqState(){
     if(M.State.wb.open && M.WB.objs.size===0 && !M.Admin.priv) M.Net.sendEnc('wb',{t:'req'});
@@ -5829,6 +5907,11 @@ M.WB = {
     switch(b.sub){
       case 'snapshot':   /* authoritative board+timer+name state pushed to joiners / re-announced by admin */
         if(b.wb) Object.assign(W,b.wb);
+        if(Array.isArray(b.pages)&&b.pages.length){
+          M.WB.pages=b.pages;
+          if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+          M.WB.renderPages();
+        }
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
@@ -5849,15 +5932,33 @@ M.WB = {
       case 'images': W.images=!!b.on; break;
       case 'export': W.export=!!b.on; break;
       case 'editors': W.editors=b.map||{}; break;
-      case 'clear': if(M.Admin.priv) M.Net.sendEnc('wb',{t:'clear'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.undo=[]; M.WB.redo=[]; M.WB.hud(); M.WB.dirty=true; M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
+      case 'clear': M.WB.clearPage(M.WB.pageId,!!M.Admin.priv||!!M.Admin.legacy); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
+      case 'pg-add':
+        if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){ M.WB.pages.push(b.pg); M.WB.renderPages(); M.log('info','board page added: '+b.pg.name); }
+        break;
+      case 'pg-del': {
+        const id=b.pg;
+        M.WB.pages=M.WB.pages.filter(p=>p.id!==id);
+        if(!M.WB.pages.length) M.WB.pages=[{id:'pg1',name:'Page 1'}];
+        const gone=new Set(); M.WB.objs.forEach((o,oid)=>{ if(M.WB.pgOf(o)===id){ gone.add(oid); M.WB.objs.delete(oid); } });
+        if(gone.size) M.WB.order=M.WB.order.filter(x=>!gone.has(x));
+        M.WB.selSet.forEach(sid=>{ if(gone.has(sid)) M.WB.selSet.delete(sid); });
+        if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
+        if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+        M.WB.undo=[]; M.WB.redo=[];
+        M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
+        M.log('warn','board page deleted: '+id+' ('+gone.size+' objects removed)');
+        break;
+      }
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
-      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
+      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
     }
     M.WB.refreshUI(); M.bus.emit('members'); M.bus.emit('wbPeers');
   },
   refreshUI(){
     const open=M.State.wb.open;
     M.$('#boardOff').classList.toggle('hidden',open);
+    M.WB.renderPages();
     const bb=M.$('#btnBoard');
     if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
@@ -5866,6 +5967,7 @@ M.WB = {
     M.$('#wbClear').classList.toggle('hidden',!M.Admin.priv);
     if(M.Admin.priv) M.$('#wbClear').disabled=!open||M.State.wb.locked;
     M.$('#wbExport').disabled = !open || !M.Perms.can('wbExport').ok;
+    M.$('#wbPdf').disabled = !open || !M.Perms.can('wbExport').ok;
     const badge=M.$('#wbModeBadge');
     if(open && !M.Admin.priv){
       badge.classList.remove('hidden');
@@ -5959,11 +6061,11 @@ M.WB = {
     };
     inp.click();
   },
-  exportPNG(){
-    if(!M.Perms.denyToast('wbExport')) return;
-    if(M.WB.objs.size===0){ M.toast('info',M.t('tab_board'),M.t('export_empty')); return; }
-    let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
+  /* render one page's objects to an offscreen canvas — shared by PNG and PDF export */
+  _pageCanvas(pg){
+    let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9,count=0;
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||M.WB.pgOf(o)!==pg) return; count++; const [x,y,w,h]=M.WB.bbox(o); x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x+w);y2=Math.max(y2,y+h); });
+    if(!count) return null;
     const pad=48;
     const W=Math.max(64,Math.min(4096,Math.round(x2-x1)+pad*2));
     const H=Math.max(64,Math.min(4096,Math.round(y2-y1)+pad*2));
@@ -5971,7 +6073,14 @@ M.WB = {
     const ctx=c.getContext('2d');
     ctx.fillStyle=M.WB._bg||'#0D171C'; ctx.fillRect(0,0,W,H);
     ctx.translate(pad-x1,pad-y1);
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o){ try{ M.WB.paintObj(ctx,o,1); }catch(e){} } });
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o&&M.WB.pgOf(o)===pg){ try{ M.WB.paintObj(ctx,o,1); }catch(e){} } });
+    return c;
+  },
+  exportPNG(){
+    if(!M.Perms.denyToast('wbExport')) return;
+    const c=M.WB._pageCanvas(M.WB.pageId);
+    if(!c){ M.toast('info',M.t('tab_board'),M.t('export_empty')); return; }
+    const W=c.width,H=c.height;
     c.toBlob(b=>{
       if(!b){ M.toast('err',M.t('tab_board'),M.t('export_fail')); M.log('err','board export produced no blob'); return; }
       if(M.WB._expUrl) URL.revokeObjectURL(M.WB._expUrl);
@@ -5985,6 +6094,32 @@ M.WB = {
       try{ const a=M.el('a'); a.href=M.WB._expUrl; a.download=name; a.click(); }catch(e){}   /* desktop convenience; the dialog is the guarantee */
       M.log('info','board exported: '+name+' ('+W+'×'+H+', '+M.fmt.bytes(b.size)+')');
     },'image/png');
+  },
+  /* every non-empty page of the board → one PDF document (jsPDF, loaded on demand) */
+  async exportPDF(){
+    if(!M.Perms.denyToast('wbExport')) return;
+    const pages=M.WB.pages.map(p=>({p,c:M.WB._pageCanvas(p.id)})).filter(x=>x.c);
+    if(!pages.length){ M.toast('info',M.t('tab_board'),M.t('export_empty')); return; }
+    M.toast('info',M.t('tab_board'),M.t('wb_pdf_render',{n:pages.length}));
+    try{
+      const {jsPDF}=await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm');
+      let doc=null;
+      pages.forEach(({p,c},i)=>{
+        const w=c.width*0.75, h=c.height*0.75;   /* px → pt */
+        if(i===0) doc=new jsPDF({unit:'pt',format:[w,h]});
+        else doc.addPage([w,h]);
+        doc.addImage(c.toDataURL('image/png'),'PNG',0,0,w,h);
+        doc.setFontSize(9); doc.setTextColor(140);
+        doc.text(p.name+'  ·  Majlis '+(M.State.room?.code||'')+'  ·  '+(i+1)+'/'+pages.length, 24, h-14);
+      });
+      const name='majlis-board-'+(M.State.room?.code||'board')+'-'+pages.length+'p.pdf';
+      doc.save(name);
+      M.toast('ok',M.t('tab_board'),M.t('wb_pdf_done',{n:pages.length}),{ms:6000});
+      M.log('info','board PDF exported: '+name+' ('+pages.length+' page(s))');
+    }catch(e){
+      M.toast('err',M.t('tab_board'),M.t('export_fail'));
+      M.log('err','pdf export failed: '+(e.message||e));
+    }
   },
 
   /* ---------- drawing ---------- */
@@ -6012,10 +6147,10 @@ M.WB = {
     const gx0=Math.floor(wx0/step)*step, gy0=Math.floor(wy0/step)*step;
     for(let gx=gx0; gx<wx1; gx+=step) for(let gy=gy0; gy<wy1; gy+=step) ctx.fillRect(gx-1,gy-1,2,2);
     /* objects — each paint is isolated: one bad object can never blank the board */
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(o){ try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } } });
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return; try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } });
     /* selection outlines — every captured object wears one */
     M.WB.selSet.forEach(id=>{
-      const o=M.WB.objs.get(id); if(!o) return;
+      const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return;
       const [x,y,w,h]=M.WB.bbox(o);
       ctx.strokeStyle='#F5A83C'; ctx.lineWidth=1.4/v.s; ctx.setLineDash([6/v.s,4/v.s]);
       ctx.strokeRect(x-4/v.s,y-4/v.s,w+8/v.s,h+8/v.s);
@@ -6113,7 +6248,7 @@ M.WB = {
         ctx.fillRect(o.x,o.y,o.w,o.h);
         ctx.shadowColor='transparent';
         ctx.fillStyle='rgba(0,0,0,.14)'; ctx.fillRect(o.x,o.y+o.h-14,o.w,14);
-        ctx.fillStyle='#241d05';
+        ctx.fillStyle=M.WB._noteText(o.bg);   /* adaptive: dark text on light notes, light text on dark ones */
         const nSize=o.size||15;
         const stN=o.style||'';
         ctx.font=`${stN.includes('italic')?'italic ':''}${stN.includes('bold')?'700 ':'400 '}${nSize}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
@@ -6314,6 +6449,7 @@ M.App = {
     if(M.Chat._fileRefs) M.Chat._fileRefs.clear();
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
+    M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
@@ -6583,7 +6719,7 @@ M.CC = {
     M.$('#ccPasteTest').onclick=()=>{
       try{
         const before=M.WB.objs.size;
-        const probe={id:M.uid(9),type:'rect',x:200,y:200,w:120,h:80,color:'#e5484d',size:4,by:M.State.self.id};
+        const probe={id:M.uid(9),type:'rect',x:200,y:200,w:120,h:80,color:'#e5484d',size:4,pg:M.WB.pageId,by:M.State.self.id};
         M.WB.objs.set(probe.id,probe); M.WB.order.push(probe.id); M.WB.rev++;      /* 1 · create probe */
         M.WB._setClip([JSON.parse(JSON.stringify(probe))]);   /* 2 · fill the room-scoped clipboard */
         const mid2=M.WB.objs.size;
