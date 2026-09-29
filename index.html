@@ -1332,7 +1332,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.39.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.39.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1851,8 +1851,8 @@ M.Perms = {
       case 'callReceive': return {ok: P.privCalls && (me||has('calls',P.voice||P.video)), reason:'calls_disabled'};
       case 'wbView': return {ok: M.State.wb.open, reason:'board_closed'};
       case 'wbEdit': return {ok: M.State.wb.open && !M.State.wb.locked && (me || (M.State.wb.mode==='collab' && (M.State.wb.editors[M.State.self.id]!==false))), reason:'perm_denied'};
-      case 'wbImage': return {ok: M.State.wb.images, reason:'wb_img_denied'};
-      case 'wbExport': return {ok: me || M.State.wb.export, reason:'wb_export_denied'};
+      case 'wbImage': return {ok: me || M.State.wb.images!==false, reason:'wb_img_denied'};   /* only an explicit admin "off" blocks members */
+      case 'wbExport': return {ok: me || M.State.wb.export!==false, reason:'wb_export_denied'};
       default: return {ok:true};
     }
   },
@@ -5530,13 +5530,13 @@ M.WB = {
 
   /* ---------- ops / sync ---------- */
   send(op){ if(M.State.wb.open) M.Net.sendEnc('wb',op); M.WB.dirty=true; },
-  localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; },
+  localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave(); },
   applyUp(o){
     if(!o.pg) o.pg=M.WB.pages[0].id;   /* legacy/older-build objects belong to the first page */
     const existed=M.WB.objs.has(o.id);
     M.WB.objs.set(o.id,o);
     if(!existed){ M.WB.order.push(o.id); M.WB.hud(); }
-    M.WB.rev++; M.WB.dirty=true;
+    M.WB.rev++; M.WB.dirty=true; M.WB.scheduleSave();
   },
   /* ---------------- object context menu ---------------- */
   openMenu(x,y){
@@ -5756,6 +5756,30 @@ M.WB = {
   },
   pgOf(o){ return o.pg||M.WB.pages[0].id; },
   onPg(o){ return M.WB.pgOf(o)===M.WB.pageId; },
+  /* ---------- local persistence so a refresh restores the board, not an empty sheet ---------- */
+  saveLocal(){
+    if(!M.State.room) return;
+    try{
+      const objs=[...M.WB.objs.values()].map(o=>{ const c={...o}; delete c._img; return c; });
+      let payload={v:1,pages:M.WB.pages,mode:M.WB.mode,objs};
+      let json=JSON.stringify(payload);
+      if(json.length>3800000) payload.objs=payload.objs.filter(o=>o.type!=='image');  /* shed heavy images before blowing the quota */
+      localStorage.setItem('mj.wbobj.'+M.State.room.code,JSON.stringify(payload));
+    }catch(e){}
+  },
+  scheduleSave(){ clearTimeout(M.WB._saveT); M.WB._saveT=setTimeout(()=>M.WB.saveLocal(),500); },
+  restoreLocal(){
+    try{
+      const d=M.Store.get('wbobj.'+M.State.room.code); if(!d) return;
+      if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
+      if(d.mode) M.WB.mode=d.mode;
+      if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+      let n=0;
+      (d.objs||[]).forEach(o=>{ if(!M.WB.objs.has(o.id)){ if(!o.pg) o.pg=M.WB.pages[0].id; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); n++; } });
+      M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
+      M.log('info','restored local whiteboard ('+n+' objects, mode '+M.WB.mode+')');
+    }catch(e){}
+  },
   inA4(){ return M.WB.mode==='a4'; },
   clampPt(wx,wy){ return M.WB.inA4()? [M.clamp(wx,10,M.WB.A4.w-10),M.clamp(wy,10,M.WB.A4.h-10)] : [wx,wy]; },
   fitSheet(){
@@ -5786,7 +5810,7 @@ M.WB = {
     if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
     M.WB.undo=[]; M.WB.redo=[];
     if(broadcast) try{ M.WB.send({t:'clear',pg}); }catch(e){}
-    M.WB.hud(); M.WB.dirty=true;
+    M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave();
   },
   /* ---- multi-page management (admin-authored, signed via wbCtrl) ---- */
   renderPages(){
@@ -6070,7 +6094,7 @@ M.WB = {
         M.WB.selSet.forEach(sid=>{ if(gone.has(sid)) M.WB.selSet.delete(sid); });
         if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
         if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
-        M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
+        M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave();
         M.log('info','pages renumbered: '+M.WB.pages.map(p=>p.name).join(', '));
         M.log('warn','board page deleted: '+id+' ('+gone.size+' objects removed)');
         break;
@@ -6082,7 +6106,7 @@ M.WB = {
         M.log('info','canvas mode → '+M.WB.mode);
         break;
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
-      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.toast('warn',M.t('wb_closed_ev')); break;
+      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.WB.saveLocal(); M.toast('warn',M.t('wb_closed_ev')); break;
     }
     M.WB.refreshUI(); M.bus.emit('members'); M.bus.emit('wbPeers');
   },
@@ -6598,6 +6622,7 @@ M.App = {
     try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
     M.State.self.id=M.T.selfId;
     M.Chat.restoreLocal();
+    M.WB.restoreLocal();   /* the board survives a refresh — objects, pages, and canvas mode come back */
     M.App._inRoom=true;
     M.lobbyMsg('');   /* no stale lobby text survives into a live session */
     M.UI.enterApp();
@@ -7196,7 +7221,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!crypto.subtle){ M.lobbyMsg('⚠ Insecure context: HTTPS is required for full functionality (crypto, media).',true); }
     window.addEventListener('error',e=>M.log('err','uncaught: '+(e.message||e.error)));
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
-    addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} });
+    addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} });
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} } });
     M.__booted=true;
     const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · Developed by Naser AlWatani';
     const vt=M.$('#verTag');
