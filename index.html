@@ -1307,7 +1307,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.34.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.34.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1870,9 +1870,10 @@ M.Admin = {
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
-    const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){} };
-    fire(); if(target==null) setTimeout(fire,1200);
-    M.log('info','admin cmd → '+name+(target?' → '+M.fmt.idShort(target):''));
+    const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){ M.log('err','cmd '+name+' send failed: '+e.message); } };
+    /* termination is the one command that must not be lost — triple retransmit */
+    (name==='end' ? [0,1200,2600] : [0,1200]).forEach(d=>setTimeout(fire,d));
+    M.log(name==='end'?'warn':'info','admin cmd → '+name+(target?' → '+M.fmt.idShort(target):''));
     if(target==null) M.Admin.dispatch(body, M.State.self.id); // apply locally
     return true;
   },
@@ -1910,7 +1911,10 @@ M.Admin = {
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); } B.emit('kick',body); break;
       case 'unban': M.State.bans=M.State.bans.filter(f=>f!==body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); B.emit('bans'); break;
       case 'end':
-        if(M.State.room){ safeDel(localStorage,'mj.wb.'+M.State.room.code); safeDel(localStorage,'mj.timer.'+M.State.room.code); }
+        /* Terminate = destroy, on every device: wipe ALL traces of this room
+           (admin key, name, topic, chat, board, timer, bans, grace) so the room
+           is gone as if it never existed — rejoining the code finds nothing. */
+        if(M.State.room) M.App.purgeRoom(M.State.room.code);
         M.State.timerUntil=0; B.emit('timer'); B.emit('roomEnd'); break;
       case 'timer':
         M.State.timerUntil=body.until||0;
@@ -2112,6 +2116,7 @@ M.Net = {
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => {
       if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
+      if(m.cmd==='end') M.log('warn','TERMINATE received & verified from admin '+M.fmt.idShort(peerId));
       const key=m.from+':'+m.seq;                                  /* retransmissions are safe: duplicates are dropped */
       if(M.Admin._seen.has(key)) return;
       M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
@@ -6278,6 +6283,7 @@ M.App = {
     M.log('info','entered room '+code+' ('+(M.Crypto.has()?'E2EE':'plaintext signaling')+')');
   },
   backToLobby(flag){
+    M.log('info','backToLobby('+(flag||'leave')+') — tearing down calls, sending bye');
     try{ [...M.Call.sessions.values()].forEach(s=>M.Call.teardown(s.id)); }catch(e){}
     try{ if(M.Net.A.bye) M.Net.A.bye.send({ts:Date.now()}); }catch(e){}   /* announce departure… */
     setTimeout(()=>{                                       /* …give it time to flush, then exit in place (no page reload — works everywhere, even sandboxed previews) */
@@ -6771,6 +6777,7 @@ M.bus.on('kickAsk',p=>{
 });
 M.bus.on('roomEnd',(msg)=>{
   if(M.App._ending) return; M.App._ending=true;
+  M.log('warn','roomEnd fired → leaving room in 1.8s');
   M.toast('err',msg||M.t('sys_room_end'),'',{ms:6000});
   setTimeout(()=>M.App.backToLobby('ended'),1800);
 });
