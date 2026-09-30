@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.44.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.45.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2005,11 +2005,9 @@ M.Admin = {
     M.bus.emit('members'); M.bus.emit('ccRefresh');
     M.log('warn','stored Admin identity is stale for this room instance — demoted to member');
   },
-  /* deterministic self-confirmation, no timers: a restored identity becomes active
-     only when this device PROVES it belongs to the current instance — either by
-     decrypting this room's traffic (it holds this instance's E2EE key) or by
-     observing a live Admin broadcasting the same rid. A stale device joining a
-     reused code can do neither, so it stays a member forever. */
+  /* instance confirmation via rid only (never via the room key): seeing a live Admin
+     broadcast our own rid confirms we belong to this instance. A conflicting rid
+     demotes us; silence proves nothing and grants nothing. */
   confirmSelf(){
     if(!M.Admin.pending) return;
     M.Admin.pending=false;
@@ -2063,8 +2061,8 @@ M.Admin = {
     /* target = send to ONE peer (state sync) without local re-apply;
        every command is retransmitted once so a dropped packet can never lose an admin action */
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
-    if(M.Admin.pending) return false;   /* restored identity acts only after the room confirms it */
-    /* admin commands are always ECDSA-signed — there is no unsigned path */
+    /* admin commands are always ECDSA-signed; members decide trust by verifying the
+       signature against the accepted Admin pin — never from the room key */
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
@@ -2244,7 +2242,7 @@ M.Net = {
       M.Dupe.check(peerId,d);
       if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
-      if(M.Admin.priv && !M.Admin.pending && M.State.room && (M.State.wb.open || M.State.timerUntil)){
+      if(M.Admin.priv && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
         M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
@@ -2256,7 +2254,7 @@ M.Net = {
     M.Net.A.probe.onMessage = (d,{peerId}) => {
       if(d?.t==='q'){
         M.log('info','[discovery] existence question received from '+M.fmt.idShort(peerId)+' — answering ack');
-        try{ M.Net.send('probe',{t:'ack',adm:!!M.Admin.priv&&!M.Admin.pending},peerId); }catch(e){}
+        try{ M.Net.send('probe',{t:'ack',adm:!!M.Admin.priv},peerId); }catch(e){}
       } else if(d?.t==='ack' && M.Net._probeResolve){
         M.log('info','[discovery] existence ACK received from '+M.fmt.idShort(peerId)+' — room FOUND');
         M.Net._probeResolve();
@@ -2322,13 +2320,11 @@ M.Net = {
     M.Net.A.type.onMessage = (d,{peerId}) => { if(d&&d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d&&d.to}); };
 
     /* encrypted app channels: chat / wb / ft control */
-    const wrap = fn => async (d,meta)=>{ let p=d; let decrypted=false;
-      if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){ try{ p=await M.Crypto.dec(d.e); decrypted=true; }catch(e){ M.log('warn','decrypt failed'); return; } }
-      /* decrypting this room's traffic proves this device holds this instance's key —
-         the deterministic proof a restored Admin identity needs to become active */
-      if(decrypted) M.Admin.confirmSelf();
-      /* in an E2EE room, anything that arrived unencrypted is from a keyless joiner —
-         flag it as unverified so injected plaintext is never mistaken for trusted content */
+    const wrap = fn => async (d,meta)=>{ let p=d;
+      if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){ try{ p=await M.Crypto.dec(d.e); }catch(e){ M.log('warn','decrypt failed'); return; } }
+      /* NOTE: successful decryption only proves membership (possession of the room key).
+         Admin AUTHORITY is never inferred from it — it comes solely from ECDSA-signed
+         commands whose public key matches the accepted Admin pin for this instance. */
       if(p && M.Crypto.has() && !(d&&d.e) && p.text && !p.sys) p._plain=true;
       fn(p,meta); };
     M.Net.A.chat.onMessage = wrap((d,{peerId})=>{ if(d&&d.name) M.Members.adopt(peerId,d.name); M.bus.emit('chatIn',{...d,peerId}); });
@@ -2402,7 +2398,7 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    const amAdmin=!!M.Admin.priv && !M.Admin.pending;   /* a pending identity claims nothing until confirmed */
+    const amAdmin=!!M.Admin.priv;   /* authority is enforced at receivers via pin verification */
     M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.Admin.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
@@ -6426,17 +6422,23 @@ M.WB = {
       return;
     }
     if(d.t==='req'){
-      if(M.Admin.priv && !M.Admin.pending){ setTimeout(()=>M.WB.sendState(from),60); }   /* Admin: authoritative answer */
+      if(M.Admin.priv){ setTimeout(()=>M.WB.sendState(from),60); }   /* receivers verify the Admin pin, not the claim */
       else if(!M.WB.adminOnline() && M.WB.objs.size>0){                          /* Admin absent: peer fallback only */
         setTimeout(()=>{ if(!M.WB.adminOnline() && Math.random()<0.5) M.WB.sendState(from); },700+Math.random()*900);
       }
       return;
     }
     if(d.t==='state'){
-      const fromAdmin=!!d.admin;
-      /* Admin state is authoritative: apply unconditionally. Peer state keeps the rev guard. */
+      /* Board authority rides on the authenticated Admin pin, NOT on decryption:
+         a sender counts as Admin only if its pin matches the one we accepted for
+         this instance (from the invite link, or the first verified Admin command).
+         Holding the room key alone never grants board authority. */
+      if(d.admin && d.pin){
+        if(!M.State.roomPubPin) M.State.roomPubPin=d.pin;   /* adopt the first authenticated Admin pin */
+      }
+      const fromAdmin=!!d.admin && (!M.State.roomPubPin || d.pin===M.State.roomPubPin);
       if(!fromAdmin && d.rev!=null && d.rev<=M.WB.rev && !d.force && M.WB.objs.size>0) return;
-      if(fromAdmin) M.log('info','authoritative board state received from Admin');
+      if(fromAdmin) M.log('info','authoritative board state received from verified Admin');
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
       if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
@@ -6455,7 +6457,9 @@ M.WB = {
   },
   sendState(target){
     const objects=[...M.WB.objs.values()];
-    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:!!M.Admin.priv},target);
+    /* admin: carries the sender's Admin pin so receivers can verify board authority
+       independently of the room encryption key (delegation-ready) */
+    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:!!M.Admin.priv,pin:M.Admin.priv?M.Admin.pubPin():undefined},target);
   },
   maybeReqState(){
     /* request recovery when the board is open and either empty, or an authoritative
