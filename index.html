@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.46.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.46.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2117,7 +2117,7 @@ M.Admin = {
       case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); break;
       case 'topic':
         M.State.room.topic=String(body.topic||'').slice(0,60);
-        if(M.Admin.priv) M.Store.set('topic.'+M.State.room.code,M.State.room.topic);
+        if(M.Perms.isAdmin()) M.Store.set('topic.'+M.State.room.code,M.State.room.topic);
         M.UI.roomSub();
         if(M.State.room.topic) M.bus.emit('sysmsg',{text:M.t('topic_set',{n:M.State.room.topic})});
         M.log('info','room topic → '+(M.State.room.topic||'(cleared)'));
@@ -2135,7 +2135,7 @@ M.Admin = {
         M.State.timerUntil=0; B.emit('timer'); B.emit('roomEnd'); break;
       case 'timer':
         M.State.timerUntil=body.until||0;
-        if(M.Admin.priv && M.State.room){
+        if(M.Perms.isAdmin() && M.State.room){
           if(M.State.timerUntil) M.Store.set('timer.'+M.State.room.code,M.State.timerUntil);
           else safeDel(localStorage,'mj.timer.'+M.State.room.code);
         }
@@ -2143,7 +2143,7 @@ M.Admin = {
         B.emit('timer'); M.log('info','session timer → '+(body.until?Math.round((body.until-Date.now())/1000)+'s':'stopped')); break;
       case 'wbCtrl':
         M.bus.emit('wbCtrl',body);
-        if(M.Admin.priv && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
+        if(M.Perms.isAdmin() && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
           M.Store.set('wb.'+M.State.room.code,{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,cvm:M.WB.mode});
         break;
     }
@@ -2204,7 +2204,7 @@ M.Net = {
     /* redundant signaling relays — if one broker dies, the others keep the room alive */
     const custom=M.Store.get('broker');
     cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
-    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, jt:M.State.joinedAt||0, ts:Date.now() });
+    const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, jt:M.State.joinedAt||0, ts:Date.now() });
 
     M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
       onJoinError: d => {
@@ -2228,7 +2228,7 @@ M.Net = {
         const {data}=await receive();
         if(!data || typeof data!=='object') throw new Error('bad handshake');
         if(data.fp && M.State.bans.includes(data.fp)) { M.log('warn','rejected banned peer '+peerId); throw new Error('banned'); }
-        if(M.State.perms?.roomLocked && !data.adm && M.Admin.priv){ M.log('warn','room locked — rejecting '+peerId); throw new Error('locked'); }
+        if(M.State.perms?.roomLocked && !data.adm && M.Perms.isAdmin()){ M.log('warn','room locked — rejecting '+peerId); throw new Error('locked'); }
         M.Net._early.set(peerId,data);
       }
     });
@@ -2264,7 +2264,7 @@ M.Net = {
       M.Dupe.check(peerId,d);
       if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
-      if(M.Admin.priv && M.State.room && (M.State.wb.open || M.State.timerUntil)){
+      if(M.Perms.isAdmin() && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
         M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
@@ -2309,7 +2309,7 @@ M.Net = {
       M.Members.upsert(peerId,patch);
       /* reconciliation: the admin's heartbeat carries board state, so a member who missed
          the open/close command self-corrects within one heartbeat (~12 s) */
-      const iAmAdmin=!!M.Admin.priv;
+      const iAmAdmin=M.Perms.isAdmin();
       /* adopt the earliest room deadline any peer knows about — keeps all members in sync */
       if(d && d.gu && !iAmAdmin && d.gu>Date.now() && (!M.Grace.until || d.gu<M.Grace.until)){
         M.Grace.start(d.gu,'synced from '+M.fmt.idShort(peerId));
@@ -2476,7 +2476,7 @@ M.Net = {
   /* restart the transport toward one peer and re-announce ourselves to them directly */
   healPeer(pid){
     try{ const pc=M.Net.room?.getPeers?.()?.[pid]; if(pc) pc.restartIce?.(); M.log('info','ICE restart toward '+M.fmt.idShort(pid)); }catch(e){}
-    try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:!!M.Admin.priv,v:M.Version},pid); }catch(e){}
+    try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:M.Perms.isAdmin(),v:M.Version},pid); }catch(e){}
   },
   /* ask the namespace "is anyone home?" — the question is RETRIED until a
      transport actually exists, and any ack (or any peer simply appearing)
@@ -3376,7 +3376,7 @@ M.UI = {
     el.classList.toggle('terr',rem<=60&&rem>0);
     if(rem<=0 && !M.App._sessionEnded){
       M.App._sessionEnded=true;
-      if(M.Admin.priv) M.Admin.cmd('end');   /* admin broadcasts the termination… */
+      if(M.Perms.isAdmin()) M.Admin.cmd('end');   /* admin broadcasts the termination… */
       else { M.toast('err',M.t('session_ended')); setTimeout(()=>M.App.backToLobby('ended'),1600); }  /* …members end locally at the same wall-clock instant */
     }
   },
@@ -3404,7 +3404,7 @@ M.UI = {
   roomSub(){
     const el=M.$('#chatSub'); if(!el || M.State.chatTarget) return;
     const t=(M.State.room?.topic||'').trim(), c=M.State.room?.code||'';
-    const isAdmin=!!M.Admin.priv;
+    const isAdmin=M.Perms.isAdmin();
     el.classList.toggle('editable',isAdmin);
     el.title=isAdmin?M.t('topic_hint'):'';
     el.innerHTML = t
@@ -3413,7 +3413,7 @@ M.UI = {
   },
   editTopic(){
     const el=M.$('#chatSub');
-    if(!el || el.querySelector('input') || !M.Admin.priv || M.State.chatTarget) return;
+    if(!el || el.querySelector('input') || !M.Perms.isAdmin() || M.State.chatTarget) return;
     const cur=(M.State.room?.topic||'').trim();
     el.classList.remove('editable'); el.innerHTML='';
     const inp=document.createElement('input');
@@ -3517,7 +3517,7 @@ M.UI = {
         acts.appendChild(mk(M.Icons.cam,M.t('video'),()=>M.Call.safeStart(p.id,'video')));
         acts.appendChild(mk(M.Icons.file,M.t('send_file'),()=>{ if(M.Perms.denyToast('filePriv')) M.FT._quickFile(p.id); }));
       }
-      if(M.Admin.priv && p.id!==M.State.self.id){
+      if(M.Perms.isAdmin() && p.id!==M.State.self.id){
         acts.appendChild(mk('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M9 8l7 3-3 1.2L11.5 15z" stroke-linejoin="round"/></svg>',M.t('rc_btn'),()=>M.RC.request(p.id)));
         acts.appendChild(mk('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>',M.t('rd_btn'),()=>M.RC.requestNative(p.id)));
         acts.appendChild(mk(M.Icons.x,M.t('remove'),()=>M.bus.emit('kickAsk',p),true));
@@ -3546,12 +3546,12 @@ M.UI = {
         M.State.self.name=nv.slice(0,24);
         M.State.self.fp=M.SHA.create().update(M.te.encode(nv+'|'+navigator.userAgent)).hex().slice(0,16);
         const av=M.$('#selfAvatar'); av.textContent=M.initials(nv); av.style.background=M.avatarBg(nv);
-        try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){}
-        const again=()=>{ try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:!!M.Admin.priv, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){} };
+        try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){}
+        const again=()=>{ try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){} };
         setTimeout(again,1200); setTimeout(again,3500);
         M.Net.hbTick();
         /* the room name is derived from the Admin's name — keep it in lockstep */
-        if(M.Admin.priv && M.State.room){
+        if(M.Perms.isAdmin() && M.State.room){
           M.State.room.name=M.t('room_of',{n:nv});
           M.Store.set('rname.'+M.State.room.code,M.State.room.name);
           M.UI.roomName();
@@ -3574,7 +3574,7 @@ M.UI = {
     M.$('#btnBoard').classList.toggle('hidden',!authAdmin);
     M.Grace.settle=Date.now();
     /* resume a room-level deadline that survived our leave — the timer stays visible across rejoins */
-    if(!M.Admin.priv && M.State.room){
+    if(!M.Perms.isAdmin() && M.State.room){
       const gu=M.Store.get('grace.'+M.State.room.code);
       const now2=Date.now();
       if(gu && gu>now2-M.Grace.PERIOD){
@@ -3592,10 +3592,10 @@ M.UI = {
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#chatSub').onclick=()=>M.UI.editTopic();   /* admin-only inline topic editor; members see a static caption */
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
-    if(M.Admin.priv) M.State.roomEnc=M.Crypto.has();   /* the creator knows the room's encryption state immediately */
+    if(M.Perms.isAdmin()) M.State.roomEnc=M.Crypto.has();   /* the authenticated creator knows the room's encryption state */
     M.UI.encBadge();
     M.$('#selfName').textContent=M.State.self.name;
-    if(M.Admin.priv) M.$('#selfName').insertAdjacentHTML('beforeend',M.Icons.crown);
+    if(M.Perms.isAdmin()) M.$('#selfName').insertAdjacentHTML('beforeend',M.Icons.crown);
     M.$('#selfIdLbl').textContent=M.fmt.idShort(M.State.self.id)+' · '+M.Platform.os+' '+M.Platform.br;
     const av=M.$('#selfAvatar'); av.textContent=M.initials(M.State.self.name); av.style.background=M.avatarBg(M.State.self.name);
     M.Chat.switchTarget(null);
@@ -4361,7 +4361,7 @@ M.Call = {
     btn(s.muted?M.Icons.micOff:M.Icons.mic, s.muted?'off':'', s.muted?M.t('unmute'):M.t('mute'), ()=>M.Call.toggleMute(s), !s.muted);
     if(s.kind==='video') btn(s.camOff?M.Icons.cam:M.Icons.cam, s.camOff?'off':'', s.camOff?M.t('cam_on'):M.t('cam_off'), ()=>M.Call.toggleCam(s), !s.camOff);
     if(!M.Platform.mobile) btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>','', s.sharing?M.t('stop_share'):M.t('screen_share'), ()=>M.Call.toggleScreen(s), s.sharing);
-    if(M.Admin.priv){
+    if(M.Perms.isAdmin()){
       const on=M.Rec.active?.callId===s.id;
       btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>',on?'off':'',on?M.t('rec_stop'):M.t('rec_start'),()=>on?M.Rec.stop():M.Rec.start(s.id),on);
     }
@@ -6220,7 +6220,7 @@ M.WB = {
   /* is an Admin currently reachable? When yes, the Admin alone answers state
      requests — a random member can never overwrite the board with older state. */
   adminOnline(){
-    if(M.Admin.priv) return true;
+    if(M.Perms.isAdmin()) return true;
     for(const p of M.State.peers.values()){ if(p.adm && p.status==='online') return true; }
     return false;
   },
@@ -6234,7 +6234,7 @@ M.WB = {
   applyMode(){
     const changed=M.WB._lastMode!==M.WB.mode; M.WB._lastMode=M.WB.mode;
     M.$$('#wbMode [data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===M.WB.mode));
-    const sw=M.$('#wbMode'); if(sw) sw.classList.toggle('hidden',!M.Admin.priv);
+    const sw=M.$('#wbMode'); if(sw) sw.classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.WB.inA4()){
       /* light ink would vanish on white paper — nudge it to black on entering A4 */
       const c=(M.WB.color||'').replace('#','');
@@ -6259,7 +6259,7 @@ M.WB = {
   renderPages(){
     const box=M.$('#wbPages'); if(!box) return;
     box.innerHTML='';
-    const isAdmin=!!M.Admin.priv;
+    const isAdmin=M.Perms.isAdmin();
     M.WB.pages.forEach(p=>{
       const c=M.el('button','wb-pg'+(p.id===M.WB.pageId?' on':''));
       c.appendChild(document.createTextNode(p.name));
@@ -6493,12 +6493,12 @@ M.WB = {
     const objects=[...M.WB.objs.values()];
     /* admin: carries the sender's Admin pin so receivers can verify board authority
        independently of the room encryption key (delegation-ready) */
-    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:!!M.Admin.priv,pin:M.Admin.priv?M.Admin.pubPin():undefined},target);
+    M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),pin:M.Perms.isAdmin()?M.Admin.pubPin():undefined},target);
   },
   maybeReqState(){
     /* request recovery when the board is open and either empty, or an authoritative
        Admin is online whose state should replace any stale local copy */
-    if(M.State.wb.open && !M.Admin.priv && (M.WB.objs.size===0 || M.WB.adminOnline())) M.Net.sendEnc('wb',{t:'req'});
+    if(M.State.wb.open && !M.Perms.isAdmin() && (M.WB.objs.size===0 || M.WB.adminOnline())) M.Net.sendEnc('wb',{t:'req'});
   },
 
   /* ---------- admin control ---------- */
@@ -6527,7 +6527,7 @@ M.WB = {
         if(b.on){
           M.toast('info',M.t('wb_opened'));
           M.WB.maybeReqState();
-          if(!M.Admin.priv) M.UI.setTab('board');   /* members land on the board the moment the admin opens it */
+          if(!M.Perms.isAdmin()) M.UI.setTab('board');   /* members land on the board the moment the admin opens it */
         } else { M.toast('warn',M.t('wb_closed_ev')); M.WB.commitText(); }
         break;
       case 'mode': W.mode=b.m; M.toast('info',M.t('wb_mode_chg',{m:M.t(b.m==='admin'?'admin_only':b.m==='view'?'view_only':'collab')})); break;
@@ -6535,7 +6535,7 @@ M.WB = {
       case 'images': W.images=!!b.on; break;
       case 'export': W.export=!!b.on; break;
       case 'editors': W.editors=b.map||{}; break;
-      case 'clear': M.WB.clearPage(M.WB.pageId,!!M.Admin.priv); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
+      case 'clear': M.WB.clearPage(M.WB.pageId,M.Perms.isAdmin()); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
       case 'pg-add':
         if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){
           const at=(typeof b.pg.idx==='number'&&b.pg.idx>=0)?Math.min(b.pg.idx,M.WB.pages.length):-1;
@@ -6583,18 +6583,18 @@ M.WB = {
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit'].includes(b.id)) return; b.disabled = open? !edit : true; });
     M.$('#wbColor').disabled=!edit||!open; M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
-    M.$('#wbClear').classList.toggle('hidden',!M.Admin.priv);
-    if(M.Admin.priv) M.$('#wbClear').disabled=!open||M.State.wb.locked;
+    M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
+    if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
     M.$('#wbExport').disabled = !open || !M.Perms.can('wbExport').ok;
     M.$('#wbPdf').disabled = !open || !M.Perms.can('wbExport').ok;
     const badge=M.$('#wbModeBadge');
-    if(open && !M.Admin.priv){
+    if(open && !M.Perms.isAdmin()){
       badge.classList.remove('hidden');
       if(M.State.wb.locked){ badge.className=''; badge.id='wbModeBadge'; badge.classList.add('lock'); badge.textContent='🔒 '+M.t('lock_board'); }
       else if(!edit){ badge.className=''; badge.id='wbModeBadge'; badge.classList.add('view'); badge.textContent=M.t('view_only'); }
       else badge.classList.add('hidden');
     } else badge.classList.add('hidden');
-    if(open && !edit && !M.Admin.priv){
+    if(open && !edit && !M.Perms.isAdmin()){
       M.$('#boardOffTitle').textContent=M.t('board_viewonly');
     }
     M.UI.badges();
@@ -6621,7 +6621,7 @@ M.WB = {
   _runOp(op){
     if(op.t==='up'){ M.WB.send({t:'up',o:op.o}); M.WB.applyUp(op.o); }
     else if(op.t==='del'){ M.WB.send({t:'del',id:op.id}); M.WB.localDel(op.id); }
-    else if((op.t==='pg-add'||op.t==='pg-del') && M.Admin.priv){
+    else if((op.t==='pg-add'||op.t==='pg-del') && M.Perms.isAdmin()){
       M.Admin.cmd('wbCtrl',{sub:op.t,pg:op.pg});
     }
     M.WB.dirty=true;
@@ -7035,7 +7035,7 @@ M.App = {
       const gu=M.Store.get('grace.'+code);
       const bypass=knownAdmin || (gu && gu>Date.now());
       M.Net.onProgress=m=>M.lobbyMsg(m);
-      try{ await M.Net.join(code,{isCreator:!!M.Admin.priv}); }finally{ M.Net.onProgress=null; }
+      try{ await M.Net.join(code,{isCreator:M.Perms.isAdmin()}); }finally{ M.Net.onProgress=null; }
       M.State.self.id=M.T.selfId;
       if(!bypass){
         /* someone must answer for the room to exist — a terminated or unknown code
@@ -7060,27 +7060,27 @@ M.App = {
         }
       }
       history.replaceState(null,'',M.App.inviteUrl());
-      await M.App.enter(code,!!M.Admin.priv);
+      await M.App.enter(code,M.Perms.isAdmin());
     }catch(e){ M.lobbyMsg(e.message||String(e),true); }
     M.$('#btnJoin').disabled=false;
   },
   _inRoom:false,
   async enter(code,isCreator){
     M.State.joinedAt=Date.now();
-    M.State.self.admin=!!M.Admin.priv;
+    M.State.self.admin=M.Perms.isAdmin();
     M.State.bans=M.Store.get('bans.'+code)||[];
     M.State.perms=M.permsDefault();
     M.App._sessionEnded=false; M.App._ending=false;
     /* session continuity: an admin refresh restores the board's open/mode/lock state; everyone restores a running timer */
-    if(M.Admin.priv){
+    if(M.Perms.isAdmin()){
       const ws=M.Store.get('wb.'+code);
       if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; }
     }
     const tu=M.Store.get('timer.'+code);
     if(tu && tu>Date.now()) M.State.timerUntil=tu;
     /* room name: admins persist & default it; members receive it via snapshot/heartbeat */
-    if(!M.State.room.name) M.State.room.name=M.Admin.priv?M.t('room_of',{n:M.State.self.name}):'';
-    if(M.Admin.priv && M.State.room.name) M.Store.set('rname.'+code,M.State.room.name);
+    if(!M.State.room.name) M.State.room.name=M.Perms.isAdmin()?M.t('room_of',{n:M.State.self.name}):'';
+    if(M.Perms.isAdmin() && M.State.room.name) M.Store.set('rname.'+code,M.State.room.name);
     else { const rn=M.Store.get('rname.'+code); if(rn) M.State.room.name=rn; }
     const tp=M.Store.get('topic.'+code);
     if(tp) M.State.room.topic=tp;
@@ -7105,7 +7105,7 @@ M.App = {
     try{ M.WB.restoreClip(); }catch(e){}
     /* ask the room to backfill anything this device missed while it was away */
     setTimeout(()=>{ try{ M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },900);
-    M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Admin.priv?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
+    M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Perms.isAdmin()?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
     M.log('info','entered room '+code+' ('+(M.Crypto.has()?'E2EE':'plaintext signaling')+')');
   },
   backToLobby(flag){
@@ -7211,7 +7211,7 @@ M.App.tombstones = function(){
 /* ---------------- Control Center ---------------- */
 M.CC = {
   open(){
-    if(!M.Admin.priv) return;
+    if(!M.Perms.isAdmin()) return;
     M.$('#mCC').classList.add('open');
     M.CC.render();
     M.CC._diagT ??= setInterval(()=>{ if(M.$('#mCC').classList.contains('open')) M.CC.renderDiag(); },2500);
@@ -7275,7 +7275,7 @@ M.CC = {
     M.FT.recvs.forEach(r=>{ fn++; fb.appendChild(M.CC.xferRow(r,'recv')); });
     if(fn===0) fb.appendChild(M.el('div','dim','—'));
     /* security */
-    M.$('#ccAdminKey').textContent=M.Admin.priv?'ECDSA P-256 ✓ (private key in this browser)':'member (no admin key)';
+    M.$('#ccAdminKey').textContent=!M.Admin.priv?'member (no admin key)':(M.Admin.pending?'ECDSA P-256 key present — awaiting instance authentication':'ECDSA P-256 ✓ authenticated Admin');
     M.$('#ccPubFp').textContent=M.State.roomPubStr? M.SHA.create().update(M.te.encode(M.State.roomPubStr)).hex().slice(0,20):'—';
     M.$('#ccContentKey').textContent=M.Crypto.has()?'AES-256-GCM · key in invite fragment ✓':'off ('+M.t('open')+')';
     const bans=M.$('#ccBans'); bans.innerHTML='';
@@ -7507,7 +7507,7 @@ M.Grace = {
     setTimeout(()=>M.Grace.eval(),9000);   /* covers a room whose Admin was never seen */
   },
   eval(){
-    if(M.Admin.priv){ M.Grace.cancel(false); return; }   /* I am the Admin — nothing to enforce */
+    if(M.Perms.isAdmin()){ M.Grace.cancel(false); return; }   /* I am the Admin — nothing to enforce */
     if(!M.App._inRoom) return;          /* only a REAL, entered room can start a countdown — never a probe or a lobby */
     if(!M.State.room) return;
     if(Date.now()-M.Grace.settle<8000) return;                           /* let the Admin's hello land on fresh joins */
