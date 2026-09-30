@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.44.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.44.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1993,7 +1993,18 @@ M.Perms = {
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
 M.Admin = {
-  priv:null, pubJwk:null, rid:null, seq:0, _seen:new Set(),
+  priv:null, pubJwk:null, rid:null, pending:false, seq:0, _seen:new Set(),
+  /* a restored identity is untrusted until the room confirms it; a conflicting live
+     Admin (different rid) proves it stale for a reused code → drop it entirely */
+  demote(code){
+    const rid=M.Admin.rid;
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.pending=false;
+    if(code){ try{ localStorage.removeItem('mj.rid.'+code); }catch(e){} if(rid) M.KeyDB.del('admin.'+rid).catch(()=>{}); }
+    M.$('#btnCC')?.classList.add('hidden'); M.$('#btnTerm')?.classList.add('hidden'); M.$('#btnBoard')?.classList.add('hidden');
+    M.$('#selfName').innerHTML=M.State.self.name.replace(/</g,'&lt;');
+    M.bus.emit('members'); M.bus.emit('ccRefresh');
+    M.log('warn','stored Admin identity is stale for this room instance — demoted to member');
+  },
   async ensureKeys(code, isCreator){
     if(typeof crypto==='undefined' || !crypto.subtle)
       throw new Error('WebCrypto unavailable — a secure (HTTPS) connection is required to create or administer rooms.');
@@ -2009,7 +2020,8 @@ M.Admin = {
           M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
           M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
           M.Admin.rid=rid;
-          M.log('info','admin key restored for instance '+M.fmt.idShort(rid)+' (non-extractable)');
+          M.Admin.pending=true;          /* untrusted until the room confirms this instance */
+          M.log('info','admin key restored for instance '+M.fmt.idShort(rid)+' (pending confirmation)');
           return true;
         }
       }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
@@ -2036,6 +2048,7 @@ M.Admin = {
     /* target = send to ONE peer (state sync) without local re-apply;
        every command is retransmitted once so a dropped packet can never lose an admin action */
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
+    if(M.Admin.pending) return false;   /* restored identity acts only after the room confirms it */
     /* admin commands are always ECDSA-signed — there is no unsigned path */
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
@@ -2216,7 +2229,7 @@ M.Net = {
       M.Dupe.check(peerId,d);
       if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
-      if(M.Admin.priv && M.State.room && (M.State.wb.open || M.State.timerUntil)){
+      if(M.Admin.priv && !M.Admin.pending && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
         M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
@@ -2228,7 +2241,7 @@ M.Net = {
     M.Net.A.probe.onMessage = (d,{peerId}) => {
       if(d?.t==='q'){
         M.log('info','[discovery] existence question received from '+M.fmt.idShort(peerId)+' — answering ack');
-        try{ M.Net.send('probe',{t:'ack',adm:!!M.Admin.priv},peerId); }catch(e){}
+        try{ M.Net.send('probe',{t:'ack',adm:!!M.Admin.priv&&!M.Admin.pending},peerId); }catch(e){}
       } else if(d?.t==='ack' && M.Net._probeResolve){
         M.log('info','[discovery] existence ACK received from '+M.fmt.idShort(peerId)+' — room FOUND');
         M.Net._probeResolve();
@@ -2249,6 +2262,13 @@ M.Net = {
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
+      /* identity check: another live Admin with a different rid means our stored
+         identity belongs to an older instance of a reused code → discard it */
+      if(d && d.adm && d.rid && M.Admin.rid && d.rid!==M.Admin.rid && peerId!==M.State.self.id){
+        M.Admin.demote(M.State.room?.code);
+      } else if(d && d.adm && d.rid && M.Admin.rid && d.rid===M.Admin.rid && M.Admin.pending){
+        M.Admin.pending=false; M.bus.emit('members'); M.log('info','Admin identity confirmed by room instance');
+      }
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       M.Members.upsert(peerId,patch);
@@ -2363,7 +2383,8 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:!!M.Admin.priv, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
+    const amAdmin=!!M.Admin.priv && !M.Admin.pending;   /* a pending identity claims nothing until confirmed */
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.Admin.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -6386,7 +6407,7 @@ M.WB = {
       return;
     }
     if(d.t==='req'){
-      if(M.Admin.priv){ setTimeout(()=>M.WB.sendState(from),60); }              /* Admin: authoritative answer */
+      if(M.Admin.priv && !M.Admin.pending){ setTimeout(()=>M.WB.sendState(from),60); }   /* Admin: authoritative answer */
       else if(!M.WB.adminOnline() && M.WB.objs.size>0){                          /* Admin absent: peer fallback only */
         setTimeout(()=>{ if(!M.WB.adminOnline() && Math.random()<0.5) M.WB.sendState(from); },700+Math.random()*900);
       }
@@ -6941,6 +6962,9 @@ M.App = {
       await M.Admin.ensureKeys(code,false);
       M.State.room.rid=M.Admin.rid||null;   /* present only if this device created this exact instance */
       if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
+      if(M.Admin.pending){   /* no conflicting Admin within the window → this really is our room */
+        setTimeout(()=>{ if(M.Admin.pending){ M.Admin.pending=false; M.bus.emit('members'); M.log('info','Admin identity confirmed (no conflicting Admin in room)'); } },3500);
+      }
       /* Does this room exist? The returning Admin (holds the key) or a member still
          inside the recoverable window enter directly; everyone else must be answered
          by someone currently in the room — otherwise: "Room not found." */
