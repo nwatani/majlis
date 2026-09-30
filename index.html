@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.44.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.44.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1913,7 +1913,8 @@ M.KeyDB = {
     return M.KeyDB._p;
   },
   async set(k,v){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const tx=db.transaction('keys','readwrite'); tx.objectStore('keys').put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error('aborted')); }); },
-  async get(k){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const rq=db.transaction('keys').objectStore('keys').get(k); rq.onsuccess=()=>res(rq.result??null); rq.onerror=()=>rej(rq.error); }); }
+  async get(k){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const rq=db.transaction('keys').objectStore('keys').get(k); rq.onsuccess=()=>res(rq.result??null); rq.onerror=()=>rej(rq.error); }); },
+  async del(k){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const tx=db.transaction('keys','readwrite'); tx.objectStore('keys').delete(k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error('aborted')); }); }
 };
 /* Whiteboard persistence lives in IndexedDB — large boards with embedded images
    survive refresh/recovery without the localStorage size ceiling */
@@ -1992,31 +1993,39 @@ M.Perms = {
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
 M.Admin = {
-  priv:null, pubJwk:null, seq:0, _seen:new Set(),
+  priv:null, pubJwk:null, rid:null, seq:0, _seen:new Set(),
   async ensureKeys(code, isCreator){
     if(typeof crypto==='undefined' || !crypto.subtle)
       throw new Error('WebCrypto unavailable — a secure (HTTPS) connection is required to create or administer rooms.');
-    /* restore the opaque, non-extractable private-key handle from IndexedDB */
-    try{
-      const stored=await M.KeyDB.get('admin.'+code);
-      if(stored && stored.priv && stored.priv.type==='private' && stored.pubJwk){
-        M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
-        M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
-        M.log('info','admin key restored from IndexedDB (non-extractable)');
-        return true;
-      }
-    }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
+    /* The Admin key is bound to a per-instance room ID (rid), NOT the reusable 6-char
+       code. A device-local pointer (rid.<code>) is the only thing keyed by the code,
+       and it is deleted on termination — so a reused code can never restore an old key,
+       and a member can never become Admin from a stale association. */
+    const rid=M.Store.get('rid.'+code);
+    if(rid){
+      try{
+        const stored=await M.KeyDB.get('admin.'+rid);
+        if(stored && stored.priv && stored.priv.type==='private' && stored.pubJwk){
+          M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
+          M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
+          M.Admin.rid=rid;
+          M.log('info','admin key restored for instance '+M.fmt.idShort(rid)+' (non-extractable)');
+          return true;
+        }
+      }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
+    }
     if(isCreator){
-      /* private key generated non-extractable; it never leaves WebCrypto except as an
-         opaque IndexedDB handle. Only the public half is exported. If IndexedDB cannot
-         hold the key, fail securely instead of falling back to extractable material. */
+      /* fresh instance gets a fresh key: non-extractable, IndexedDB-backed, keyed by rid */
+      const newRid=M.uid(12);
       const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign']);
       const pubJwk=await crypto.subtle.exportKey('jwk',kp.publicKey);
-      try{ await M.KeyDB.set('admin.'+code,{priv:kp.privateKey,pubJwk}); }
+      try{ await M.KeyDB.set('admin.'+newRid,{priv:kp.privateKey,pubJwk}); }
       catch(e){ throw new Error('Could not securely store the admin key ('+(e&&e.name||e)+'). The room was not created.'); }
+      M.Store.set('rid.'+code,newRid);   /* device-local pointer: code → this instance */
       M.Admin.priv=kp.privateKey;
       M.Admin.pubJwk=pubJwk;
-      M.log('info','generated non-extractable admin keypair (ECDSA P-256, IndexedDB-backed)');
+      M.Admin.rid=newRid;
+      M.log('info','generated non-extractable admin keypair for instance '+M.fmt.idShort(newRid));
       return true;
     }
     return false;
@@ -6904,6 +6913,7 @@ M.App = {
       if(occupied){ M.lobbyMsg(M.t('create_busy'),true); M.$('#btnCreate').disabled=false; return; }
       M.State.room={code, created:Date.now(), isCreator:true, name:M.t('room_of',{n:M.State.self.name})};
       await M.Admin.ensureKeys(code,true);
+      M.State.room.rid=M.Admin.rid||null;
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
       if(M.$('#chkPrivate').checked && crypto.subtle){
         M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));   /* 256-bit room key */
@@ -6929,11 +6939,15 @@ M.App = {
       const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
       await M.Admin.ensureKeys(code,false);
+      M.State.room.rid=M.Admin.rid||null;   /* present only if this device created this exact instance */
       if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
       /* Does this room exist? The returning Admin (holds the key) or a member still
          inside the recoverable window enter directly; everyone else must be answered
          by someone currently in the room — otherwise: "Room not found." */
-      const knownAdmin=!!(await M.KeyDB.get('admin.'+code).catch(()=>null));   /* returning Admin holds the key in IndexedDB */
+      /* returning Admin = this device holds the instance pointer AND its key; a member
+         (or a reused code) has neither, so discovery proceeds normally */
+      const rid=M.Store.get('rid.'+code);
+      const knownAdmin=!!(rid && await M.KeyDB.get('admin.'+rid).catch(()=>null));
       const gu=M.Store.get('grace.'+code);
       const bypass=knownAdmin || (gu && gu>Date.now());
       M.Net.onProgress=m=>M.lobbyMsg(m);
@@ -7035,7 +7049,7 @@ M.App = {
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
     M.State.self.admin=false;
-    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.seq=0;
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0;
     M.Crypto.key=null;
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
@@ -7063,7 +7077,11 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    per-room artifact. Anyone on this device who later tries the code is refused.
    (Codes live client-side; a never-before-seen device has no tombstone — the
    honest limit of a serverless design.) */
-M.App.purgeRoom = function(code){
+M.App.purgeRoom = async function(code){
+  /* destroy this instance's Admin key so a reused code starts with a fresh identity */
+  const rid=M.State.room?.rid || M.Store.get('rid.'+code);
+  if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){} }
+  try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
   /* wipe every per-room artifact, then reserve the code with a 24-hour tombstone.
      HONEST SCOPE: the tombstone lives in THIS device's localStorage only. It stops
      this device from reusing or rejoining the terminated code for 24h, but a
@@ -7633,6 +7651,12 @@ document.addEventListener('DOMContentLoaded',()=>{
     document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} } });
     /* purge any extractable private-key material left in localStorage by older builds */
     try{ for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); if(k&&k.startsWith('mj.adminKey.')) localStorage.removeItem(k); } }catch(e){}
+    /* migrate: delete legacy IndexedDB admin keys keyed by the bare 6-char code (v1.44.1),
+       which a reused code could otherwise restore. Instance keys are 12-char rids. */
+    try{ M.KeyDB.open().then(db=>new Promise(res=>{ const rq=db.transaction('keys').objectStore('keys').getAllKeys(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }).then(keys=>{
+      const tx=db.transaction('keys','readwrite'), st=tx.objectStore('keys');
+      keys.forEach(k=>{ if(typeof k==='string'&&k.startsWith('admin.')&&k.length===12) st.delete(k); });
+    })).catch(()=>{}); }catch(e){}
     M.__booted=true;
     const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · Developed by Naser AlWatani';
     const vt=M.$('#verTag');
