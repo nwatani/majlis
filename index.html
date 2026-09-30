@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.45.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.45.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1567,7 +1567,9 @@ en:{
  room_locked_join:'This room is locked — the Admin is not admitting new members.', banned_join:'You cannot join this room (removed or banned).',
  rate_limited:'Too many join attempts — wait a moment and try again.',
  unverified:'Unverified', unverified_tip:'Received without this room\u2019s encryption key',
- enc_open:'OPEN', enc_e2ee_tip:'Messages, files and board are encrypted end-to-end with this room\u2019s key',
+ enc_open:'OPEN', enc_required_title:'Private room',
+ enc_required_body:'This is a private encrypted room. Use the full invitation link to access encrypted content.',
+ enc_e2ee_tip:'Messages, files and board are encrypted end-to-end with this room\u2019s key',
  enc_open_tip:'This room is intentionally Open \u2014 content travels unencrypted. Use a Private room for sensitive topics.',
  wb_save_fail:'Board is too large to save on this device \u2014 recent changes may not survive a refresh',
  join_failed:'Could not connect to the room. Check the code / invite link and your network.',
@@ -1756,7 +1758,9 @@ ar:{
  room_locked_join:'الغرفة مقفلة — المشرف لا يقبل أعضاء جدد حالياً.', banned_join:'لا يمكنك الانضمام إلى هذه الغرفة (تمت إزالتك أو حظرك).',
  rate_limited:'محاولات انضمام كثيرة — انتظر لحظة وحاول مجدداً.',
  unverified:'غير موثّقة', unverified_tip:'وصلت بدون مفتاح تشفير هذه الغرفة',
- enc_open:'مفتوحة', enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
+ enc_open:'مفتوحة', enc_required_title:'غرفة خاصة',
+ enc_required_body:'هذه غرفة خاصة مشفّرة. استخدم رابط الدعوة الكامل للوصول إلى المحتوى المشفّر.',
+ enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
  enc_open_tip:'هذه الغرفة مفتوحة عمداً — المحتوى ينتقل بدون تشفير. استخدم غرفة خاصة للمواضيع الحساسة.',
  wb_save_fail:'السبورة أكبر من أن تُحفظ على هذا الجهاز — قد لا تبقى التغييرات الأخيرة بعد التحديث',
  join_failed:'تعذّر الاتصال بالغرفة. تحقق من الرمز / رابط الدعوة ومن الشبكة.',
@@ -2033,8 +2037,11 @@ M.Admin = {
           M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
           M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
           M.Admin.rid=rid;
-          M.Admin.pending=true;          /* untrusted until the room confirms this instance */
-          M.log('info','admin key restored for instance '+M.fmt.idShort(rid)+' (pending confirmation)');
+          /* authentication for restore = cryptographic possession of the instance-bound
+             non-extractable key + the device-authored rid pointer; a conflicting live rid
+             still revokes it via demote() */
+          M.Admin.pending=false;
+          M.log('info','admin key restored & authenticated for instance '+M.fmt.idShort(rid));
           return true;
         }
       }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
@@ -2061,6 +2068,7 @@ M.Admin = {
     /* target = send to ONE peer (state sync) without local re-apply;
        every command is retransmitted once so a dropped packet can never lose an admin action */
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
+    if(M.Admin.pending) return false;   /* a pending identity sends no Admin commands until authenticated */
     /* admin commands are always ECDSA-signed; members decide trust by verifying the
        signature against the accepted Admin pin — never from the room key */
     const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
@@ -2083,10 +2091,12 @@ M.Admin = {
       const pubStr=JSON.stringify(m.pub);
       if(M.State.roomPubStr && pubStr!==M.State.roomPubStr) return false; // not this room's admin key
       if(!M.State.roomPub){
-        if(M.State.roomPubPin){
-          const fp=M.SHA.create().update(M.te.encode(pubStr)).hex().slice(0,16);
-          if(fp!==M.State.roomPubPin){ M.log('warn','admin key fingerprint mismatch — command rejected'); return false; }
-        }
+        /* NO first-seen trust: without an authenticated anchor (the invitation pin),
+           a signer is never accepted as the room's Admin. Code-only joiners have no
+           anchor, so Admin commands from unknown signers are rejected outright. */
+        if(!M.State.roomPubPin){ M.log('warn','admin command rejected — no authenticated Admin anchor (join with the full invitation link)'); return false; }
+        const fp=M.SHA.create().update(M.te.encode(pubStr)).hex().slice(0,16);
+        if(fp!==M.State.roomPubPin){ M.log('warn','admin key fingerprint mismatch — command rejected'); return false; }
         M.State.roomPub=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); M.State.roomPubStr=pubStr;
       }
       const {sig,pub,...body}=m;
@@ -2396,8 +2406,15 @@ M.Net = {
   _early:new Map(),
   send(action,obj,target){ if(target!=null) M.Net.A[action].send(obj,{target}); else M.Net.A[action].send(obj); },
   sendEnc(action,obj,target){
-    if(M.Crypto.has()){ M.Crypto.enc(obj).then(e=>M.Net.send(action,e,target)).catch(err=>M.log('err','enc send failed '+err.message)); }
-    else M.Net.send(action,obj,target);
+    if(M.Crypto.has()){ M.Crypto.enc(obj).then(e=>M.Net.send(action,e,target)).catch(err=>M.log('err','enc send failed '+err.message)); return; }
+    /* NEVER downgrade to plaintext in a Private room (or one whose encryption state is
+       still unconfirmed). Only an explicitly Open room may send plaintext. */
+    if(M.State.roomEnc!==false){
+      if(!M.Net._encBlocked){ M.Net._encBlocked=true; M.toast('warn',M.t('enc_required_title'),M.t('enc_required_body'),{ms:7000}); }
+      M.log('warn','blocked '+action+' — private/unconfirmed room without the room key');
+      return;
+    }
+    M.Net.send(action,obj,target);
   },
   hbTick(){
     if(!M.Net.connected) return;
@@ -7091,7 +7108,7 @@ M.App = {
     },500);
   },
   resetState(){
-    M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map();
+    M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map(); M.Net._encBlocked=false;
     M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
