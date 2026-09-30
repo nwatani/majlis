@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.51.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.52.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2034,6 +2034,12 @@ M.Admin = {
   confirmSelf(){
     if(!M.Admin.pending) return;
     M.Admin.pending=false;
+    /* identity authenticated for the current room: its stored rid is now the trusted
+       instance, so rid-scoped persistence may restore */
+    if(M.Admin.rid && M.State.room && !M.State.room.rid){
+      M.State.room.rid=M.Admin.rid;
+      M.App.restoreRoomLocal();
+    }
     M.$('#btnCC')?.classList.toggle('hidden',false);
     M.$('#btnTerm')?.classList.toggle('hidden',false);
     M.$('#btnBoard')?.classList.toggle('hidden',false);
@@ -2306,7 +2312,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if(M.Perms.isAdmin() && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.Admin.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -2444,7 +2450,7 @@ M.Net = {
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
     const amAdmin=M.Perms.isAdmin();   /* a pending identity never advertises itself as Admin */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.Admin.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
+    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.State.room?.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -7051,7 +7057,7 @@ M.App = {
       if(occupied){ M.lobbyMsg(M.t('create_busy'),true); M.$('#btnCreate').disabled=false; return; }
       M.State.room={code, created:Date.now(), isCreator:true, name:M.t('room_of',{n:M.State.self.name})};
       await M.Admin.ensureKeys(code,true);
-      M.State.room.rid=M.Admin.rid||null;
+      M.State.room.rid=(!M.Admin.pending && M.Admin.rid)||null;   /* creator is never pending; rid trusted immediately */
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
       if(M.$('#chkPrivate').checked && crypto.subtle){
         M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));   /* 256-bit room key */
@@ -7073,7 +7079,7 @@ M.App = {
       M.State.room={code, created:Date.now(), isCreator:false};
       /* 1 — restore the existing room-instance Admin identity from IndexedDB FIRST */
       await M.Admin.ensureKeys(code,false);
-      M.State.room.rid=M.Admin.rid||null;
+      M.State.room.rid=(!M.Admin.pending && M.Admin.rid)||null;   /* old rid stays untrusted until authenticated */
       /* 2 — determine the current room identity from the invitation URL */
       const qp=new URLSearchParams(location.search);
       const k=qp.get('k');
@@ -7223,7 +7229,7 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    current room instance id (rid) is known and trusted. skey() returns null until
    then; putRoom() no-ops; getRoom()/getRoomStore() return null. A reused 6-char
    code therefore never exposes a previous instance's data. */
-M.App.rkey = function(base){ const rid=M.Admin.rid||M.State.room?.rid; return rid? base+'.'+rid : null; };
+M.App.rkey = function(base){ const rid=M.State.room?.rid; return rid? base+'.'+rid : null; };   /* ONLY the authenticated room rid — never a pending Admin rid */
 M.App.skey = function(base){ return M.App.rkey(base); };   /* null until rid known */
 M.App.putRoom = function(base,val){ const k=M.App.skey(base); if(k) M.Store.set(k,val); };
 M.App.getRoom = function(base){ const k=M.App.skey(base); return k? M.Store.get(k):null; };
