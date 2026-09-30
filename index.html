@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.54.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.55.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1522,6 +1522,9 @@ en:{
  group_call:'Group call', board_closed:'Whiteboard is closed', board_closed_sub:'The Admin has not opened the board for this room yet.',
  board_viewonly:'The board is open, but you are in view-only mode.',
  share_sub:'Anyone with this link joins instantly as a member. You stay the Admin.', copy_link:'Copy link', more_apps:'More…', close:'Close',
+ priv_link_warn:'Private room: anyone who receives this full invitation link can access this room\u2019s encrypted content. Share it only with people you trust.',
+ priv_link_tip:'The link contains the room\u2019s decryption key \u2014 never post it publicly.',
+ open_link_tip:'anyone with the 6-character code can join manually.',
  decline:'Decline', accept:'Accept', start_group:'Start a group call', group_note:'Group calls use a peer-to-peer mesh — best with up to ~6 participants.',
  cancel:'Cancel', voice:'Voice', video:'Video', devices:'Devices', mic:'Microphone', camera:'Camera', speaker:'Speaker', apply:'Apply', dev_no_call:'Join a call first — device changes apply to live calls',
  send_to:'Send to…', confirm:'Confirm',
@@ -1582,7 +1585,8 @@ en:{
  creating:'Creating room…', joining:'Joining room…', name_required:'Please enter a display name first.', invalid_code:'Enter the 6-character room code.',
  file_offer:'{n} is sending “{f}”', file_resuming:'Resuming “{f}” where it left off', file_done:'“{f}” received — verified ✓', file_to_room:'to room', file_to:'to {n}', file_from:'from {n}',
  st_queued:'queued', st_sending:'sending', st_receiving:'receiving', st_paused:'paused', st_done:'complete', st_failed:'failed', st_canceled:'canceled', st_verify:'verifying',
- retry:'Retry', download:'Download', pause:'Pause', resume:'Resume', integrity_fail:'Integrity check failed',
+  retry:'Retry', download:'Download', pause:'Pause', resume:'Resume', integrity_fail:'Integrity check failed',
+  file_bad:'File rejected: invalid size, name, or type', file_too_many:'Too many simultaneous transfers',
  vm_title:'Voice message', vm_rec:'Recording…', vm_mic_denied:'Microphone access was denied', vm_too_short:'Too short — hold a second longer',
  vm_discarded:'Recording discarded', vm_unsup:'Voice recording is not supported in this browser', vm_msg:'Voice message',
  cap_title:'Screen capture', cap_unsup:'Screen capture is not supported in this browser',
@@ -1776,6 +1780,7 @@ ar:{
  file_offer:'يرسل {n} ملف «{f}»', file_resuming:'استئناف «{f}» من حيث توقف', file_done:'تم استلام «{f}» — تم التحقق ✓', file_to_room:'إلى الغرفة', file_to:'إلى {n}', file_from:'من {n}',
  st_queued:'في الانتظار', st_sending:'جارٍ الإرسال', st_receiving:'جارٍ الاستلام', st_paused:'متوقف مؤقتاً', st_done:'مكتمل', st_failed:'فشل', st_canceled:'أُلغي', st_verify:'جارٍ التحقق',
  retry:'إعادة المحاولة', download:'تنزيل', pause:'إيقاف', resume:'متابعة', integrity_fail:'فشل فحص السلامة',
+ file_bad:'رُفض الملف: حجم أو اسم أو نوع غير صالح', file_too_many:'عمليات نقل متزامنة أكثر من اللازم',
  vm_title:'رسالة صوتية', vm_rec:'جارٍ التسجيل…', vm_mic_denied:'تم رفض الوصول إلى المايكروفون', vm_too_short:'قصيرة جداً — سجّل لثانية على الأقل',
  vm_discarded:'تم حذف التسجيل', vm_unsup:'التسجيل الصوتي غير مدعوم في هذا المتصفح', vm_msg:'رسالة صوتية',
  cap_title:'التقاط الشاشة', cap_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح',
@@ -2223,6 +2228,15 @@ M.Crypto = {
    ===================================================================== */
 M.Net = {
   T:null, room:null, A:{}, connected:false, lastHb:new Map(), rtt:new Map(),
+  /* PINNED DEPENDENCIES (single-file deployment):
+     • @trystero-p2p/mqtt @0.25.4 — signaling (MQTT-over-WSS). Loaded from jsDelivr
+       (byte-for-byte npm mirror) as the primary source; esm.run is a transform
+       proxy and is kept ONLY as a last-resort availability fallback.
+     • jspdf @2.5.2, lamejs @1.2.1 (via CDN script), ffmpeg.wasm core @0.12.6 /
+       @ffmpeg/ffmpeg @0.12.10 / @ffmpeg/util @0.12.1 — loaded on demand.
+     All URLs are version-pinned; no floating "latest" loads. Browser dynamic
+     import() does not support SRI, so integrity relies on the pinned jsDelivr
+       npm mirror; for maximum assurance, self-host these files beside index.html. */
   async loadTrystero(){
     const urls=[
       'https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',
@@ -3023,6 +3037,14 @@ M.DB = {
 M.FT = {
   sends:new Map(), recvs:new Map(),
   CHUNK:65536, ACK_EVERY:16, WINDOW:64, MAX_PARALLEL:3,
+  /* centralized, sane limits for hostile-peer hardening */
+  L:{
+    maxFile:2*1024*1024*1024,   /* 2 GB per file */
+    maxName:260, maxType:120,
+    idRe:/^[A-Za-z0-9]{8,24}$/,
+    maxRecv:24, maxSends:24,    /* simultaneous transfer caps per room */
+    maxBuf:2*1024*1024          /* a single chunk never exceeds this */
+  },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
@@ -3173,6 +3195,13 @@ M.FT = {
       case 'offer': {
         if(d.target && d.target!==M.State.self.id) return;
         M.Members.adopt(from,d.fromName);
+        /* hostile-offer validation BEFORE any allocation */
+        if(!M.FT.L.idRe.test(d.id||'')){ M.log('warn','rejected offer: bad transfer id'); return; }
+        if(typeof d.size!=='number' || !isFinite(d.size) || d.size<=0 || d.size>M.FT.L.maxFile){ M.log('warn','rejected offer: bad size '+d.size); return; }
+        if(typeof d.name!=='string' || d.name.length>M.FT.L.maxName){ M.log('warn','rejected offer: bad filename'); return; }
+        if(typeof d.type==='string' && d.type.length>M.FT.L.maxType){ M.log('warn','rejected offer: bad mime'); return; }
+        if(M.FT.recvs.has(d.id)){ M.log('warn','rejected duplicate transfer id '+d.id); return; }
+        if(M.FT.recvs.size>=M.FT.L.maxRecv){ M.log('warn','rejected offer: too many simultaneous receives'); return; }
         const isRoom=!d.target;
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
@@ -3262,15 +3291,19 @@ M.FT = {
     }
   },
   onChunk({peerId,metadata,buf}){
-    if(!metadata?.id) return;
+    if(!metadata?.id || !M.FT.L.idRe.test(metadata.id)) return;
     const r=M.FT.recvs.get(metadata.id); if(!r) return;
+    if(r.from!==peerId){ M.log('warn','chunk rejected: not from transfer owner'); return; }  /* transfers stay bound to their creator */
+    if(typeof metadata.seq!=='number' || !isFinite(metadata.seq) || metadata.seq<0 || (metadata.seq|0)!==metadata.seq) return;
+    if(buf && buf.byteLength>M.FT.L.maxBuf) return;   /* never accept an oversized chunk */
     if(metadata.fin){
-      if(r.status==='receiving'){ r.finHash=metadata.hash; r.finAt=Date.now(); r.from=peerId;
+      if(r.status==='receiving'){ r.finHash=metadata.hash; r.finAt=Date.now();
         if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
       }
       return;
     }
     if(r.status!=='receiving') return;
+    if(metadata.seq>=M.FT._chunkCount(r.size)) return;   /* chunk index beyond the declared file */
     const seq=metadata.seq;
     if(seq<r.expected) return;                                    /* duplicate of an already-placed chunk */
     if(seq>r.expected){                                           /* arrived early — hold it, never drop it */
@@ -6012,7 +6045,9 @@ M.WB = {
   send(op){ if(M.State.wb.open){
       if(M.Perms.isAdmin()){   /* admin ops carry a real ECDSA signature bound to the current rid */
         op.rid=M.State.room?.rid||undefined;
-        M.Admin.signObj(op).then(sig=>{ op.sig=sig; M.Net.sendEnc('wb',op); }).catch(()=>{ M.Net.sendEnc('wb',op); });
+        /* fail closed: if signing fails the op is aborted, never sent unsigned */
+        M.Admin.signObj(op).then(sig=>{ op.sig=sig; M.Net.sendEnc('wb',op); })
+          .catch(e=>{ M.log('err','whiteboard op aborted — signing failed: '+(e.message||e)); });
       } else M.Net.sendEnc('wb',op);
     } M.WB.dirty=true; },
   localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave(); },
@@ -6277,9 +6312,9 @@ M.WB = {
   /* is an Admin currently reachable? When yes, the Admin alone answers state
      requests — a random member can never overwrite the board with older state. */
   adminOnline(){
-    if(M.Perms.isAdmin()) return true;
-    for(const p of M.State.peers.values()){ if(p.adm && p.status==='online') return true; }
-    return false;
+    /* adm:true from peers is an untrusted presence hint — authoritative admin-online
+       status derives only from the locally authenticated Admin identity */
+    return M.Perms.isAdmin();
   },
   clampPt(wx,wy){ return M.WB.inA4()? [M.clamp(wx,10,M.WB.A4.w-10),M.clamp(wy,10,M.WB.A4.h-10)] : [wx,wy]; },
   fitSheet(){
@@ -6555,8 +6590,10 @@ M.WB = {
     const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin()};
     if(M.Perms.isAdmin()){
       /* authoritative state is signed; receivers verify the signature against the
-         accepted Admin key — the pin identifies, the signature authorizes */
-      M.Admin.signObj(msg).then(sig=>{ msg.sig=sig; M.Net.sendEnc('wb',msg,target); }).catch(()=>{ M.Net.sendEnc('wb',msg,target); });
+         accepted Admin key — the pin identifies, the signature authorizes.
+         Fail closed: a signing failure aborts the broadcast, never sends unsigned */
+      M.Admin.signObj(msg).then(sig=>{ msg.sig=sig; M.Net.sendEnc('wb',msg,target); })
+        .catch(e=>{ M.log('err','authoritative board state aborted — signing failed: '+(e.message||e)); });
     } else M.Net.sendEnc('wb',msg,target);
   },
   maybeReqState(){
@@ -7587,14 +7624,18 @@ M.Share = {
     const url=M.App.inviteUrl();
     M.$('#shareUrl').value=url;
     M.$('#shNative').classList.toggle('hidden',!navigator.share);
-    const note=M.$('#shNote');
-    note.textContent=M.Crypto.has()
-      ? '🔐 '+M.t('secured')+': the URL fragment (#rk=…) carries the room key — share the complete link.'
-      : '🌐 '+M.t('open')+': anyone with the 6-character code can join manually.';
+    const note=M.$('#shNote'); const priv=M.Crypto.has();
+    note.innerHTML=priv
+      ? '<b style="color:var(--warn)">⚠ '+M.t('priv_link_warn')+'</b><br><span class="dim">'+M.t('priv_link_tip')+'</span>'
+      : '🌐 '+M.t('open')+': '+M.t('open_link_tip');
     M.$('#mShare').classList.remove('hidden');
+  },
+  _privWarn(){   /* one-time contextual warning for Private invitations, no rk exposed */
+    if(M.Crypto.has() && !M.Share._warned){ M.Share._warned=true; M.toast('warn',M.t('priv_link_warn'),M.t('priv_link_tip'),{ms:8000}); }
   },
   copy(){
     const url=M.App.inviteUrl();
+    M.Share._privWarn();
     (navigator.clipboard? navigator.clipboard.writeText(url) : Promise.reject()).then(()=>M.toast('ok',M.t('copy_done'),url))
       .catch(()=>{ const i=M.$('#shareUrl'); i.focus(); i.select(); try{ document.execCommand('copy'); M.toast('ok',M.t('copy_done')); }catch(e){} });
   },
@@ -7602,8 +7643,8 @@ M.Share = {
     M.$('#btnShare').onclick=()=>M.Share.open();
     M.$('#roomChip').onclick=()=>M.Share.copy();
     M.$('#shCopy').onclick=()=>M.Share.copy();
-    M.$('#shWa').onclick=()=>{ const t=M.t('share_room')+' — Majlis مجلس'; open('https://wa.me/?text='+encodeURIComponent(t+'\n'+M.App.inviteUrl()),'_blank'); };
-    M.$('#shMail').onclick=()=>{ location.href='mailto:?subject='+encodeURIComponent('Majlis مجلس — '+M.t('room')+' '+M.State.room.code)+'&body='+encodeURIComponent(M.App.inviteUrl()); };
+    M.$('#shWa').onclick=()=>{ M.Share._privWarn(); const t=M.t('share_room')+' — Majlis مجلس'; open('https://wa.me/?text='+encodeURIComponent(t+'\n'+M.App.inviteUrl()),'_blank'); };
+    M.$('#shMail').onclick=()=>{ M.Share._privWarn(); location.href='mailto:?subject='+encodeURIComponent('Majlis مجلس — '+M.t('room')+' '+M.State.room.code)+'&body='+encodeURIComponent(M.App.inviteUrl()); };
     M.$('#shNative').onclick=async ()=>{ try{ await navigator.share({title:'Majlis مجلس',url:M.App.inviteUrl()}); }catch(e){} };
   }
 };
