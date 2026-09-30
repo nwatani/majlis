@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.44.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.44.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1897,6 +1897,24 @@ M.toggleLang = () => M.applyLang(M.lang==='ar'?'en':'ar');
 
 /* ---------------- store / state ---------------- */
 M.Store = { get(k,d){ try{ const v=localStorage.getItem('mj.'+k); return v==null?d:JSON.parse(v); }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem('mj.'+k,JSON.stringify(v)); }catch(e){} } };
+/* Admin private keys live in IndexedDB as opaque, non-extractable CryptoKey handles —
+   never exported, never stringified, never written to localStorage */
+M.KeyDB = {
+  _p:null,
+  open(){
+    if(M.KeyDB._p) return M.KeyDB._p;
+    M.KeyDB._p=new Promise((res,rej)=>{
+      const rq=indexedDB.open('majlis-keys',1);
+      rq.onupgradeneeded=()=>{ const db=rq.result; if(!db.objectStoreNames.contains('keys')) db.createObjectStore('keys'); };
+      rq.onsuccess=()=>res(rq.result);
+      rq.onerror=()=>{ M.KeyDB._p=null; rej(rq.error); };
+      rq.onblocked=()=>{ M.KeyDB._p=null; rej(new Error('blocked')); };
+    });
+    return M.KeyDB._p;
+  },
+  async set(k,v){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const tx=db.transaction('keys','readwrite'); tx.objectStore('keys').put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error('aborted')); }); },
+  async get(k){ const db=await M.KeyDB.open(); return new Promise((res,rej)=>{ const rq=db.transaction('keys').objectStore('keys').get(k); rq.onsuccess=()=>res(rq.result??null); rq.onerror=()=>rej(rq.error); }); }
+};
 /* Whiteboard persistence lives in IndexedDB — large boards with embedded images
    survive refresh/recovery without the localStorage size ceiling */
 M.WBDB = {
@@ -1976,28 +1994,33 @@ M.Perms = {
 M.Admin = {
   priv:null, pubJwk:null, seq:0, _seen:new Set(),
   async ensureKeys(code, isCreator){
-    const stored=M.Store.get('adminKey.'+code);
-    try{
-      if(stored && stored.d){
-        M.Admin.priv=await crypto.subtle.importKey('jwk',stored,{name:'ECDSA',namedCurve:'P-256'},true,['sign']);
-        M.Admin.pubJwk=await M.Admin.derivePub(M.Admin.priv);
-        return true;
-      }
-    }catch(e){ M.log('warn','stored admin key import failed: '+e.message); }
     if(typeof crypto==='undefined' || !crypto.subtle)
       throw new Error('WebCrypto unavailable — a secure (HTTPS) connection is required to create or administer rooms.');
+    /* restore the opaque, non-extractable private-key handle from IndexedDB */
+    try{
+      const stored=await M.KeyDB.get('admin.'+code);
+      if(stored && stored.priv && stored.priv.type==='private' && stored.pubJwk){
+        M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
+        M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
+        M.log('info','admin key restored from IndexedDB (non-extractable)');
+        return true;
+      }
+    }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
     if(isCreator){
-      const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+      /* private key generated non-extractable; it never leaves WebCrypto except as an
+         opaque IndexedDB handle. Only the public half is exported. If IndexedDB cannot
+         hold the key, fail securely instead of falling back to extractable material. */
+      const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+      const pubJwk=await crypto.subtle.exportKey('jwk',kp.publicKey);
+      try{ await M.KeyDB.set('admin.'+code,{priv:kp.privateKey,pubJwk}); }
+      catch(e){ throw new Error('Could not securely store the admin key ('+(e&&e.name||e)+'). The room was not created.'); }
       M.Admin.priv=kp.privateKey;
-      M.Admin.pubJwk=await crypto.subtle.exportKey('jwk',kp.publicKey);
-      const privJwk=await crypto.subtle.exportKey('jwk',kp.privateKey);
-      M.Store.set('adminKey.'+code,privJwk);
-      M.log('info','generated room admin keypair (ECDSA P-256)');
+      M.Admin.pubJwk=pubJwk;
+      M.log('info','generated non-extractable admin keypair (ECDSA P-256, IndexedDB-backed)');
       return true;
     }
     return false;
   },
-  async derivePub(priv){ const jwk=await crypto.subtle.exportKey('jwk',priv); return {kty:jwk.kty,crv:jwk.crv,x:jwk.x,y:jwk.y}; },
   pubB64(){ return M.Admin.pubJwk ? M.b64url(M.te.encode(JSON.stringify(M.Admin.pubJwk))) : ''; },
   pubPin(){ return M.Admin.pubJwk ? M.SHA.create().update(M.te.encode(JSON.stringify(M.Admin.pubJwk))).hex().slice(0,16) : ''; },
   async cmd(name, payload={}, target){
@@ -6910,7 +6933,7 @@ M.App = {
       /* Does this room exist? The returning Admin (holds the key) or a member still
          inside the recoverable window enter directly; everyone else must be answered
          by someone currently in the room — otherwise: "Room not found." */
-      const knownAdmin=!!M.Store.get('adminKey.'+code);
+      const knownAdmin=!!(await M.KeyDB.get('admin.'+code).catch(()=>null));   /* returning Admin holds the key in IndexedDB */
       const gu=M.Store.get('grace.'+code);
       const bypass=knownAdmin || (gu && gu>Date.now());
       M.Net.onProgress=m=>M.lobbyMsg(m);
@@ -7608,6 +7631,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
     addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} });
     document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} } });
+    /* purge any extractable private-key material left in localStorage by older builds */
+    try{ for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); if(k&&k.startsWith('mj.adminKey.')) localStorage.removeItem(k); } }catch(e){}
     M.__booted=true;
     const vl=M.$('#verLbl'); if(vl) vl.textContent='v'+M.Version+' · Developed by Naser AlWatani';
     const vt=M.$('#verTag');
