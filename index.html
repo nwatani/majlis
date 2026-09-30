@@ -366,6 +366,25 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .msg.dm-tag .m-body{border-color:rgba(111,179,242,.45)}
 #typingRow{padding:2px 20px 4px;font-size:12px;color:var(--teal);font-style:italic;height:22px;flex:none}
 #composer{display:flex;align-items:flex-end;gap:9px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex:none;border-top:1px solid var(--line)}
+/* voice message bubbles + recording chip */
+.msg .m-body.vm{padding:10px 12px;min-width:250px}
+.vm-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.vm-ico{width:30px;height:30px;border-radius:50%;background:rgba(56,207,182,.15);color:var(--teal);display:grid;place-items:center;flex:none}
+.vm-ico svg{width:15px;height:15px}
+.vm-dur{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:600}
+.vm-who{font-size:11px;color:var(--dim);margin-inline-start:auto}
+.msg .m-body.vm audio{width:100%;height:36px}
+.vm-stat{font-size:11px}
+#recChip{display:flex;align-items:center;gap:9px;flex:1;padding:0 6px}
+#recChip .rec-dot{width:10px;height:10px;border-radius:50%;background:var(--red);animation:ledPulse 1s infinite}
+#recChip .rec-lbl{font-size:12px;color:var(--mut)}
+#recChip .mono{font-size:13px;font-weight:600;color:var(--ink)}
+#recChip .rec-x,#recChip .rec-ok{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;border:none;cursor:pointer;flex:none}
+#recChip .rec-x{background:var(--bg3);color:var(--mut)}
+#recChip .rec-x:hover{color:var(--ink)}
+#recChip .rec-ok{background:var(--teal);color:#04211c}
+#composer.recording #msgInput,#composer.recording #btnSend,#composer.recording #btnAttach{display:none}
+#btnVoice.on{background:rgba(255,97,87,.15);color:var(--red);border-color:rgba(255,97,87,.5)}
 /* ---- conversations inbox ---- */
 #btnInbox{position:relative}
 #inboxBdg{position:absolute;top:2px;inset-inline-end:2px;min-width:15px;height:15px;font-size:9px;padding:0 4px}
@@ -865,6 +884,14 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <div id="typingRow" class="hidden"><span id="typingLbl"></span></div>
         <div id="composer">
           <button class="icon-btn" id="btnAttach" title="Send file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke-linecap="round"/></svg></button>
+          <button class="icon-btn" id="btnVoice" title="Voice message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v4M8 22h8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div id="recChip" class="hidden">
+            <span class="rec-dot"></span>
+            <span class="mono" id="recTime">0:00</span>
+            <span class="rec-lbl" data-i18n="vm_rec">Recording…</span>
+            <button class="rec-x" id="recCancel" title="Discard"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button>
+            <button class="rec-ok" id="recSend" title="Send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linejoin="round"/></svg></button>
+          </div>
           <textarea class="inp" id="msgInput" rows="1" data-i18n-ph="msg_ph"></textarea>
           <button class="icon-btn pri" id="btnSend" title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linejoin="round"/></svg></button>
         </div>
@@ -1332,7 +1359,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.39.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.40.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1511,6 +1538,8 @@ en:{
  file_offer:'{n} is sending “{f}”', file_resuming:'Resuming “{f}” where it left off', file_done:'“{f}” received — verified ✓', file_to_room:'to room', file_to:'to {n}', file_from:'from {n}',
  st_queued:'queued', st_sending:'sending', st_receiving:'receiving', st_paused:'paused', st_done:'complete', st_failed:'failed', st_canceled:'canceled', st_verify:'verifying',
  retry:'Retry', download:'Download', pause:'Pause', resume:'Resume', integrity_fail:'Integrity check failed',
+ vm_title:'Voice message', vm_rec:'Recording…', vm_mic_denied:'Microphone access was denied', vm_too_short:'Too short — hold a second longer',
+ vm_discarded:'Recording discarded', vm_unsup:'Voice recording is not supported in this browser', vm_msg:'Voice message',
  perm_denied:'Not permitted', chat_disabled:'Room chat is disabled by the Admin', dm_disabled:'Private messages are disabled by the Admin',
  files_disabled:'File sharing is disabled by the Admin', calls_disabled:'Calls are disabled by the Admin', member_calls_disabled:'Only the Admin can start calls',
  notif_msg:'New message in {r}', notif_dm:'Private message from {n}', notif_file:'File received: {f}', notif_call:'Incoming call from {n}',
@@ -1689,6 +1718,8 @@ ar:{
  file_offer:'يرسل {n} ملف «{f}»', file_resuming:'استئناف «{f}» من حيث توقف', file_done:'تم استلام «{f}» — تم التحقق ✓', file_to_room:'إلى الغرفة', file_to:'إلى {n}', file_from:'من {n}',
  st_queued:'في الانتظار', st_sending:'جارٍ الإرسال', st_receiving:'جارٍ الاستلام', st_paused:'متوقف مؤقتاً', st_done:'مكتمل', st_failed:'فشل', st_canceled:'أُلغي', st_verify:'جارٍ التحقق',
  retry:'إعادة المحاولة', download:'تنزيل', pause:'إيقاف', resume:'متابعة', integrity_fail:'فشل فحص السلامة',
+ vm_title:'رسالة صوتية', vm_rec:'جارٍ التسجيل…', vm_mic_denied:'تم رفض الوصول إلى المايكروفون', vm_too_short:'قصيرة جداً — سجّل لثانية على الأقل',
+ vm_discarded:'تم حذف التسجيل', vm_unsup:'التسجيل الصوتي غير مدعوم في هذا المتصفح', vm_msg:'رسالة صوتية',
  perm_denied:'غير مسموح', chat_disabled:'عطّل المشرف دردشة الغرفة', dm_disabled:'عطّل المشرف الرسائل الخاصة',
  files_disabled:'عطّل المشرف مشاركة الملفات', calls_disabled:'عطّل المشرف المكالمات', member_calls_disabled:'المشرف فقط يمكنه بدء المكالمات',
  notif_msg:'رسالة جديدة في {r}', notif_dm:'رسالة خاصة من {n}', notif_file:'ملف مستلم: {f}', notif_call:'مكالمة واردة من {n}',
@@ -2671,7 +2702,21 @@ M.Chat = {
       const tm=M.el('span','m-time',null); tm.textContent=M.fmt.clock(m.ts);
       top.append(nm,tm); row.appendChild(top);
     }
-    if(m.file){
+    if(m.file && m.file.voice){   /* WhatsApp-style voice bubble */
+      const body=M.el('div','m-body vm');
+      const head=M.el('div','vm-head');
+      head.appendChild(M.el('span','vm-ico',M.Icons.mic));
+      head.appendChild(M.el('span','vm-dur',m.file.dur?M.fmt.dur(m.file.dur):'—'));
+      const who=M.el('span','vm-who'); who.textContent=(m.file.dir==='up'?M.t('you'):m.file.peerName);
+      head.appendChild(who);
+      body.appendChild(head);
+      const au=M.el('audio'); au.controls=true; au.preload='metadata';
+      if(m.file.url) au.src=m.file.url; else au.disabled=true;
+      body.appendChild(au);
+      const st=M.el('span','x-stat vm-stat'); st.dataset.xstat=m.file.id; st.textContent=m.file.statusLabel||''; body.appendChild(st);
+      row.appendChild(body);
+      M.Chat._fileMsgEls ??= new Map(); M.Chat._fileMsgEls.set(m.file.id,{st,row,body,meta:st});
+    } else if(m.file){
       const body=M.el('div','m-body');
       body.appendChild(M.el('div','f-ico',M.Icons.file));
       const mid=M.el('div','x-mid');
@@ -2791,6 +2836,9 @@ M.FT = {
       });
     },2000);
     M.$('#btnSendFile').onclick=()=>M.$('#fileInput').click();
+    M.$('#btnVoice').onclick=()=>M.Voice.toggle();
+    M.$('#recSend').onclick=e=>{ e.preventDefault(); M.Voice.stop(true); };
+    M.$('#recCancel').onclick=e=>{ e.preventDefault(); M.Voice.cancel(); M.toast('info',M.t('vm_title'),M.t('vm_discarded')); };
     M.$('#btnAttach').onclick=()=>{
       const t=M.State.chatTarget;
       if(t){ if(!M.Perms.denyToast('filePriv')) return; } else if(!M.Perms.denyToast('fileRoom')) return;
@@ -2825,10 +2873,11 @@ M.FT = {
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
     const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
     const t={ id, file, name:file.name, size:file.size, type:file.type||'file', target, dir:'up',
+      voice:!!(opts&&opts.voice), dur:(opts&&opts.dur)||0,
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
     M.FT.sends.set(id,t);
-    M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name},isRoom?undefined:target);
-    M.Chat.fileCard(M.Chat.key(isRoom?null:target),{id,name:t.name,size:t.size,dir:'up',peerName:isRoom?M.t('room'):M.Members.name(target),statusLabel:M.t('st_queued')});
+    M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur},isRoom?undefined:target);
+    M.Chat.fileCard(M.Chat.key(isRoom?null:target),{id,name:t.name,size:t.size,dir:'up',peerName:isRoom?M.t('room'):M.Members.name(target),statusLabel:M.t('st_queued'),voice:t.voice,dur:t.dur});
     M.log('info',`file offer → ${isRoom?'room':M.fmt.idShort(target)}: ${t.name} (${M.fmt.bytes(t.size)})`);
     M.FT.render(); M.FT.pump();
     return t;
@@ -2887,7 +2936,7 @@ M.FT = {
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
         (async()=>{
-          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', status:'receiving',
+          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', voice:!!d.voice, dur:d.dur||0, status:'receiving',
             expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
             hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
           /* ---- resume from persisted chunks (survives refresh / crash) ---- */
@@ -2908,7 +2957,7 @@ M.FT = {
             }
           }catch(e){}
           M.FT.recvs.set(r.id,r);
-          M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving')});
+          M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving'),voice:r.voice,dur:r.dur});
           if(resumeOff){ try{ M.Net.sendEnc('ft',{t:'resume',id:d.id,offset:resumeOff},from); }catch(e){} }
           M.DB.putMeta(d.id,{size:d.size,name:d.name,recv:resumeOff});
           M.toast('info',M.t(resumeOff?'file_resuming':'file_offer',{n:M.Members.name(from),f:r.name}),M.fmt.bytes(r.size));
@@ -3050,8 +3099,8 @@ M.FT = {
   _render(){
     const list=M.$('#xferList'); list.innerHTML='';
     const all=[];
-    M.FT.sends.forEach(t=>all.push({...t,_kind:'send'}));
-    M.FT.recvs.forEach(r=>all.push({...r,_kind:'recv'}));
+    M.FT.sends.forEach(t=>{ if(!t.voice) all.push({...t,_kind:'send'}); });   /* voice messages live in chat, not the Files tab */
+    M.FT.recvs.forEach(r=>{ if(!r.voice) all.push({...r,_kind:'recv'}); });
     all.sort((a,b)=>(b.startedAt||0)-(a.startedAt||0));
     M.$('#xferEmpty').classList.toggle('hidden',all.length>0);
     for(const t of all){
@@ -3351,6 +3400,64 @@ M.UI = {
 };
 M.FT._quickFile = function(peerId){
   const inp=M.$('#fileInput'); M.FT._forceTarget=peerId; inp.click();
+};
+
+/* =====================================================================
+   Voice messages — WhatsApp-style: tap the mic, record, send as an
+   inline playable bubble. Rides the chunked file transport (integrity,
+   progress, DM/room targeting) but renders as a voice bubble in chat.
+   ===================================================================== */
+M.Voice = {
+  rec:null, chunks:[], stream:null, t0:0, _iv:null, _wantSend:false, _mime:'',
+  can(){ return !!(navigator.mediaDevices?.getUserMedia && typeof MediaRecorder!=='undefined'); },
+  async toggle(){
+    if(M.Voice.rec){ M.Voice.stop(true); return; }
+    if(!M.Voice.can()){ M.toast('warn',M.t('vm_title'),M.t('vm_unsup')); return; }
+    const target=M.State.chatTarget;
+    const gate=M.Perms.can(target?'filePriv':'fileRoom');
+    if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return; }
+    try{ M.Voice.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}}); }
+    catch(e){ M.toast('err',M.t('vm_title'), e.name==='NotAllowedError'?M.t('vm_mic_denied'):(e.message||'')); return; }
+    const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    try{ M.Voice.rec=new MediaRecorder(M.Voice.stream, mime?{mimeType:mime}:undefined); }
+    catch(e){ M.Voice.stream.getTracks().forEach(t=>t.stop()); M.Voice.stream=null; M.toast('err',M.t('vm_title'),e.message||''); return; }
+    M.Voice._mime=M.Voice.rec.mimeType||'audio/webm';
+    M.Voice.chunks=[]; M.Voice.t0=Date.now(); M.Voice._wantSend=true;
+    M.Voice.rec.ondataavailable=e=>{ if(e.data&&e.data.size) M.Voice.chunks.push(e.data); };
+    M.Voice.rec.onstop=()=>M.Voice._finish();
+    M.Voice.rec.start(250);
+    M.Voice._ui(true);
+    M.$('#recTime').textContent='0:00';
+    M.Voice._iv=setInterval(()=>{ const el=M.$('#recTime'); if(el) el.textContent=M.fmt.dur((Date.now()-M.Voice.t0)/1000); },250);
+    M.log('info','voice recording started');
+  },
+  stop(send){
+    const r=M.Voice.rec; if(!r) return;
+    M.Voice._wantSend=send;
+    clearInterval(M.Voice._iv);
+    try{ r.stop(); }catch(e){ M.Voice._finish(); }
+  },
+  cancel(){ M.Voice.stop(false); },
+  _finish(){
+    const send=M.Voice._wantSend;
+    const dur=Math.round((Date.now()-M.Voice.t0)/1000);
+    const blob=new Blob(M.Voice.chunks,{type:M.Voice._mime});
+    M.Voice.chunks=[];
+    try{ M.Voice.stream?.getTracks().forEach(t=>t.stop()); }catch(e){}
+    M.Voice.stream=null; M.Voice.rec=null;
+    M.Voice._ui(false);
+    if(!send) return;
+    if(blob.size<300||dur<1){ M.toast('warn',M.t('vm_title'),M.t('vm_too_short')); return; }
+    const ext=(M.Voice._mime||'').includes('mp4')?'m4a':'webm';
+    const file=new File([blob],'voice-'+Date.now()+'.'+ext,{type:M.Voice._mime||'audio/webm'});
+    M.FT.start(file, M.State.chatTarget||'*', {voice:true,dur});
+    M.log('info','voice message sent · '+M.fmt.bytes(blob.size)+' · '+dur+'s');
+  },
+  _ui(on){
+    M.$('#recChip').classList.toggle('hidden',!on);
+    M.$('#composer').classList.toggle('recording',on);
+    M.$('#btnVoice').classList.toggle('on',on);
+  }
 };
 
 /* =====================================================================
