@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.49.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.50.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2136,16 +2136,21 @@ M.Admin = {
       if(!ok) return false;
       /* monotonic freshness per sender: a replayed (or older) seq is rejected even if
          the signature is valid and the _seen cache has wrapped */
-      const mx=M.Admin._maxSeq[m.from]||0;
+      /* replay protection persists per Admin sender + room instance, so a refresh
+         cannot reset the high-water mark and allow an old signed command to replay */
+      const map=M.Admin._maxSeq;
+      const stored=M.Store.get(M.App.skey('maxseq'))||{};
+      Object.assign(map,stored);
+      const mx=map[m.from]||0;
       if(typeof body.seq==='number' && body.seq<=mx){ M.log('warn','replayed admin command rejected (seq '+body.seq+' <= '+mx+')'); return false; }
-      if(typeof body.seq==='number') M.Admin._maxSeq[m.from]=body.seq;
+      if(typeof body.seq==='number'){ map[m.from]=body.seq; try{ M.Store.set(M.App.skey('maxseq'),map); }catch(e){} }
       return true;
     }catch(e){ return false; }
   },
   dispatch(body, from){
     const B=M.bus; const P=M.Perms.p();
     switch(body.cmd){
-      case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); break;
+      case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; try{ M.Store.set(M.App.skey('perms'),M.State.perms); }catch(e){} B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); break;
       case 'topic':
         M.State.room.topic=String(body.topic||'').slice(0,60);
         if(M.Perms.isAdmin()) M.Store.set(M.App.rkey('topic'),M.State.room.topic);
@@ -2154,7 +2159,7 @@ M.Admin = {
         M.log('info','room topic → '+(M.State.room.topic||'(cleared)'));
         break;
       case 'override': { M.State.perms ??= M.permsDefault(); (M.State.perms.overrides ??= {})[body.peerId]={...(M.State.perms.overrides[body.peerId]||{}),...body.ov}; M.State.perms.version=(P.version||0)+1; B.emit('perms'); break; }
-      case 'lock': M.State.perms ??= M.permsDefault(); M.State.perms.roomLocked=!!body.on; B.emit('perms'); B.emit('sysmsg',{text:M.t(body.on?'sys_lock_on':'sys_lock_off')}); M.log('warn','room lock → '+(body.on?'on':'off')); break;
+      case 'lock': M.State.perms ??= M.permsDefault(); M.State.perms.roomLocked=!!body.on; try{ M.Store.set(M.App.skey('perms'),M.State.perms); }catch(e){} B.emit('perms'); B.emit('sysmsg',{text:M.t(body.on?'sys_lock_on':'sys_lock_off')}); M.log('warn','room lock → '+(body.on?'on':'off')); break;
       case 'kick': B.emit('kick',body); break;
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.Store.set(M.App.skey('bans'), M.State.bans); } B.emit('kick',body); break;
       case 'unban': M.State.bans=M.State.bans.filter(f=>f!==body.fp); M.Store.set(M.App.skey('bans'), M.State.bans); B.emit('bans'); break;
@@ -2301,7 +2306,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if(M.Perms.isAdmin() && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.Admin.rid||undefined},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.Admin.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -6564,6 +6569,8 @@ M.WB = {
         }
         if(b.cvm){ M.WB.mode=b.cvm; }
         if(b.rid && M.State.room) M.State.room.rid=b.rid;   /* authenticated instance identity from the signed snapshot */
+        if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; try{ M.Store.set(M.App.skey('perms'),M.State.perms); }catch(e){} M.bus.emit('perms'); }   /* authenticated lock/policy restored */
+        if(Array.isArray(b.bans)){ M.State.bans=b.bans; try{ M.Store.set(M.App.skey('bans'),M.State.bans); }catch(e){} }
         if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* members learn the room's encryption state from the Admin */
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
@@ -7119,8 +7126,11 @@ M.App = {
   async enter(code,isCreator){
     M.State.joinedAt=Date.now();
     M.State.self.admin=M.Perms.isAdmin();
-    M.State.bans=M.App.getRoomStore('bans',code)||M.Store.get('bans.'+code)||[];
-    M.State.perms=M.permsDefault();
+    /* restore the authenticated room policy (lock/perms/bans) persisted from signed
+       commands, so a refresh/reconnect keeps the lock even before the next snapshot.
+       Instance-bound only — a reused code never restores the old instance's policy. */
+    M.State.perms=M.Store.get(M.App.skey('perms'))||M.permsDefault();
+    M.State.bans=M.App.getRoomStore('bans',code)||[];
     M.App._sessionEnded=false; M.App._ending=false;
     /* session continuity: an admin refresh restores the board's open/mode/lock state; everyone restores a running timer */
     if(M.Perms.isAdmin()){
@@ -7184,7 +7194,7 @@ M.App = {
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
     M.State.self.admin=false;
-    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={};
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={};   /* persisted maxseq stays: it is instance-scoped, not refresh-scoped */
     M.Crypto.key=null;
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
@@ -7216,16 +7226,17 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    when the instance is unknown), so a reused code never restores stale admin data */
 M.App.rkey = function(base){ return base+'.'+(M.Admin.rid||M.State.room?.code); };
 M.App.getRoomStore = function(base,code){
-  if(M.Admin.rid){ const v=M.Store.get(base+'.'+M.Admin.rid); if(v!=null) return v; }
-  return M.Store.get(base+'.'+code);
+  /* instance-bound only: never restore old-instance data just because the code matches */
+  const rid=M.Admin.rid;
+  if(rid) return M.Store.get(base+'.'+rid);
+  return null;
 };
 /* instance-scoped key for ALL room data: rid when the instance is known (admin
    locally, members via the signed snapshot), else the code; reads fall back to code */
 M.App.skey = function(base){ return base+'.'+(M.State.room?.rid||M.State.room?.code); };
 M.App.getRoom = function(base){
-  const r=M.State.room; if(!r) return null;
-  if(r.rid){ const v=M.Store.get(base+'.'+r.rid); if(v!=null) return v; }
-  return M.Store.get(base+'.'+r.code);
+  const r=M.State.room; if(!r||!r.rid) return null;   /* instance-bound only */
+  return M.Store.get(base+'.'+r.rid);
 };
 M.App.purgeRoom = async function(code){
   /* destroy this instance's Admin key so a reused code starts with a fresh identity */
