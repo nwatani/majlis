@@ -347,6 +347,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 
 /* ---------- Chat ---------- */
 #chatHead{display:flex;align-items:center;gap:11px;padding:12px 18px;border-bottom:1px solid var(--line);flex:none}
+#privNotice{display:flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(245,168,60,.1);border-bottom:1px solid rgba(245,168,60,.35);color:var(--warn);font-size:12px;flex:none}
+#privNotice.hidden{display:none}
+#privNotice svg{flex:none}
 #chatHead b{font-size:15.5px;font-weight:700;display:block;line-height:1.2;max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #chatHead small{color:var(--dim);font-size:11.5px;font-family:var(--mono);max-width:44ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
 #chatHead small.editable{cursor:pointer}
@@ -896,6 +899,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 
       <!-- CHAT -->
       <div class="panel" id="panel-chat">
+        <div id="privNotice" class="hidden"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span data-i18n="priv_notice">Private room — you joined with the code only. Use the full invitation link to read and send encrypted content.</span></div>
         <div id="chatHead">
           <button class="icon-btn hidden" id="btnBackDm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div><b id="chatTitle">Room</b><small id="chatSub"></small></div>
@@ -1391,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.45.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.46.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1508,7 +1512,8 @@ en:{
  chip_calls:'Voice & video calls', chip_files:'P2P file transfer', chip_board:'Collaborative board', chip_ar:'Arabic · RTL', chip_admin:'Admin control',
  lobby_title:'Enter a room', create_room:'Create room', join_room:'Join with code', display_name:'Display name',
  private_room:'Private room', private_sub:'Chat & board encrypted end-to-end · joining requires the invite link',
- create_start:'Create & enter as Admin', room_code:'Room code', join_now:'Join room', join_note:'Tip: opening an invite link fills this automatically.',
+ create_start:'Create & enter as Admin', room_code:'Room code', join_now:'Join room',
+ join_note:'Tip: opening an invite link fills this automatically. The code alone gives basic access; Private rooms need the full invitation link for encrypted content.',
  reconnecting:'Connection lost — recovering automatically…', retry_now:'Retry now', online_s:'online',
  share_room:'Share room', control_center:'Control Center', tab_chat:'Chat', tab_files:'Files', tab_calls:'Calls', tab_board:'Board',
  msg_ph:'Message…', send_file:'Send file', files_sub:'Peer-to-peer · chunked · integrity-checked',
@@ -1567,7 +1572,8 @@ en:{
  room_locked_join:'This room is locked — the Admin is not admitting new members.', banned_join:'You cannot join this room (removed or banned).',
  rate_limited:'Too many join attempts — wait a moment and try again.',
  unverified:'Unverified', unverified_tip:'Received without this room\u2019s encryption key',
- enc_open:'OPEN', enc_required_title:'Private room',
+ enc_open:'OPEN', priv_notice:'Private room — you joined with the code only. Use the full invitation link to read and send encrypted content.',
+ enc_required_title:'Private room',
  enc_required_body:'This is a private encrypted room. Use the full invitation link to access encrypted content.',
  enc_e2ee_tip:'Messages, files and board are encrypted end-to-end with this room\u2019s key',
  enc_open_tip:'This room is intentionally Open \u2014 content travels unencrypted. Use a Private room for sensitive topics.',
@@ -1699,7 +1705,8 @@ ar:{
  chip_calls:'مكالمات صوت وصورة', chip_files:'نقل ملفات P2P', chip_board:'سبورة تشاركية', chip_ar:'عربي · RTL', chip_admin:'تحكم المشرف',
  lobby_title:'ادخل إلى غرفة', create_room:'إنشاء غرفة', join_room:'انضمام برمز', display_name:'الاسم الظاهر',
  private_room:'غرفة خاصة', private_sub:'الدردشة والسبورة مشفّرتان تماماً · الانضمام يتطلب رابط الدعوة',
- create_start:'إنشاء ودخول كمشرف', room_code:'رمز الغرفة', join_now:'انضمام', join_note:'تلميح: فتح رابط الدعوة يملأ هذا الحقل تلقائياً.',
+ create_start:'إنشاء ودخول كمشرف', room_code:'رمز الغرفة', join_now:'انضمام',
+ join_note:'تلميح: فتح رابط الدعوة يملأ هذا الحقل تلقائياً. الرمز وحده يمنح وصولاً أساسياً؛ الغرف الخاصة تحتاج رابط الدعوة الكامل للمحتوى المشفّر.',
  reconnecting:'انقطع الاتصال — تتم الاستعادة تلقائياً…', retry_now:'إعادة المحاولة', online_s:'متصل',
  share_room:'مشاركة الغرفة', control_center:'مركز التحكم', tab_chat:'الدردشة', tab_files:'الملفات', tab_calls:'المكالمات', tab_board:'السبورة',
  msg_ph:'رسالة…', send_file:'إرسال ملف', files_sub:'ندّ لندّ · مجزّأ · مع تحقق من السلامة',
@@ -1758,7 +1765,8 @@ ar:{
  room_locked_join:'الغرفة مقفلة — المشرف لا يقبل أعضاء جدد حالياً.', banned_join:'لا يمكنك الانضمام إلى هذه الغرفة (تمت إزالتك أو حظرك).',
  rate_limited:'محاولات انضمام كثيرة — انتظر لحظة وحاول مجدداً.',
  unverified:'غير موثّقة', unverified_tip:'وصلت بدون مفتاح تشفير هذه الغرفة',
- enc_open:'مفتوحة', enc_required_title:'غرفة خاصة',
+ enc_open:'مفتوحة', priv_notice:'غرفة خاصة — انضممت بالرمز فقط. استخدم رابط الدعوة الكامل لقراءة المحتوى المشفّر وإرساله.',
+ enc_required_title:'غرفة خاصة',
  enc_required_body:'هذه غرفة خاصة مشفّرة. استخدم رابط الدعوة الكامل للوصول إلى المحتوى المشفّر.',
  enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
  enc_open_tip:'هذه الغرفة مفتوحة عمداً — المحتوى ينتقل بدون تشفير. استخدم غرفة خاصة للمواضيع الحساسة.',
@@ -1970,7 +1978,7 @@ M.permsDefault = () => ({
 });
 M.Perms = {
   p(){ return M.State.perms || M.permsDefault(); },
-  isAdmin(){ return !!M.Admin.priv; },
+  isAdmin(){ return !!(M.Admin.priv && !M.Admin.pending); },   /* a pending identity holds no local Admin privileges */
   memberOv(peerId){ const p=M.Perms.p(); return (p.overrides&&p.overrides[peerId])||{}; },
   can(feature, peerId){ // peerId optional -> check that member's rights (admin view)
     const P=M.Perms.p(); const me=M.Perms.isAdmin();
@@ -2037,11 +2045,11 @@ M.Admin = {
           M.Admin.priv=stored.priv;      /* usable for signing only — never extractable */
           M.Admin.pubJwk=stored.pubJwk;  /* public half, needed for member verification */
           M.Admin.rid=rid;
-          /* authentication for restore = cryptographic possession of the instance-bound
-             non-extractable key + the device-authored rid pointer; a conflicting live rid
-             still revokes it via demote() */
-          M.Admin.pending=false;
-          M.log('info','admin key restored & authenticated for instance '+M.fmt.idShort(rid));
+          /* restored identity stays UNTRUSTED until the current instance is positively
+             authenticated: the full invitation URL's pin must match this key, or a live
+             Admin must broadcast our rid. A stale key in a reused room gets neither. */
+          M.Admin.pending=true;
+          M.log('info','admin key restored for instance '+M.fmt.idShort(rid)+' — pending instance authentication');
           return true;
         }
       }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
@@ -3372,6 +3380,10 @@ M.UI = {
       else { M.toast('err',M.t('session_ended')); setTimeout(()=>M.App.backToLobby('ended'),1600); }  /* …members end locally at the same wall-clock instant */
     }
   },
+  privNotice(){
+    const el=M.$('#privNotice'); if(!el) return;
+    el.classList.toggle('hidden', !(M.State.roomEnc===true && !M.Crypto.has()));
+  },
   encBadge(){
     const b=M.$('#roomEncBadge'); if(!b) return;
     if(M.State.roomEnc==null){ b.classList.add('hidden'); return; }
@@ -3556,9 +3568,10 @@ M.UI = {
   },
   enterApp(){
     M.$('#lobby').classList.add('hidden'); M.$('#app').classList.remove('hidden');
-    M.$('#btnCC').classList.toggle('hidden',!M.Admin.priv);
-    M.$('#btnTerm').classList.toggle('hidden',!M.Admin.priv);
-    M.$('#btnBoard').classList.toggle('hidden',!M.Admin.priv);
+    const authAdmin=M.Perms.isAdmin();   /* admin UI only for an authenticated identity */
+    M.$('#btnCC').classList.toggle('hidden',!authAdmin);
+    M.$('#btnTerm').classList.toggle('hidden',!authAdmin);
+    M.$('#btnBoard').classList.toggle('hidden',!authAdmin);
     M.Grace.settle=Date.now();
     /* resume a room-level deadline that survived our leave — the timer stays visible across rejoins */
     if(!M.Admin.priv && M.State.room){
@@ -6500,7 +6513,7 @@ M.WB = {
           M.WB.renderPages();
         }
         if(b.cvm){ M.WB.mode=b.cvm; }
-        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); }   /* members learn the room's encryption state from the Admin */
+        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* members learn the room's encryption state from the Admin */
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
@@ -7001,6 +7014,10 @@ M.App = {
       const qp=new URLSearchParams(location.search);
       const k=qp.get('k');
       if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
+      /* positive instance authentication: the invitation pin matching our restored key
+         proves this device is the authenticated Admin of THIS room instance */
+      if(M.Admin.pending && M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin)
+        M.Admin.confirmSelf();
       const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
       await M.Admin.ensureKeys(code,false);
