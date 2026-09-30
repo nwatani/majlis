@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.47.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.48.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2016,7 +2016,7 @@ M.Perms = {
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
 M.Admin = {
-  priv:null, pubJwk:null, rid:null, pending:false, seq:0, _seen:new Set(),
+  priv:null, pubJwk:null, rid:null, pending:false, seq:0, _seen:new Set(), _maxSeq:{},
   /* a restored identity is untrusted until the room confirms it; a conflicting live
      Admin (different rid) proves it stale for a reused code → drop it entirely */
   demote(code){
@@ -2119,7 +2119,14 @@ M.Admin = {
         M.State.roomPub=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); M.State.roomPubStr=pubStr;
       }
       const {sig,pub,...body}=m;
-      return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(body)));
+      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(body)));
+      if(!ok) return false;
+      /* monotonic freshness per sender: a replayed (or older) seq is rejected even if
+         the signature is valid and the _seen cache has wrapped */
+      const mx=M.Admin._maxSeq[m.from]||0;
+      if(typeof body.seq==='number' && body.seq<=mx){ M.log('warn','replayed admin command rejected (seq '+body.seq+' <= '+mx+')'); return false; }
+      if(typeof body.seq==='number') M.Admin._maxSeq[m.from]=body.seq;
+      return true;
     }catch(e){ return false; }
   },
   dispatch(body, from){
@@ -2128,7 +2135,7 @@ M.Admin = {
       case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); break;
       case 'topic':
         M.State.room.topic=String(body.topic||'').slice(0,60);
-        if(M.Perms.isAdmin()) M.Store.set('topic.'+M.State.room.code,M.State.room.topic);
+        if(M.Perms.isAdmin()) M.Store.set(M.App.rkey('topic'),M.State.room.topic);
         M.UI.roomSub();
         if(M.State.room.topic) M.bus.emit('sysmsg',{text:M.t('topic_set',{n:M.State.room.topic})});
         M.log('info','room topic → '+(M.State.room.topic||'(cleared)'));
@@ -2150,15 +2157,15 @@ M.Admin = {
       case 'timer':
         M.State.timerUntil=body.until||0;
         if(M.Perms.isAdmin() && M.State.room){
-          if(M.State.timerUntil) M.Store.set('timer.'+M.State.room.code,M.State.timerUntil);
-          else safeDel(localStorage,'mj.timer.'+M.State.room.code);
+          if(M.State.timerUntil) M.Store.set(M.App.rkey('timer'),M.State.timerUntil);
+          else { safeDel(localStorage,'mj.timer.'+M.State.room.code); if(M.Admin.rid) safeDel(localStorage,'mj.timer.'+M.Admin.rid); }
         }
         if(body.until) B.emit('sysmsg',{text:M.t('timer_started')});
         B.emit('timer'); M.log('info','session timer → '+(body.until?Math.round((body.until-Date.now())/1000)+'s':'stopped')); break;
       case 'wbCtrl':
         M.bus.emit('wbCtrl',body);
         if(M.Perms.isAdmin() && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
-          M.Store.set('wb.'+M.State.room.code,{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,cvm:M.WB.mode});
+          M.Store.set(M.App.rkey('wb'),{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,cvm:M.WB.mode});
         break;
     }
     B.emit('ccRefresh');
@@ -3059,6 +3066,12 @@ M.FT = {
     m.classList.remove('hidden');
   },
   sendAll(files,target){ files.forEach(f=>M.FT.start(f,target)); M.UI.setTab('files'); },
+  /* remember every transfer id per room so termination can purge orphans after refresh */
+  trackRoom(id,code){
+    if(!code) return;
+    const k='ftids.'+code; const list=M.Store.get(k)||[];
+    if(!list.includes(id)){ list.push(id); if(list.length>200) list.splice(0,list.length-200); M.Store.set(k,list); }
+  },
   start(file,target,opts){
     const isRoom=target==='*';
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
@@ -3069,6 +3082,7 @@ M.FT = {
       preview:(opts&&opts.preview)||((opts&&opts.voice)?URL.createObjectURL(file):null),   /* sender can play their own voice note right away */
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
     M.FT.sends.set(id,t);
+    M.FT.trackRoom(id,t.room);
     M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip},isRoom?undefined:target);
     M.Chat.fileCard(M.Chat.key(isRoom?null:target),{id,name:t.name,size:t.size,dir:'up',peerName:isRoom?M.t('room'):M.Members.name(target),statusLabel:M.t('st_queued'),voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,preview:t.preview});
     M.log('info',`file offer → ${isRoom?'room':M.fmt.idShort(target)}: ${t.name} (${M.fmt.bytes(t.size)})`);
@@ -3150,6 +3164,7 @@ M.FT = {
             }
           }catch(e){}
           M.FT.recvs.set(r.id,r);
+          M.FT.trackRoom(r.id,M.State.room?.code);
           M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving'),voice:r.voice,dur:r.dur,shot:r.shot,clip:r.clip});
           if(resumeOff){ try{ M.Net.sendEnc('ft',{t:'resume',id:d.id,offset:resumeOff},from); }catch(e){} }
           M.DB.putMeta(d.id,{size:d.size,name:d.name,recv:resumeOff});
@@ -3978,7 +3993,7 @@ M.Call = {
     if(!M.Perms.denyToast(feat)) return null;
     if(!opts.group && M.Call.findWith(peerId)){ M.toast('warn','Already in a call with '+M.Members.name(peerId)); return null; }
     const callId=M.uid(10);
-    const s={ id:callId, kind, group:!!opts.group, peers:new Set(opts.group?[]:[peerId]), sentTo:new Set(),
+    const s={ id:callId, kind, group:!!opts.group, peers:new Set(opts.group?[]:[peerId]), sentTo:new Set(), owner:M.State.self.id,
       status:'ringing', direction:'out', startedAt:0, muted:false, camOff:false, sharing:false, remotes:new Map() };
     M.Call.sessions.set(callId,s);
     M.Call.makeWin(s);
@@ -4040,6 +4055,9 @@ M.Call = {
       }
       case 'members': {
         const s=M.Call.sessions.get(d.callId); if(!s) return;
+        /* group membership is authoritative only from the call's owner (its creator);
+           a participant cannot inject or eject peers */
+        if(s.owner && d.peerId!==s.owner){ M.log('warn','ignored group-membership update from non-owner '+M.fmt.idShort(d.peerId)); return; }
         const list=(d.peers||[]).filter(p=>p!==M.State.self.id);
         const fresh=list.filter(p=>!s.sentTo.has(p) && !s.peers.has(p));
         s.peers=new Set(list);
@@ -4118,7 +4136,7 @@ M.Call = {
       return;
     }
     const callId=inv.callId;
-    const s={ id:callId, kind:inv.kind, group:inv.group, peers:new Set([inv.peerId]), sentTo:new Set(),
+    const s={ id:callId, kind:inv.kind, group:inv.group, peers:new Set([inv.peerId]), sentTo:new Set(), owner:inv.peerId,
       status:'active', direction:'in', startedAt:Date.now(), muted:false, camOff:false, sharing:false, remotes:new Map() };
     M.Call.sessions.set(callId,s);
     try{ await M.Call.sendLocal(s,[inv.peerId]); }catch(e){ M.Call.teardown(callId,M.t('perm_denied')); return; }
@@ -5956,7 +5974,12 @@ M.WB = {
   },
 
   /* ---------- ops / sync ---------- */
-  send(op){ if(M.State.wb.open) M.Net.sendEnc('wb',op); M.WB.dirty=true; },
+  send(op){ if(M.State.wb.open){
+      /* admin ops carry the authenticated pin so receivers can grant admin-level
+         acceptance without trusting the unauthenticated adm flag */
+      if(M.Perms.isAdmin()) op.pin=M.Admin.pubPin();
+      M.Net.sendEnc('wb',op);
+    } M.WB.dirty=true; },
   localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave(); },
   applyUp(o){
     if(!o.pg) o.pg=M.WB.pages[0].id;   /* legacy/older-build objects belong to the first page */
@@ -6441,16 +6464,17 @@ M.WB = {
       M.State.wb.open=true; M.WB.refreshUI();
       M.log('info','board auto-opened by incoming board data from '+M.fmt.idShort(from));
     }
+    const fromAdmin=!!(d.pin && M.State.roomPubPin && d.pin===M.State.roomPubPin);   /* authenticated Admin only */
     if(d.t==='up'||d.t==='add'){
-      if(!M.WB.peerCanEdit(from)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
+      if(!M.WB.peerCanEdit(from,fromAdmin)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
       M.WB.applyUp(d.o); return;
     }
-    if(d.t==='del'){ if(!M.WB.peerCanEdit(from)) return; M.WB.localDel(d.id); return; }
+    if(d.t==='del'){ if(!M.WB.peerCanEdit(from,fromAdmin)) return; M.WB.localDel(d.id); return; }
     /* clear/close are authoritative ops: they propagate only through SIGNED wbCtrl.
        An unsigned wb clear/close from a peer is never applied. */
     if(d.t==='clear' || d.t==='close'){ M.log('warn','ignored unsigned board '+(d.t)+' from '+M.fmt.idShort(from)); return; }
     if(d.t==='order'){
-      if(!M.WB.peerCanEdit(from)) return;
+      if(!M.WB.peerCanEdit(from,!!(d.pin && M.State.roomPubPin && d.pin===M.State.roomPubPin))) return;
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
       const missing=M.WB.order.filter(id=>!valid.includes(id));
       M.WB.order=[...valid,...missing];
@@ -6472,9 +6496,11 @@ M.WB = {
       /* Board authority requires an AUTHENTICATED Admin pin (from the invitation URL).
          Possessing the room key, decrypting, or being first-seen never grants it.
          Code-only members have no authenticated pin → Admin state stays rev-guarded. */
+      /* ONLY authenticated-Admin state is authoritative; a higher revision from an
+         unauthenticated peer never applies, regardless of revision number */
       const fromAdmin=!!(d.admin && M.State.roomPubPin && d.pin===M.State.roomPubPin);
-      if(!fromAdmin && d.rev!=null && d.rev<=M.WB.rev && !d.force && M.WB.objs.size>0) return;
-      if(fromAdmin) M.log('info','authoritative board state received from authenticated Admin');
+      if(!fromAdmin){ M.log('warn','non-authoritative board state ignored from '+M.fmt.idShort(from)); return; }
+      M.log('info','authoritative board state received from authenticated Admin');
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
       if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
@@ -6485,10 +6511,10 @@ M.WB = {
       return;
     }
   },
-  peerCanEdit(pid){
+  peerCanEdit(pid, fromAdmin){
     if(!M.State.wb.open||M.State.wb.locked) return false;
+    if(fromAdmin) return true;   /* authenticated Admin pin, never the untrusted adm flag */
     const m=M.State.peers.get(pid); if(!m) return false;
-    if(m.adm) return true;
     return M.State.wb.mode==='collab' && M.State.wb.editors[pid]!==false;
   },
   sendState(target){
@@ -7075,15 +7101,15 @@ M.App = {
     M.App._sessionEnded=false; M.App._ending=false;
     /* session continuity: an admin refresh restores the board's open/mode/lock state; everyone restores a running timer */
     if(M.Perms.isAdmin()){
-      const ws=M.Store.get('wb.'+code);
+      const ws=M.App.getRoomStore('wb',code);
       if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; }
     }
-    const tu=M.Store.get('timer.'+code);
+    const tu=M.App.getRoomStore('timer',code);
     if(tu && tu>Date.now()) M.State.timerUntil=tu;
     /* room name: admins persist & default it; members receive it via snapshot/heartbeat */
     if(!M.State.room.name) M.State.room.name=M.Perms.isAdmin()?M.t('room_of',{n:M.State.self.name}):'';
-    if(M.Perms.isAdmin() && M.State.room.name) M.Store.set('rname.'+code,M.State.room.name);
-    else { const rn=M.Store.get('rname.'+code); if(rn) M.State.room.name=rn; }
+    if(M.Perms.isAdmin() && M.State.room.name) M.Store.set(M.App.rkey('rname'),M.State.room.name);
+    else { const rn=M.App.getRoomStore('rname',code); if(rn) M.State.room.name=rn; }
     const tp=M.Store.get('topic.'+code);
     if(tp) M.State.room.topic=tp;
     const off=M.bus.on('joinFail',msg=>{
@@ -7135,7 +7161,7 @@ M.App = {
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
     M.State.self.admin=false;
-    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0;
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={};
     M.Crypto.key=null;
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
@@ -7163,11 +7189,28 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    per-room artifact. Anyone on this device who later tries the code is refused.
    (Codes live client-side; a never-before-seen device has no tombstone — the
    honest limit of a serverless design.) */
+/* authoritative room data is keyed by the instance rid (falling back to the code only
+   when the instance is unknown), so a reused code never restores stale admin data */
+M.App.rkey = function(base){ return base+'.'+(M.Admin.rid||M.State.room?.code); };
+M.App.getRoomStore = function(base,code){
+  if(M.Admin.rid){ const v=M.Store.get(base+'.'+M.Admin.rid); if(v!=null) return v; }
+  return M.Store.get(base+'.'+code);
+};
 M.App.purgeRoom = async function(code){
   /* destroy this instance's Admin key so a reused code starts with a fresh identity */
   const rid=M.State.room?.rid || M.Store.get('rid.'+code);
-  if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){} }
-  try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
+    if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){}
+      /* also purge rid-keyed authoritative data so nothing survives the instance */
+      ['wb','timer','rname','topic'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
+    }
+    try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
+    /* remove ALL of this room's transfer chunks, including orphans tracked across refreshes */
+    try{
+      const list=M.Store.get('ftids.'+code)||[];
+      for(const id of list) await M.DB.delTransfer(id);
+      if(list.length) M.log('info','purged '+list.length+' tracked transfer(s) for room '+code);
+      safeDel(localStorage,'mj.ftids.'+code);
+    }catch(e){}
   /* delete this room's temporary file-transfer chunks from IndexedDB only */
   try{
     const ids=new Set();
