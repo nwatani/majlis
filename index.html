@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.46.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.47.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1909,6 +1909,17 @@ M.toggleLang = () => M.applyLang(M.lang==='ar'?'en':'ar');
 
 /* ---------------- store / state ---------------- */
 M.Store = { get(k,d){ try{ const v=localStorage.getItem('mj.'+k); return v==null?d:JSON.parse(v); }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem('mj.'+k,JSON.stringify(v)); }catch(e){} } };
+/* persistent random device ID: generated once per browser installation, independent of
+   name/User-Agent; used for duplicate-session detection only, never for Admin auth */
+M.deviceId = function(){
+  let id=M.Store.get('deviceId');
+  if(!id || !/^[0-9a-f]{32}$/.test(id)){
+    const b=crypto.getRandomValues(new Uint8Array(16));
+    id=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
+    M.Store.set('deviceId',id);
+  }
+  return id;
+};
 /* Admin private keys live in IndexedDB as opaque, non-extractable CryptoKey handles —
    never exported, never stringified, never written to localStorage */
 M.KeyDB = {
@@ -2127,6 +2138,9 @@ M.Admin = {
       case 'kick': B.emit('kick',body); break;
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); } B.emit('kick',body); break;
       case 'unban': M.State.bans=M.State.bans.filter(f=>f!==body.fp); M.Store.set('bans.'+M.State.room.code, M.State.bans); B.emit('bans'); break;
+      case 'call-end':
+        if(body.callId && M.Call.sessions.has(body.callId)) M.Call.teardown(body.callId,M.t('call_ended'));
+        break;
       case 'end':
         /* Terminate = destroy, on every device: wipe ALL traces of this room
            (admin key, name, topic, chat, board, timer, bans, grace) so the room
@@ -2228,7 +2242,7 @@ M.Net = {
         const {data}=await receive();
         if(!data || typeof data!=='object') throw new Error('bad handshake');
         if(data.fp && M.State.bans.includes(data.fp)) { M.log('warn','rejected banned peer '+peerId); throw new Error('banned'); }
-        if(M.State.perms?.roomLocked && !data.adm && M.Perms.isAdmin()){ M.log('warn','room locked — rejecting '+peerId); throw new Error('locked'); }
+        if(M.State.perms?.roomLocked && M.Perms.isAdmin()){ M.log('warn','room locked — rejecting '+peerId+' (adm claims are never trusted)'); throw new Error('locked'); }
         M.Net._early.set(peerId,data);
       }
     });
@@ -2299,37 +2313,13 @@ M.Net = {
       M.Net.lastHb.set(peerId,Date.now());
       /* identity check: another live Admin with a different rid means our stored
          identity belongs to an older instance of a reused code → discard it */
-      if(d && d.adm && d.rid && M.Admin.rid && d.rid!==M.Admin.rid && peerId!==M.State.self.id){
-        M.Admin.demote(M.State.room?.code);
-      } else if(d && d.adm && d.rid && M.Admin.rid && d.rid===M.Admin.rid && M.Admin.pending){
-        M.Admin.pending=false; M.bus.emit('members'); M.log('info','Admin identity confirmed by room instance');
-      }
+      /* heartbeats are presence/diagnostics only: adm/rid/rn/tp from a peer are untrusted
+         hints for UI, never authority. Authority comes solely from signed Admin commands. */
       const patch={status:'online'};
-      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; if(d.adm!=null)patch.adm=d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
+      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       M.Members.upsert(peerId,patch);
-      /* reconciliation: the admin's heartbeat carries board state, so a member who missed
-         the open/close command self-corrects within one heartbeat (~12 s) */
-      const iAmAdmin=M.Perms.isAdmin();
-      /* adopt the earliest room deadline any peer knows about — keeps all members in sync */
-      if(d && d.gu && !iAmAdmin && d.gu>Date.now() && (!M.Grace.until || d.gu<M.Grace.until)){
-        M.Grace.start(d.gu,'synced from '+M.fmt.idShort(peerId));
-      }
-      if(d && d.adm && !iAmAdmin){
-        let roomSync=false;
-        if(d.rn!=null && d.rn!==M.State.room?.name){ M.State.room.name=d.rn; roomSync=true; }
-        if(d.tp!=null && d.tp!==(M.State.room?.topic||'')){ M.State.room.topic=d.tp; roomSync=true; }
-        if(roomSync) M.UI.roomName();
-        if(d.wb===1 && !M.State.wb.open){
-          M.State.wb.open=true; M.WB.refreshUI(); M.UI.setTab('board');
-          M.toast('info',M.t('wb_opened'));
-          M.log('info','board state reconciled from admin heartbeat — opened');
-          try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}   /* pull full objects in case we also missed those */
-        } else if(d.wb===0 && M.State.wb.open){
-          M.State.wb.open=false; M.WB.refreshUI();
-          M.toast('warn',M.t('wb_closed_ev'));
-          M.log('info','board state reconciled from admin heartbeat — closed');
-        }
-      }
+      /* room name/topic, whiteboard state and grace timing are authoritative: they change
+         only through signed Admin commands / snapshots, never through heartbeats */
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => {
       if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
@@ -2962,6 +2952,15 @@ M.DB = {
   _k(id,seq){ return id+':'+String(seq).padStart(7,'0'); },
   async putChunk(id,seq,buf){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(buf,M.DB._k(id,seq)); }catch(e){} },
   async putMeta(id,meta){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(meta,id+':meta'); }catch(e){} },
+  /* delete every chunk/meta key belonging to one transfer id */
+  async delTransfer(id){
+    try{
+      const db=await M.DB.open();
+      const keys=await new Promise(res=>{ const rq=db.transaction('x').objectStore('x').getAllKeys(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); });
+      const tx=db.transaction('x','readwrite'), st=tx.objectStore('x');
+      keys.forEach(k=>{ if(String(k).startsWith(id+':')) st.delete(k); });
+    }catch(e){}
+  },
   async meta(id){ try{ const db=await M.DB.open(); return await new Promise(res=>{ const rq=db.transaction('x').objectStore('x').get(id+':meta'); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>res(null); }); }catch(e){ return null; } },
   async chunks(id,count){
     try{
@@ -3065,7 +3064,7 @@ M.FT = {
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
     const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
-    const t={ id, file, name:file.name, size:file.size, type:file.type||'file', target, dir:'up',
+    const t={ id, file, name:file.name, size:file.size, type:file.type||'file', target, dir:'up', room:M.State.room?.code,
       voice:!!(opts&&opts.voice), dur:(opts&&opts.dur)||0, shot:!!(opts&&opts.shot), clip:!!(opts&&opts.clip),
       preview:(opts&&opts.preview)||((opts&&opts.voice)?URL.createObjectURL(file):null),   /* sender can play their own voice note right away */
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
@@ -3130,7 +3129,7 @@ M.FT = {
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
         (async()=>{
-          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
+          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code, voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
             expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
             hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
           /* ---- resume from persisted chunks (survives refresh / crash) ---- */
@@ -3544,7 +3543,7 @@ M.UI = {
       if(nv && nv!==cur){
         M.Store.set('name',nv);
         M.State.self.name=nv.slice(0,24);
-        M.State.self.fp=M.SHA.create().update(M.te.encode(nv+'|'+navigator.userAgent)).hex().slice(0,16);
+        M.State.self.fp=M.deviceId().slice(0,16);   /* device identity never changes with the display name */
         const av=M.$('#selfAvatar'); av.textContent=M.initials(nv); av.style.background=M.avatarBg(nv);
         try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){}
         const again=()=>{ try{ M.Net.A.hello.send({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, ts:Date.now() }); }catch(e){} };
@@ -4086,7 +4085,9 @@ M.Call = {
         }
         const s=M.Call.sessions.get(d.callId);
         if(!s) break;
-        const authorized = s.peers.has(d.peerId) || d.byAdmin || M.State.peers.get(d.peerId)?.adm || d.peerId===M.State.self.id;
+        /* only actual participants end a call from the sig channel; admin termination
+           arrives through the signed Admin channel (call-end), never a byAdmin boolean */
+        const authorized = s.peers.has(d.peerId) || d.peerId===M.State.self.id;
         if(!authorized){ M.log('warn','unauthorized call-end rejected from '+M.fmt.idShort(d.peerId)); break; }
         M.Call.teardown(d.callId, M.Members.name(d.peerId)+' — '+M.t('call_ended'), true);
         break;
@@ -6436,7 +6437,7 @@ M.WB = {
     /* data implies state: if live board traffic arrives, the board is open by definition.
        This is the third recovery path — a viewer can never be trapped behind the
        "closed" overlay while the admin's strokes stream in behind it. */
-    if((d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state'||d.t==='clear') && !M.State.wb.open){
+    if((d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state') && !M.State.wb.open){
       M.State.wb.open=true; M.WB.refreshUI();
       M.log('info','board auto-opened by incoming board data from '+M.fmt.idShort(from));
     }
@@ -6445,8 +6446,9 @@ M.WB = {
       M.WB.applyUp(d.o); return;
     }
     if(d.t==='del'){ if(!M.WB.peerCanEdit(from)) return; M.WB.localDel(d.id); return; }
-    if(d.t==='clear'){ M.WB.clearPage(d.pg||M.WB.pages[0].id,false); M.toast('warn',M.t('wb_cleared')); return; }
-    if(d.t==='close'){ if(M.State.wb.open){ M.State.wb.open=false; M.WB.refreshUI(); M.toast('warn',M.t('wb_closed_ev')); M.log('info','board session ended by admin'); } return; }
+    /* clear/close are authoritative ops: they propagate only through SIGNED wbCtrl.
+       An unsigned wb clear/close from a peer is never applied. */
+    if(d.t==='clear' || d.t==='close'){ M.log('warn','ignored unsigned board '+(d.t)+' from '+M.fmt.idShort(from)); return; }
     if(d.t==='order'){
       if(!M.WB.peerCanEdit(from)) return;
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
@@ -6535,7 +6537,7 @@ M.WB = {
       case 'images': W.images=!!b.on; break;
       case 'export': W.export=!!b.on; break;
       case 'editors': W.editors=b.map||{}; break;
-      case 'clear': M.WB.clearPage(M.WB.pageId,M.Perms.isAdmin()); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;
+      case 'clear': M.WB.clearPage(M.WB.pageId,true); M.WB.saveLocal(); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;   /* signed path only */
       case 'pg-add':
         if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){
           const at=(typeof b.pg.idx==='number'&&b.pg.idx>=0)?Math.min(b.pg.idx,M.WB.pages.length):-1;
@@ -6568,7 +6570,7 @@ M.WB = {
         M.log('info','canvas mode → '+M.WB.mode);
         break;
       case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
-      case 'end': W.open=false; M.Net.sendEnc('wb',{t:'clear'}); M.Net.sendEnc('wb',{t:'close'}); M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.WB.saveLocal(); M.toast('warn',M.t('wb_closed_ev')); break;
+      case 'end': W.open=false; M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.WB.saveLocal(); M.toast('warn',M.t('wb_closed_ev')); break;   /* propagates via this signed wbCtrl; never re-broadcast unsigned */
     }
     M.WB.refreshUI(); M.bus.emit('members'); M.bus.emit('wbPeers');
   },
@@ -6968,7 +6970,7 @@ M.App = {
       let n=M.$('#nameInput').value.trim() || M.Store.get('name') || '';
       if(!n){ M.lobbyMsg(M.t('name_required'),true); M.$('#nameInput').focus(); return false; }
       M.Store.set('name',n); M.State.self.name=n.slice(0,24);
-      M.State.self.fp=M.SHA.create().update(M.te.encode(n+'|'+navigator.userAgent)).hex().slice(0,16);
+      M.State.self.fp=M.deviceId().slice(0,16);   /* stable random device identity, not name/UA-derived */
       return true;
     }catch(e){ window.__mjErr('setName: '+e.message); return false; }
   },
@@ -7166,6 +7168,14 @@ M.App.purgeRoom = async function(code){
   const rid=M.State.room?.rid || M.Store.get('rid.'+code);
   if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){} }
   try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
+  /* delete this room's temporary file-transfer chunks from IndexedDB only */
+  try{
+    const ids=new Set();
+    M.FT.sends.forEach(t=>{ if(t.room===code) ids.add(t.id); });
+    M.FT.recvs.forEach(r=>{ if(r.room===code) ids.add(r.id); });
+    for(const id of ids) await M.DB.delTransfer(id);
+    if(ids.size) M.log('info','purged '+ids.size+' transfer(s) from IndexedDB for room '+code);
+  }catch(e){}
   /* wipe every per-room artifact, then reserve the code with a 24-hour tombstone.
      HONEST SCOPE: the tombstone lives in THIS device's localStorage only. It stops
      this device from reusing or rejoining the terminated code for 24h, but a
@@ -7265,7 +7275,7 @@ M.CC = {
       rb.onclick=()=>{ M.Rec.active?.callId===s.id ? M.Rec.stop() : M.Rec.start(s.id); };
       row.appendChild(rb);
       const b=M.el('button','cc-mini dgr',M.t('end_call'));
-      b.onclick=()=>{ s.peers.forEach(pid=>M.Net.send('sig',{t:'end',callId:s.id,byAdmin:true},pid)); M.Call.teardown(s.id,'ended by admin'); };
+      b.onclick=()=>{ M.Admin.cmd('call-end',{callId:s.id}); };   /* signed; receivers tear down after verification */
       row.appendChild(b); cb.appendChild(row);
     });
     /* files monitor */
