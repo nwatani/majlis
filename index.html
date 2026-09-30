@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.45.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.45.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2075,6 +2075,10 @@ M.Admin = {
   },
   async verify(m, peerId){
     try{
+      /* Signature verification proves integrity and sender identity only. AUTHORITY
+         comes from the pin: members who hold the invitation pin (or the restored,
+         instance-matched Admin key) trust it; others verify the signature but the
+         signer is not an authenticated Admin for authority-bound operations. */
       if(!m||!m.sig||!m.pub||m.from!==peerId) return false;   /* unsigned commands are rejected outright */
       const pubStr=JSON.stringify(m.pub);
       if(M.State.roomPubStr && pubStr!==M.State.roomPubStr) return false; // not this room's admin key
@@ -6433,12 +6437,12 @@ M.WB = {
          a sender counts as Admin only if its pin matches the one we accepted for
          this instance (from the invite link, or the first verified Admin command).
          Holding the room key alone never grants board authority. */
-      if(d.admin && d.pin){
-        if(!M.State.roomPubPin) M.State.roomPubPin=d.pin;   /* adopt the first authenticated Admin pin */
-      }
-      const fromAdmin=!!d.admin && (!M.State.roomPubPin || d.pin===M.State.roomPubPin);
+      /* Board authority requires an AUTHENTICATED Admin pin (from the invitation URL).
+         Possessing the room key, decrypting, or being first-seen never grants it.
+         Code-only members have no authenticated pin → Admin state stays rev-guarded. */
+      const fromAdmin=!!(d.admin && M.State.roomPubPin && d.pin===M.State.roomPubPin);
       if(!fromAdmin && d.rev!=null && d.rev<=M.WB.rev && !d.force && M.WB.objs.size>0) return;
-      if(fromAdmin) M.log('info','authoritative board state received from verified Admin');
+      if(fromAdmin) M.log('info','authoritative board state received from authenticated Admin');
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
       if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
