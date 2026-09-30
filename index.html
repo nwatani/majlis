@@ -209,6 +209,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #roomNameLbl:not(.hidden)+#roomCodeLbl{color:var(--dim);font-size:11px;letter-spacing:.1em;border-inline-start:1px solid var(--line);padding-inline-start:9px}
 #roomChip:hover{border-color:var(--amber);background:var(--bg3)}
 #roomChip svg{width:15px;height:15px;color:var(--mut)}
+#roomEncBadge{font-size:9px;font-weight:800;letter-spacing:.09em;padding:2px 7px;border-radius:5px;border:1px solid;flex:none}
+#roomEncBadge.e2ee{color:var(--teal);border-color:rgba(56,207,182,.5);background:rgba(56,207,182,.1)}
+#roomEncBadge.open{color:var(--warn);border-color:rgba(245,168,60,.55);background:rgba(245,168,60,.12);animation:ledPulse 2.4s ease-in-out infinite}
 #topStatus{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);font-family:var(--mono)}
 .grow{flex:1}
 #btnMenu{display:none;width:auto;padding:0 9px;gap:6px}
@@ -849,7 +852,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   <header id="topbar">
     <button class="icon-btn" id="btnMenu" title="Members"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg><span id="menuBadge">0</span></button>
     <div class="brand-mini"><svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#142229"/><circle cx="10" cy="12" r="3" fill="#F5A83C"/><circle cx="23" cy="11" r="2.4" fill="#38CFB6"/><circle cx="16" cy="23" r="2.7" fill="#E9F3F4"/><path d="M10 12L23 11M10 12L16 23M23 11L16 23" stroke="#31505d" stroke-width="1.4"/></svg><span>MAJLIS</span></div>
-    <button id="roomChip" title="Copy invite link"><span id="roomNameLbl" class="hidden">—</span><span id="roomCodeLbl">······</span><svg id="roomLockIco" class="hidden" viewBox="0 0 24 24" fill="none" stroke="#F5A83C" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
+    <button id="roomChip" title="Copy invite link"><span id="roomNameLbl" class="hidden">—</span><span id="roomCodeLbl">······</span><span id="roomEncBadge" class="hidden"></span><svg id="roomLockIco" class="hidden" viewBox="0 0 24 24" fill="none" stroke="#F5A83C" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
     <div id="topStatus"><span class="led" id="sigLed"></span><span id="peersLbl">0</span><span class="lbltxt" data-i18n="online_s">online</span><span id="callsTopLbl" class="hidden" style="color:var(--red)">● <span id="callsTopN">0</span></span></div>
     <span id="adminOffPill" class="hidden" title=""><span class="led err pulse"></span><b data-i18n="admin_off">Admin offline</b></span>
     <div class="grow"></div>
@@ -1388,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.43.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.44.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1564,6 +1567,8 @@ en:{
  room_locked_join:'This room is locked — the Admin is not admitting new members.', banned_join:'You cannot join this room (removed or banned).',
  rate_limited:'Too many join attempts — wait a moment and try again.',
  unverified:'Unverified', unverified_tip:'Received without this room\u2019s encryption key',
+ enc_open:'OPEN', enc_e2ee_tip:'Messages, files and board are encrypted end-to-end with this room\u2019s key',
+ enc_open_tip:'This room is intentionally Open \u2014 content travels unencrypted. Use a Private room for sensitive topics.',
  wb_save_fail:'Board is too large to save on this device \u2014 recent changes may not survive a refresh',
  join_failed:'Could not connect to the room. Check the code / invite link and your network.',
  creating:'Creating room…', joining:'Joining room…', name_required:'Please enter a display name first.', invalid_code:'Enter the 6-character room code.',
@@ -1751,6 +1756,8 @@ ar:{
  room_locked_join:'الغرفة مقفلة — المشرف لا يقبل أعضاء جدد حالياً.', banned_join:'لا يمكنك الانضمام إلى هذه الغرفة (تمت إزالتك أو حظرك).',
  rate_limited:'محاولات انضمام كثيرة — انتظر لحظة وحاول مجدداً.',
  unverified:'غير موثّقة', unverified_tip:'وصلت بدون مفتاح تشفير هذه الغرفة',
+ enc_open:'مفتوحة', enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
+ enc_open_tip:'هذه الغرفة مفتوحة عمداً — المحتوى ينتقل بدون تشفير. استخدم غرفة خاصة للمواضيع الحساسة.',
  wb_save_fail:'السبورة أكبر من أن تُحفظ على هذا الجهاز — قد لا تبقى التغييرات الأخيرة بعد التحديث',
  join_failed:'تعذّر الاتصال بالغرفة. تحقق من الرمز / رابط الدعوة ومن الشبكة.',
  creating:'جارٍ إنشاء الغرفة…', joining:'جارٍ الانضمام…', name_required:'أدخل اسماً ظاهراً أولاً.', invalid_code:'أدخل رمز الغرفة المكوّن من 6 أحرف.',
@@ -1929,6 +1936,7 @@ M.State = {
   perms: null,           // authoritative permissions object
   bans: [],
   wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{} },
+  roomEnc:null,   /* null until known: true=E2EE room, false=intentionally Open/plaintext */
   chatTarget: null,      // null = room, else peerId
   selfInCallCount: 0
 };
@@ -2178,7 +2186,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if(M.Admin.priv && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||''},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -3275,6 +3283,13 @@ M.UI = {
       else { M.toast('err',M.t('session_ended')); setTimeout(()=>M.App.backToLobby('ended'),1600); }  /* …members end locally at the same wall-clock instant */
     }
   },
+  encBadge(){
+    const b=M.$('#roomEncBadge'); if(!b) return;
+    if(M.State.roomEnc==null){ b.classList.add('hidden'); return; }
+    b.classList.remove('hidden','e2ee','open');
+    if(M.State.roomEnc){ b.classList.add('e2ee'); b.textContent='E2EE'; b.title=M.t('enc_e2ee_tip'); }
+    else { b.classList.add('open'); b.textContent=M.t('enc_open'); b.title=M.t('enc_open_tip'); }
+  },
   roomName(){
     const n=(M.State.room?.name||'').trim();
     const el=M.$('#roomNameLbl');
@@ -3475,6 +3490,8 @@ M.UI = {
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#chatSub').onclick=()=>M.UI.editTopic();   /* admin-only inline topic editor; members see a static caption */
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
+    if(M.Admin.priv) M.State.roomEnc=M.Crypto.has();   /* the creator knows the room's encryption state immediately */
+    M.UI.encBadge();
     M.$('#selfName').textContent=M.State.self.name;
     if(M.Admin.priv) M.$('#selfName').insertAdjacentHTML('beforeend',M.Icons.crown);
     M.$('#selfIdLbl').textContent=M.fmt.idShort(M.State.self.id)+' · '+M.Platform.os+' '+M.Platform.br;
@@ -6386,6 +6403,7 @@ M.WB = {
           M.WB.renderPages();
         }
         if(b.cvm){ M.WB.mode=b.cvm; }
+        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); }   /* members learn the room's encryption state from the Admin */
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
@@ -7023,9 +7041,12 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    (Codes live client-side; a never-before-seen device has no tombstone — the
    honest limit of a serverless design.) */
 M.App.purgeRoom = function(code){
-  /* wipe every per-room artifact, then RESERVE the code with a 24-hour tombstone
-     so a terminated room stays inaccessible for a day before the code returns to
-     the pool. Not a permanent blacklist — the reservation expires on its own. */
+  /* wipe every per-room artifact, then reserve the code with a 24-hour tombstone.
+     HONEST SCOPE: the tombstone lives in THIS device's localStorage only. It stops
+     this device from reusing or rejoining the terminated code for 24h, but a
+     device that never saw the room has no way to know — true global reservation
+     would require a server, which this serverless design deliberately omits.
+     The reservation expires on its own; it is not a permanent blacklist. */
   try{
     const dead=[];
     for(let i=0;i<localStorage.length;i++){
@@ -7037,14 +7058,29 @@ M.App.purgeRoom = function(code){
   }catch(e){ M.log('err','purge failed: '+e.message); }
   if(M.State.room) M.State.room.adminOffline=true;
 };
-/* true while the code's tombstone is fresh; expired tombstones are deleted so the
-   code re-enters the available pool */
+/* true while THIS device holds a fresh tombstone for the code; expired entries are
+   deleted so the code re-enters the local pool. Device-local by design. */
 M.App.tombstoned = function(code){
   const ts=M.Store.get('dead.'+code);
   if(!ts) return false;
   if(Date.now()-ts < 24*3600*1000) return true;
   try{ localStorage.removeItem('mj.dead.'+code); }catch(e){}
   return false;
+};
+/* every unexpired local tombstone, for diagnostics */
+M.App.tombstones = function(){
+  const out=[], now=Date.now(), TTL=24*3600*1000;
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.startsWith('mj.dead.')){
+        const code=k.slice(8), ts=M.Store.get('dead.'+code);
+        if(ts && now-ts<TTL) out.push({code, left:TTL-(now-ts)});
+        else try{ localStorage.removeItem(k); }catch(e){}
+      }
+    }
+  }catch(e){}
+  return out;
 };
 
 /* ---------------- Control Center ---------------- */
@@ -7200,7 +7236,9 @@ M.CC = {
       ['whiteboard',(M.State.wb.open?'open':'closed')+' · '+M.State.wb.mode+' · rev '+M.WB.rev+' · '+M.WB.objs.size+' objects'],
       ['network',(navigator.connection?.effectiveType||'unknown')+(navigator.connection?.downlink?' · ~'+navigator.connection.downlink+' Mbps':'')],
       ['ice/srtp','DTLS-SRTP · STUN + TURN fallback configured'],
-      ['browser',M.Platform.br+' on '+M.Platform.os]
+      ['browser',M.Platform.br+' on '+M.Platform.os],
+      ['reserved codes',(()=>{ const t=M.App.tombstones(); return t.length? t.map(x=>x.code+' · '+Math.max(1,Math.ceil(x.left/3600000))+'h left').join(', ') : 'none'; })()],
+      ['code reservation','<span style="color:var(--dim)">device-local only · 24h after termination · no server, so other devices can\'t see it</span>']
     ];
     el.innerHTML=rows.map(([k,v])=>`<div class="cc-kv"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
     for(const p of peers.filter(x=>x.status!=='offline').slice(0,12)){
