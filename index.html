@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.52.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.53.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2097,6 +2097,7 @@ M.Admin = {
   },
   async verifyObj(obj){
     if(!obj||!obj.sig||!M.State.roomPub) return false;
+    if(M.State.room?.rid && obj.rid!==M.State.room.rid) return false;   /* bound to the current instance */
     const {sig,...rest}=obj;
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(rest))); }
     catch(e){ return false; }
@@ -2107,9 +2108,9 @@ M.Admin = {
        every command is retransmitted once so a dropped packet can never lose an admin action */
     if(!M.Admin.priv){ M.toast('err','Admin','No admin key'); return false; }
     if(M.Admin.pending) return false;   /* a pending identity sends no Admin commands until authenticated */
-    /* admin commands are always ECDSA-signed; members decide trust by verifying the
-       signature against the accepted Admin pin — never from the room key */
-    const body={cmd:name,...payload,from:M.State.self.id,ts:Date.now(),seq:++M.Admin.seq};
+    /* admin commands are ECDSA-signed AND bound to the current authenticated room
+       instance, so a valid signature from an old instance never executes elsewhere */
+    const body={cmd:name,...payload,from:M.State.self.id,rid:M.State.room?.rid||undefined,ts:Date.now(),seq:++M.Admin.seq};
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
     const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){ M.log('err','cmd '+name+' send failed: '+e.message); } };
@@ -2142,6 +2143,9 @@ M.Admin = {
       if(!ok) return false;
       /* monotonic freshness per sender: a replayed (or older) seq is rejected even if
          the signature is valid and the _seen cache has wrapped */
+      /* instance binding: a correctly signed command from another room instance is
+         rejected even though its signature verifies against the accepted Admin key */
+      if(M.State.room?.rid && body.rid!==M.State.room.rid){ M.log('warn','admin command rejected — rid '+(body.rid||'none')+' != current '+M.State.room.rid); return false; }
       /* replay protection persists per Admin sender + room instance, so a refresh
          cannot reset the high-water mark and allow an old signed command to replay */
       const map=M.Admin._maxSeq;
@@ -6006,7 +6010,8 @@ M.WB = {
 
   /* ---------- ops / sync ---------- */
   send(op){ if(M.State.wb.open){
-      if(M.Perms.isAdmin()){   /* admin ops carry a real ECDSA signature; the pin never grants authority */
+      if(M.Perms.isAdmin()){   /* admin ops carry a real ECDSA signature bound to the current rid */
+        op.rid=M.State.room?.rid||undefined;
         M.Admin.signObj(op).then(sig=>{ op.sig=sig; M.Net.sendEnc('wb',op); }).catch(()=>{ M.Net.sendEnc('wb',op); });
       } else M.Net.sendEnc('wb',op);
     } M.WB.dirty=true; },
@@ -6573,9 +6578,8 @@ M.WB = {
         }
         if(b.cvm){ M.WB.mode=b.cvm; }
         if(b.rid && M.State.room && M.State.room.rid!==b.rid){
-          const firstRid=!M.State.room.rid;
-          M.State.room.rid=b.rid;   /* authenticated instance identity from the signed snapshot */
-          if(firstRid) M.App.restoreRoomLocal();   /* members restore this instance's data only now */
+          M.State.room.rid=b.rid;   /* signed snapshot is authoritative for the current instance */
+          M.App.restoreRoomLocal();   /* (re)restore under the authenticated rid; no-op if nothing stored */
         }
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
@@ -7024,6 +7028,7 @@ M.App = {
   inviteUrl(){
     const base=location.origin+location.pathname;
     let u=base+'?room='+M.State.room.code;
+    if(M.State.room.rid) u+='&rid='+encodeURIComponent(M.State.room.rid);   /* bind invitations to the exact instance */
     const pin=M.Admin.pubPin() || (M.State.room.pubPin||'');
     if(pin) u+='&k='+pin;
     if(M.State.room.roomKeyB64) u+='#rk='+M.State.room.roomKeyB64;
@@ -7079,18 +7084,23 @@ M.App = {
       M.State.room={code, created:Date.now(), isCreator:false};
       /* 1 — restore the existing room-instance Admin identity from IndexedDB FIRST */
       await M.Admin.ensureKeys(code,false);
-      M.State.room.rid=(!M.Admin.pending && M.Admin.rid)||null;   /* old rid stays untrusted until authenticated */
-      /* 2 — determine the current room identity from the invitation URL */
+      /* 2 — the invitation identifies the CURRENT room instance (rid) as well as the
+         expected Admin identity (k) and the content key (rk). The instance comes from
+         the invitation, never from the untrusted local key alone. */
       const qp=new URLSearchParams(location.search);
-      const k=qp.get('k');
+      const k=qp.get('k'), invRid=qp.get('rid');
       if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
       const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
-      /* 3+4 — authenticate the restored identity ONLY when the invitation pin matches
-         its public-key fingerprint; a stale key for a reused code never matches the
-         new room's pin, so it stays pending and untrusted. The local key is NEVER
-         copied into roomPubStr — that field holds only an authenticated Admin identity. */
-      if(M.Admin.pending && M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin)
+      /* the current instance is what the invitation names; a restored Admin rid only
+         becomes trusted when BOTH the pin AND the invitation rid match it */
+      M.State.room.rid = invRid || ((!M.Admin.pending && M.Admin.rid)||null);
+      /* 3+4 — authenticate the restored Admin identity ONLY when the invitation pin
+         matches its fingerprint AND the invitation's rid matches the stored Admin rid.
+         An old Room-A invitation against a reused code carries rid-A ≠ any current
+         authenticated instance, so the old identity stays pending and untrusted. */
+      if(M.Admin.pending && M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin
+         && M.State.room.rid && M.Admin.rid===M.State.room.rid)
         M.Admin.confirmSelf();
       if(!M.Admin.pending && M.Admin.pubJwk) M.State.room.isCreator=true;
       /* Does this room exist? The returning Admin (holds the key) or a member still
