@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.46.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.46.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2276,7 +2276,7 @@ M.Net = {
     M.Net.A.probe.onMessage = (d,{peerId}) => {
       if(d?.t==='q'){
         M.log('info','[discovery] existence question received from '+M.fmt.idShort(peerId)+' — answering ack');
-        try{ M.Net.send('probe',{t:'ack',adm:!!M.Admin.priv},peerId); }catch(e){}
+        try{ M.Net.send('probe',{t:'ack',adm:M.Perms.isAdmin()},peerId); }catch(e){}
       } else if(d?.t==='ack' && M.Net._probeResolve){
         M.log('info','[discovery] existence ACK received from '+M.fmt.idShort(peerId)+' — room FOUND');
         M.Net._probeResolve();
@@ -2427,7 +2427,7 @@ M.Net = {
   hbTick(){
     if(!M.Net.connected) return;
     /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
-    const amAdmin=!!M.Admin.priv;   /* authority is enforced at receivers via pin verification */
+    const amAdmin=M.Perms.isAdmin();   /* a pending identity never advertises itself as Admin */
     M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.Admin.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
@@ -6456,7 +6456,7 @@ M.WB = {
       return;
     }
     if(d.t==='req'){
-      if(M.Admin.priv){ setTimeout(()=>M.WB.sendState(from),60); }   /* receivers verify the Admin pin, not the claim */
+      if(M.Perms.isAdmin()){ setTimeout(()=>M.WB.sendState(from),60); }   /* only an authenticated Admin answers as authoritative */
       else if(!M.WB.adminOnline() && M.WB.objs.size>0){                          /* Admin absent: peer fallback only */
         setTimeout(()=>{ if(!M.WB.adminOnline() && Math.random()<0.5) M.WB.sendState(from); },700+Math.random()*900);
       }
@@ -7011,25 +7011,25 @@ M.App = {
     M.lobbyMsg(M.t('joining')); M.$('#btnJoin').disabled=true;
     try{
       M.State.room={code, created:Date.now(), isCreator:false};
+      /* 1 — restore the existing room-instance Admin identity from IndexedDB FIRST */
+      await M.Admin.ensureKeys(code,false);
+      M.State.room.rid=M.Admin.rid||null;
+      /* 2 — determine the current room identity from the invitation URL */
       const qp=new URLSearchParams(location.search);
       const k=qp.get('k');
       if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
-      /* positive instance authentication: the invitation pin matching our restored key
-         proves this device is the authenticated Admin of THIS room instance */
-      if(M.Admin.pending && M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin)
-        M.Admin.confirmSelf();
       const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
-      await M.Admin.ensureKeys(code,false);
-      M.State.room.rid=M.Admin.rid||null;   /* present only if this device created this exact instance */
-      if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
-      /* a restored identity stays pending until proven (decryption or matching rid);
-         a stale device in a reused room can prove neither, so it never becomes Admin */
+      /* 3+4 — authenticate the restored identity ONLY when the invitation pin matches
+         its public-key fingerprint; a stale key for a reused code never matches the
+         new room's pin, so it stays pending and untrusted. The local key is NEVER
+         copied into roomPubStr — that field holds only an authenticated Admin identity. */
+      if(M.Admin.pending && M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin)
+        M.Admin.confirmSelf();
+      if(!M.Admin.pending && M.Admin.pubJwk) M.State.room.isCreator=true;
       /* Does this room exist? The returning Admin (holds the key) or a member still
          inside the recoverable window enter directly; everyone else must be answered
          by someone currently in the room — otherwise: "Room not found." */
-      /* returning Admin = this device holds the instance pointer AND its key; a member
-         (or a reused code) has neither, so discovery proceeds normally */
       const rid=M.Store.get('rid.'+code);
       const knownAdmin=!!(rid && await M.KeyDB.get('admin.'+rid).catch(()=>null));
       const gu=M.Store.get('grace.'+code);
