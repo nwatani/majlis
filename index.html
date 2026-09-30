@@ -914,6 +914,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="icon-btn pri" id="btnSend" title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linejoin="round"/></svg></button>
         </div>
         <input type="file" id="fileInput" multiple class="hidden">
+    <input type="file" id="shotInput" accept="image/*" class="hidden">
       </div>
 
       <!-- FILES -->
@@ -1377,7 +1378,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.41.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.41.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1560,6 +1561,8 @@ en:{
  vm_discarded:'Recording discarded', vm_unsup:'Voice recording is not supported in this browser', vm_msg:'Voice message',
  cap_title:'Screen capture', cap_unsup:'Screen capture is not supported in this browser',
  cap_recording:'Recording', cap_stop:'Stop', cap_shot_sent:'Screenshot sent', cap_clip_sent:'Screen recording sent',
+ cap_pick_hint:'Pick the screenshot of the issue from your gallery',
+ cap_cam_hint:'Point your camera at the screen and record the issue',
  perm_denied:'Not permitted', chat_disabled:'Room chat is disabled by the Admin', dm_disabled:'Private messages are disabled by the Admin',
  files_disabled:'File sharing is disabled by the Admin', calls_disabled:'Calls are disabled by the Admin', member_calls_disabled:'Only the Admin can start calls',
  notif_msg:'New message in {r}', notif_dm:'Private message from {n}', notif_file:'File received: {f}', notif_call:'Incoming call from {n}',
@@ -1742,6 +1745,8 @@ ar:{
  vm_discarded:'تم حذف التسجيل', vm_unsup:'التسجيل الصوتي غير مدعوم في هذا المتصفح', vm_msg:'رسالة صوتية',
  cap_title:'التقاط الشاشة', cap_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح',
  cap_recording:'جارٍ التسجيل', cap_stop:'إيقاف', cap_shot_sent:'أُرسلت لقطة الشاشة', cap_clip_sent:'أُرسل تسجيل الشاشة',
+ cap_pick_hint:'اختر لقطة الشاشة للمشكلة من المعرض',
+ cap_cam_hint:'وجّه الكاميرا نحو الشاشة وسجّل المشكلة',
  perm_denied:'غير مسموح', chat_disabled:'عطّل المشرف دردشة الغرفة', dm_disabled:'عطّل المشرف الرسائل الخاصة',
  files_disabled:'عطّل المشرف مشاركة الملفات', calls_disabled:'عطّل المشرف المكالمات', member_calls_disabled:'المشرف فقط يمكنه بدء المكالمات',
  notif_msg:'رسالة جديدة في {r}', notif_dm:'رسالة خاصة من {n}', notif_file:'ملف مستلم: {f}', notif_call:'مكالمة واردة من {n}',
@@ -3513,15 +3518,28 @@ M.Voice = {
    capture → package → send. Not a live session.
    ===================================================================== */
 M.Capture = {
-  _gate(){
+  _perm(){   /* permission + target only — capability is decided per method so mobiles get a working fallback */
     const target=M.State.chatTarget;
     const gate=M.Perms.can(target?'filePriv':'fileRoom');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
-    if(!navigator.mediaDevices?.getDisplayMedia){ M.toast('warn',M.t('cap_title'),M.t('cap_unsup')); return null; }
     return target||'*';
   },
   async shot(){
-    const target=M.Capture._gate(); if(!target) return;
+    const target=M.Capture._perm(); if(!target) return;
+    if(!navigator.mediaDevices?.getDisplayMedia){
+      /* mobile fallback: the OS already screenshots — let the customer pick it from the gallery */
+      const inp=M.$('#shotInput');
+      inp.onchange=()=>{
+        const f=inp.files[0]; inp.value=''; if(!f) return;
+        const url=URL.createObjectURL(f);
+        M.FT.start(f,target,{shot:true,preview:url});
+        M.toast('ok',M.t('cap_title'),M.t('cap_shot_sent'));
+        M.log('info','screenshot picked from gallery · '+M.fmt.bytes(f.size));
+      };
+      inp.click();
+      M.toast('info',M.t('cap_title'),M.t('cap_pick_hint'),{ms:5000});
+      return;
+    }
     let stream;
     try{ stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:2}},audio:false}); }
     catch(e){ if(e.name!=='NotAllowedError') M.toast('warn',M.t('cap_title'),e.message||''); return; }
@@ -3546,10 +3564,18 @@ M.Capture = {
   rec:null, chunks:[], stream:null, t0:0, _iv:null,
   async recStart(){
     if(M.Capture.rec){ M.Capture.recStop(); return; }
-    const target=M.Capture._gate(); if(!target) return;
-    let stream;
-    try{ stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:true}); }
-    catch(e){ if(e.name!=='NotAllowedError') M.toast('warn',M.t('cap_title'),e.message||''); return; }
+    const target=M.Capture._perm(); if(!target) return;
+    let stream, cam=false;
+    if(!navigator.mediaDevices?.getDisplayMedia){
+      /* mobile fallback: film the portal screen with the camera — the universal workaround */
+      try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:true}); }
+      catch(e){ M.toast('err',M.t('cap_title'), e.name==='NotAllowedError'?M.t('vm_mic_denied'):(e.message||'')); return; }
+      cam=true;
+    } else {
+      try{ stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30}},audio:true}); }
+      catch(e){ if(e.name!=='NotAllowedError') M.toast('warn',M.t('cap_title'),e.message||''); return; }
+    }
+    M.Capture._cam=cam;
     const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||'';
     let rec;
     try{ rec=new MediaRecorder(stream, mime?{mimeType:mime}:undefined); }
@@ -3565,7 +3591,8 @@ M.Capture = {
     M.$('#btnScrRec').classList.add('on');
     M.$('#scrTime').textContent='00:00';
     M.Capture._iv=setInterval(()=>{ const el=M.$('#scrTime'); if(el) el.textContent=M.fmt.dur((Date.now()-M.Capture.t0)/1000); },250);
-    M.log('info','screen recording started');
+    if(cam) M.toast('info',M.t('cap_title'),M.t('cap_cam_hint'),{ms:5500});
+    M.log('info',(cam?'camera':'screen')+' recording started');
   },
   recStop(){ if(M.Capture.rec?.state==='recording') M.Capture.rec.stop(); else M.Capture._finish(); },
   _finish(){
