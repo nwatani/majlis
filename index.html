@@ -1391,7 +1391,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.44.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.44.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2005,6 +2005,21 @@ M.Admin = {
     M.bus.emit('members'); M.bus.emit('ccRefresh');
     M.log('warn','stored Admin identity is stale for this room instance — demoted to member');
   },
+  /* deterministic self-confirmation, no timers: a restored identity becomes active
+     only when this device PROVES it belongs to the current instance — either by
+     decrypting this room's traffic (it holds this instance's E2EE key) or by
+     observing a live Admin broadcasting the same rid. A stale device joining a
+     reused code can do neither, so it stays a member forever. */
+  confirmSelf(){
+    if(!M.Admin.pending) return;
+    M.Admin.pending=false;
+    M.$('#btnCC')?.classList.toggle('hidden',false);
+    M.$('#btnTerm')?.classList.toggle('hidden',false);
+    M.$('#btnBoard')?.classList.toggle('hidden',false);
+    M.$('#selfName').innerHTML=M.State.self.name.replace(/</g,'&lt;')+M.Icons.crown;
+    M.bus.emit('members'); M.bus.emit('ccRefresh');
+    M.log('info','Admin identity confirmed cryptographically for this instance');
+  },
   async ensureKeys(code, isCreator){
     if(typeof crypto==='undefined' || !crypto.subtle)
       throw new Error('WebCrypto unavailable — a secure (HTTPS) connection is required to create or administer rooms.');
@@ -2307,7 +2322,11 @@ M.Net = {
     M.Net.A.type.onMessage = (d,{peerId}) => { if(d&&d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d&&d.to}); };
 
     /* encrypted app channels: chat / wb / ft control */
-    const wrap = fn => async (d,meta)=>{ let p=d; if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){ try{ p=await M.Crypto.dec(d.e); }catch(e){ M.log('warn','decrypt failed'); return; } }
+    const wrap = fn => async (d,meta)=>{ let p=d; let decrypted=false;
+      if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){ try{ p=await M.Crypto.dec(d.e); decrypted=true; }catch(e){ M.log('warn','decrypt failed'); return; } }
+      /* decrypting this room's traffic proves this device holds this instance's key —
+         the deterministic proof a restored Admin identity needs to become active */
+      if(decrypted) M.Admin.confirmSelf();
       /* in an E2EE room, anything that arrived unencrypted is from a keyless joiner —
          flag it as unverified so injected plaintext is never mistaken for trusted content */
       if(p && M.Crypto.has() && !(d&&d.e) && p.text && !p.sys) p._plain=true;
@@ -6962,9 +6981,8 @@ M.App = {
       await M.Admin.ensureKeys(code,false);
       M.State.room.rid=M.Admin.rid||null;   /* present only if this device created this exact instance */
       if(M.Admin.pubJwk){ M.State.room.isCreator=true; M.State.roomPubStr ??= JSON.stringify(M.Admin.pubJwk); }
-      if(M.Admin.pending){   /* no conflicting Admin within the window → this really is our room */
-        setTimeout(()=>{ if(M.Admin.pending){ M.Admin.pending=false; M.bus.emit('members'); M.log('info','Admin identity confirmed (no conflicting Admin in room)'); } },3500);
-      }
+      /* a restored identity stays pending until proven (decryption or matching rid);
+         a stale device in a reused room can prove neither, so it never becomes Admin */
       /* Does this room exist? The returning Admin (holds the key) or a member still
          inside the recoverable window enter directly; everyone else must be answered
          by someone currently in the room — otherwise: "Room not found." */
