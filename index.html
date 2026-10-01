@@ -1154,7 +1154,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 </div>
 <div class="modal hidden" id="mRCReq"><div class="m-card sm">
   <h3 style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 8v5M9.5 10.5L12 13l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rc_request_title">Remote view request</span></h3>
-  <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span id="rcBodyScreen" data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span><span id="rcBodyCam" class="hidden" data-i18n="rc_request_cam_body">wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only — point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.</span></p>
+  <p style="font-size:14px;line-height:1.65"><b id="rcReqName" style="color:var(--red)">—</b> <span id="rcReqAuth" class="hidden" style="font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:5px;border:1px solid rgba(56,207,182,.5);color:var(--teal);background:rgba(56,207,182,.1);vertical-align:1px">✓ Admin</span> <span id="rcBodyScreen" data-i18n="rc_request_body">wants to view your screen and guide you remotely. Your screen is shared with the Admin only; their pointer, clicks and keystrokes appear as a live overlay on your display. You can revoke access at any time.</span><span id="rcBodyCam" class="hidden" data-i18n="rc_request_cam_body">wants to guide you remotely. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only — point it at your screen. Their pointer and keystrokes appear as a live overlay. You can revoke at any time.</span></p>
   <div style="display:flex;gap:11px;margin-top:20px">
     <button class="btn btn-danger btn-big" id="rcReqDeny" style="flex:1" data-i18n="decline">Decline</button>
     <button class="btn btn-teal btn-big" id="rcReqAllow" style="flex:1" data-i18n="rc_allow">Allow</button>
@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.62.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.63.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2111,7 +2111,8 @@ M.Admin = {
   },
   async verifyObj(obj){
     if(!obj||!obj.sig||!M.State.roomPub) return false;
-    if(M.State.room?.rid && obj.rid!==M.State.room.rid) return false;   /* bound to the current instance */
+    if(!M.State.room?.rid) return false;   /* no authenticated instance yet → explicit rejection */
+    if(obj.rid!==M.State.room.rid) return false;   /* bound to the current instance */
     const {sig,...rest}=obj;
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(rest))); }
     catch(e){ return false; }
@@ -2157,9 +2158,11 @@ M.Admin = {
       if(!ok) return false;
       /* monotonic freshness per sender: a replayed (or older) seq is rejected even if
          the signature is valid and the _seen cache has wrapped */
-      /* instance binding: a correctly signed command from another room instance is
-         rejected even though its signature verifies against the accepted Admin key */
-      if(M.State.room?.rid && body.rid!==M.State.room.rid){ M.log('warn','admin command rejected — rid '+(body.rid||'none')+' != current '+M.State.room.rid); return false; }
+      /* Hard instance binding: until the current authenticated rid is established there
+         is NO trusted Admin authority — a missing rid is an explicit rejection, never
+         "not yet checked". A command from any other instance is rejected too. */
+      if(!M.State.room?.rid){ M.log('warn','admin command rejected — current room rid not yet authenticated'); return false; }
+      if(body.rid!==M.State.room.rid){ M.log('warn','admin command rejected — rid '+(body.rid||'none')+' != current '+M.State.room.rid); return false; }
       /* replay protection persists per Admin sender + room instance, so a refresh
          cannot reset the high-water mark and allow an old signed command to replay */
       const map=M.Admin._maxSeq;
@@ -2437,7 +2440,7 @@ M.Net = {
         M.Net._pcSeen.add(pc);
         const onState=()=>{
           const st=pc.iceConnectionState;
-          if((st==='failed'||st==='closed'||st==='disconnected') && M.State.peers.get(pid)?.adm) M.Grace.eval();   /* admin's socket died → re-check absence immediately */
+          if(st==='failed'||st==='closed'||st==='disconnected') M.Grace.eval();   /* any link loss re-checks verified-Admin absence; adm flag never consulted */
           if(st==='connected'||st==='completed'){
             if(M.Net._restarts.has(pid)||M.Net._joinErrs.has(pid)){ M.Net._restarts.delete(pid); M.Net._joinErrs.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
           } else if(st==='disconnected'){
@@ -3078,6 +3081,9 @@ M.FT = {
     maxBuf:2*1024*1024          /* a single chunk never exceeds this */
   },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
+  /* ownership: is `from` the legitimate counterparty for this transfer?
+     Targeted transfer → the exact other endpoint. Room transfer → any current member. */
+  authSendPeer(t,from){ return t.target==='*' ? !!M.State.peers.get(from) : from===t.target; },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
     M.bus.on('ftChunk', d=>M.FT.onChunk(d));
@@ -3281,10 +3287,10 @@ M.FT = {
         })();
         break;
       }
-      case 'ack': { const t=M.FT.sends.get(d.id); if(t){ t.ack=Math.max(t.ack,d.seq); } break; }
+      case 'ack': { const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ t.ack=Math.max(t.ack,d.seq); } break; }
       case 'nack': {
         /* receiver asked for specific missing chunks by number — resend them from the file */
-        const t=M.FT.sends.get(d.id); if(!t) break;
+        const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
         (async()=>{
           for(const seq of (d.seqs||[])){
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
@@ -3299,7 +3305,7 @@ M.FT = {
       }
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
-        const t=M.FT.sends.get(d.id); if(!t) return;
+        const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) return;
         (async()=>{
           const off=Math.floor((d.offset||0)/M.FT.CHUNK)*M.FT.CHUNK;
           let p=0;
@@ -3312,21 +3318,22 @@ M.FT = {
         break;
       }
       case 'done': {
-        const r=M.FT.recvs.get(d.id); if(!r) return;
+        const r=M.FT.recvs.get(d.id); if(!r || r.from!==from) return;   /* only the transfer's sender may complete it */
         if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
         else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.name); }
         break;
       }
       case 'result': {
-        const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify') return;
+        const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify'||!M.FT.authSendPeer(t,from)) return;
         if(d.ok){ t.status='done'; M.Chat.updateFileCard(t.id,{statusLabel:`${M.t('st_done')} ✓`}); M.toast('ok',t.name,M.t('st_done')); M.Notify.beep('ok'); }
         else { M.FT.fail(t,M.t('integrity_fail')); }
         M.FT.render(); M.UI.badges();
         break;
       }
       case 'cancel': {
-        const t=M.FT.sends.get(d.id); if(t){ t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
-        const r=M.FT.recvs.get(d.id); if(r){ r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        /* a send may only be canceled by its intended receiver; a receive only by its sender */
+        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const r=M.FT.recvs.get(d.id); if(r && r.from===from){ r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
         M.log('warn','transfer canceled '+(d.id||''));
         M.UI.badges();
         break;
@@ -3678,7 +3685,7 @@ M.UI = {
         /* the room name is derived from the Admin's name — keep it in lockstep */
         if(M.Perms.isAdmin() && M.State.room){
           M.State.room.name=M.t('room_of',{n:nv});
-          M.Store.set('rname.'+M.State.room.code,M.State.room.name);
+          M.App.putRoom('rname',M.State.room.name);   /* rid-keyed, not code-keyed */
           M.UI.roomName();
           M.bus.emit('sysmsg',{text:M.t('room_renamed',{n:M.State.room.name})});
           M.log('info','room name follows admin → '+M.State.room.name);
@@ -4774,9 +4781,14 @@ M.RC = {
     M.$('#rcVideo').srcObject=null;
     M.$('#rcHint').textContent=M.t(mobile?'rc_wait_cam':'rc_wait');
     M.$('#rcFoot').textContent=M.t(mobile?'rc_hint_cam':'rc_hint');
-    const msg={t:'req',to:peerId,fromName:M.State.self.name};
-    try{ M.Net.send('rc',msg,peerId); }catch(e){}
-    setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1300);
+    /* sign the request so the member can verify the requester is the authenticated
+       Admin of THIS instance; approval is still always explicit on the member side */
+    const base={t:'req',to:peerId,fromName:M.State.self.name,rid:M.State.room?.rid,ts:Date.now(),from:M.State.self.id};
+    const sendReq=async()=>{
+      let sig; if(M.Perms.isAdmin()){ try{ sig=await M.Admin.signObj({rid:base.rid,ts:base.ts,from:base.from}); }catch(e){} }
+      try{ M.Net.send('rc',{...base,sig},peerId); }catch(e){}
+    };
+    sendReq(); setTimeout(sendReq,1300);
     M.log('info','remote-control requested → '+m.name);
   },
   /* admin shares their own screen INTO the session so the member can watch what
@@ -4910,6 +4922,13 @@ M.RC = {
         const mode=navigator.mediaDevices.getDisplayMedia?'screen':'cam';
         M.RC._pendingReq={from,mode};
         M.$('#rcReqName').textContent=M.Members.name(from);
+        /* verify the requester is the authenticated Admin of THIS instance; the badge is
+           informational only — approval always stays explicit and manual */
+        M.$('#rcReqAuth').classList.add('hidden');
+        (async()=>{
+          const authed=!!(d.sig && d.rid && M.State.room?.rid && d.rid===M.State.room.rid && d.from===from && await M.Admin.verifyObj({rid:d.rid,ts:d.ts,from:d.from,sig:d.sig}));
+          if(authed && M.RC._pendingReq && M.RC._pendingReq.from===from) M.$('#rcReqAuth').classList.remove('hidden');
+        })();
         M.$('#rcBodyScreen').classList.toggle('hidden',mode!=='screen');
         M.$('#rcBodyCam').classList.toggle('hidden',mode!=='cam');
         M.$('#mRCReq').classList.remove('hidden');
