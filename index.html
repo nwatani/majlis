@@ -609,6 +609,13 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #wbColorDot{width:17px;height:17px;border-radius:50%;border:2px solid var(--line2);display:block;transition:background .15s}
 #wbFontN{width:52px;padding:5px 6px;border:1px solid var(--line2);border-radius:7px;background:var(--bg1);color:var(--ink);font-family:var(--mono);font-size:12px;flex:none}
 #wbFontN:focus{outline:none;border-color:var(--amber)}
+/* Whiteboard diagnostics panel — guaranteed contrast on both themes */
+#mWbDbg h3{color:var(--ink)}
+#wbDbgState{color:var(--ink)}
+#wbDbgState b{color:var(--teal);font-weight:700}
+#wbDbgBody{background:#0C1418 !important;color:#D9E8EC !important;border-color:var(--line2) !important}
+#wbDbgBody .dbg-err{color:#FF8A80}
+#wbDbgCopy{color:var(--ink);border-color:var(--line2)}
 #wbPalette{position:fixed;z-index:160;background:var(--bg1);border:1px solid var(--line2);border-radius:11px;box-shadow:var(--sh);padding:10px;display:grid;grid-template-columns:repeat(7,25px);gap:6px;animation:msgIn .15s ease both}
 #wbPalette button{width:25px;height:25px;border-radius:7px;border:1.5px solid rgba(127,140,150,.35);cursor:pointer;transition:transform .12s;padding:0}
 #wbPalette button:hover{transform:scale(1.15)}
@@ -1409,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.72.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.72.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -5679,7 +5686,7 @@ M.WBDbg = {
       +' &nbsp;·&nbsp; wb.open: <b>'+M.State.wb.open+'</b><br>'
       +'board objects: <b>'+M.WB.objs.size+'</b> &nbsp;·&nbsp; state requests: <b>'+this.reqN+'</b><br>'
       +'last rejection: <b>'+(this.lastReject||'—')+'</b>';
-    const b=M.$('#wbDbgBody'); if(b){ b.textContent=this.ring.map(i=>i.t+'  '+i.msg).join('\n'); b.scrollTop=b.scrollHeight; }
+    const b=M.$('#wbDbgBody'); if(b){ b.innerHTML=this.ring.map(i=>{ const safe=String(i.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;'); const cls=/rejected|error|aborted/i.test(i.msg)?'dbg-err':''; return '<span class="'+cls+'">'+i.t+'  '+safe+'</span>'; }).join('\n'); b.scrollTop=b.scrollHeight; }
   }
 };
 M.WB = {
