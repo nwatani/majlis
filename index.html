@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.73.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.74.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2080,7 +2080,7 @@ M.Admin = {
     M.bus.emit('members'); M.bus.emit('ccRefresh');
     M.log('info','Admin identity confirmed cryptographically for this instance');
   },
-  async ensureKeys(code, isCreator){
+  async ensureKeys(code, isCreator, ridHint){
     if(typeof crypto==='undefined' || !crypto.subtle)
       throw new Error('WebCrypto unavailable — a secure (HTTPS) connection is required to create or administer rooms.');
     /* The Admin key is bound to a per-instance room ID (rid), NOT the reusable 6-char
@@ -2105,8 +2105,9 @@ M.Admin = {
       }catch(e){ M.log('warn','admin key restore failed: '+e.message); }
     }
     if(isCreator){
-      /* fresh instance gets a fresh key: non-extractable, IndexedDB-backed, keyed by rid */
-      const newRid=M.uid(12);
+      /* fresh instance gets a fresh key: non-extractable, IndexedDB-backed, keyed by rid.
+         ridHint lets create() mint the rid BEFORE the namespace join. */
+      const newRid=ridHint||M.uid(12);
       /* usages cover the pair: private stays non-extractable for signing, and the
          exported public JWK carries a valid 'verify' usage for members to import */
       const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
@@ -2402,7 +2403,7 @@ M.Net = {
     cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
     const profile=()=>({ n:M.State.self.name, fp:M.State.self.fp, adm:M.Perms.isAdmin(), os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, v:M.Version, jt:M.State.joinedAt||0, ts:Date.now() });
 
-    M.Net.room=M.T.joinRoom(cfg, 'mj-'+code, {
+    M.Net.room=M.T.joinRoom(cfg, M.App.nsRoom(M.State.room.rid), {
       onJoinError: d => {
         const pid=d.peerId;
         M.log('warn','peer link issue: '+M.fmt.idShort(pid||'?')+' '+(d.error?.message||''));
@@ -2616,8 +2617,40 @@ M.Net = {
         }
       });
     },6000);
-    M.log('info','[discovery] namespace joined: mj-'+code+' as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.T.selfId));
+    M.log('info','[ns] signaling namespace '+M.App.nsRoom(M.State.room.rid)+' joined as '+(isCreator?'ADMIN':'member')+' · selfId '+M.fmt.idShort(M.T.selfId));
+    /* also join the code-discovery namespace so code-only joiners can learn this rid */
+    try{ M.Net.joinDiscovery(M.State.room.code); }catch(e){ M.log('warn','discovery namespace unavailable: '+e.message); }
     return R;
+  },
+  /* code-discovery channel: members answer "where is the live rid for this code?".
+     Only the rid (and admin pin) are revealed — never rk, never authority. */
+  joinDiscovery(code){
+    if(M.Net.disc) return;
+    const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
+    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
+    M.Net.disc=d;
+    const where=d.makeAction('where'), here=d.makeAction('here');
+    where.onMessage=(q,{peerId})=>{
+      if(M.State.room?.rid && M.State.room.code===code)
+        try{ here.send({rid:M.State.room.rid, pin:M.State.roomPubPin||undefined},peerId); }catch(e){}
+    };
+    here.onMessage=()=>{};   /* answers are consumed by the discovery promise, not here */
+    M.log('info','[ns] discovery namespace '+M.App.nsCode(code)+' joined');
+    return d;
+  },
+  /* code-only join: ask the discovery namespace for the current live rid */
+  async discoverRid(code){
+    await M.Net.loadTrystero();
+    const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
+    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
+    return await new Promise(res=>{
+      let done=false;
+      const finish=(rid,pin)=>{ if(done)return; done=true; try{ d.leave(); }catch(e){} res(rid?{rid,pin}:null); };
+      const here=d.makeAction('here'), where=d.makeAction('where');
+      here.onMessage=(d2)=>{ if(d2&&d2.rid) finish(d2.rid,d2.pin); };
+      where.send({}); setTimeout(()=>{ try{ where.send({}); }catch(e){} },1200);
+      setTimeout(()=>finish(null),5000);
+    });
   },
   _early:new Map(),
   send(action,obj,target){ if(target!=null) M.Net.A[action].send(obj,{target}); else M.Net.A[action].send(obj); },
@@ -2731,7 +2764,7 @@ M.Net = {
     if(n) M.log('info','heal sweep: restarted '+n+' stale link(s)');
     M.Net.nudge();
   },
-  leave(){ try{ M.Net.room?.leave(); }catch(e){} clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
+  leave(){ try{ M.Net.room?.leave(); }catch(e){} try{ M.Net.disc?.leave(); }catch(e){} M.Net.disc=null; clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
 };
 
 /* ---------------- Duplicate-session guard ---------------------------------
@@ -7465,22 +7498,23 @@ M.App = {
     if(!M.App.setName()) return;
     M.lobbyMsg(M.t('creating')); M.$('#btnCreate').disabled=true;
     try{
-      /* pick a code that no live or recoverable room currently holds — a code is
-         never assigned to two rooms at once */
-      let code='', occupied=true, tries=0;
+      /* The signaling namespace is the random rid, NOT the visible code. Mint the rid
+         up front so the namespace join and the code probe both target it. The 6-char
+         code remains display/share/manual-entry only. */
+      let code='', rid='', occupied=true, tries=0;
       while(occupied && tries<6){
-        code=M.roomCode(); tries++;
+        code=M.roomCode(); rid=M.uid(12); tries++;
         if(M.App.tombstoned(code)) continue;   /* never reassign a reserved code */
-        M.State.room={code, created:Date.now(), isCreator:true};
+        M.State.room={code, rid, created:Date.now(), isCreator:true};
         await M.Net.join(code,{isCreator:true});
         M.State.self.id=M.T.selfId;
         occupied=await M.Net.probeRoom(2000);
-        if(occupied){ M.log('warn','code '+code+' already in use — rolling again'); try{ M.Net.leave(); }catch(e){} M.App.resetState(); }
+        if(occupied){ M.log('warn','rid namespace already occupied — rolling again'); try{ M.Net.leave(); }catch(e){} M.App.resetState(); }
       }
       if(occupied){ M.lobbyMsg(M.t('create_busy'),true); M.$('#btnCreate').disabled=false; return; }
-      M.State.room={code, created:Date.now(), isCreator:true, name:M.t('room_of',{n:M.State.self.name})};
-      await M.Admin.ensureKeys(code,true);
-      M.State.room.rid=(!M.Admin.pending && M.Admin.rid)||null;   /* creator is never pending; rid trusted immediately */
+      M.State.room={code, rid, created:Date.now(), isCreator:true, name:M.t('room_of',{n:M.State.self.name})};
+      await M.Admin.ensureKeys(code,true,rid);
+      M.State.room.rid=M.Admin.rid||rid;   /* creator is never pending; rid trusted immediately */
       try{ localStorage.removeItem('mj.dead.'+code); }catch(e){}   /* a fresh instance supersedes any prior tombstone on this device */
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
       /* every room is Private/E2EE: always generate a fresh 256-bit room key */
@@ -7495,13 +7529,17 @@ M.App = {
   },
   async join(){
     if(!M.App.setName()) return;
-    /* the full invitation link is the only valid entry: parse room + rid + k + rk from it.
-       A bare 6-character code is rejected — it grants no access to a private room. */
-    let inv;
+    /* Two entry modes:
+       (a) full invitation URL (room + rid + k + rk) → join the rid namespace directly;
+       (b) bare 6-char code → learn the live rid from the code-discovery namespace.
+       In both cases the namespace joined is mj-<rid>; the code never is the identity. */
+    let inv=null;
     try{ inv=new URL(M.$('#codeInput').value.trim(), location.href); }catch(e){ inv=null; }
     const qp=inv? new URLSearchParams(inv.search) : null;
-    const code=(qp&&qp.get('room')||'').toUpperCase();
-    if(!inv || !/^[A-Z2-9]{6}$/.test(code) || !inv.hash.includes('rk=')){ M.lobbyMsg(M.t('join_link_required'),true); return; }
+    let code=(qp&&qp.get('room')||'').toUpperCase();
+    const raw=M.$('#codeInput').value.trim();
+    if(!code && /^[A-Za-z2-9]{6}$/.test(raw)) code=raw.toUpperCase();   /* manual code entry */
+    if(!/^[A-Z2-9]{6}$/.test(code)){ M.lobbyMsg(M.t('invalid_code'),true); return; }
     if(!M.Rate.check()){ M.lobbyMsg(M.t('rate_limited'),true); return; }
     if(M.App.tombstoned(code)){ M.lobbyMsg(M.t('room_not_found'),true); return; }
     M.lobbyMsg(M.t('joining')); M.$('#btnJoin').disabled=true;
@@ -7509,55 +7547,48 @@ M.App = {
       M.State.room={code, created:Date.now(), isCreator:false};
       /* 1 — restore the existing room-instance Admin identity from IndexedDB FIRST */
       await M.Admin.ensureKeys(code,false);
-      /* 2 — the invitation identifies the CURRENT room instance (rid) as well as the
-         expected Admin identity (k) and the content key (rk). The instance comes from
-         the invitation, never from the untrusted local key alone. */
-      const k=qp.get('k'), invRid=qp.get('rid');
+      /* 2 — invitation-supplied identity (k) and content key (rk) */
+      const k=qp&&qp.get('k'); const invRid=qp&&qp.get('rid');
       if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
-      const frag=inv.hash.match(/rk=([A-Za-z0-9_\-]+)/);
-      if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
-      /* TRUST RULE: the invitation's rid is a CLAIM, never proof. M.State.room.rid
-         stays null until the instance is established by origin-proof (the device that
-         created the instance holds the rid pointer + key) or by an authenticated
-         snapshot from the mesh. Members therefore never adopt a rid from a URL. */
-      M.State.room.rid=null;
+      if(inv){ const frag=inv.hash.match(/rk=([A-Za-z0-9_\-]+)/); if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; } }
+      /* 3 — resolve the room-instance id: from the invitation, or by code discovery */
+      let rid=invRid||null;
+      let discovered=false;
+      if(!rid){
+        M.lobbyMsg(M.t('joining'));
+        const disc=await M.Net.discoverRid(code);
+        if(!disc){
+          if(M.Recovery._lastOk===false){ M.lobbyMsg(M.t('join_failed'),true); M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500}); }
+          else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
+          M.$('#btnJoin').disabled=false; return;
+        }
+        rid=disc.rid; discovered=true;
+        if(disc.pin && !M.State.roomPubPin){ M.State.roomPubPin=disc.pin; M.State.room.pubPin=disc.pin; }
+      }
+      /* namespace claim: the rid names the namespace to join. Trust (authority/
+          persistence) is still gated by origin-proof / authenticated snapshot. */
+      M.State.room.rid=rid;
       const pinMatch=!!(M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin);
-      /* origin proof requires the device to NOT hold a fresh tombstone for this code:
-         a device that saw this code's previous instance terminate knows its own old
-         origin is stale and must not re-assert it on a reused code */
-      const originProof=!!(invRid && M.Admin.rid && invRid===M.Admin.rid && pinMatch && !M.App.tombstoned(code));
-      /* a restored Admin identity authenticates only on full origin-proof: stored
-         instance pointer + matching key + invitation naming that same instance */
+      const originProof=!!(rid && M.Admin.rid && rid===M.Admin.rid && pinMatch && !M.App.tombstoned(code));
       if(M.Admin.pending && originProof) M.Admin.confirmSelf();
       if(!M.Admin.pending && M.Admin.pubJwk) M.State.room.isCreator=true;
-      /* Does this room exist? The returning Admin (holds the key) or a member still
-         inside the recoverable window enter directly; everyone else must be answered
-         by someone currently in the room — otherwise: "Room not found." */
-      const rid=M.Store.get('rid.'+code);
-      const knownAdmin=!!(rid && await M.KeyDB.get('admin.'+rid).catch(()=>null));
-      const gu=M.Store.get('grace.'+(M.State.room?.rid||code));
-      const bypass=knownAdmin || (gu && gu>Date.now());
+      const storedRid=M.Store.get('rid.'+code);
+      const knownAdmin=!!(storedRid && await M.KeyDB.get('admin.'+storedRid).catch(()=>null));
+      const gu=M.Store.get('grace.'+rid);
+      const bypass=knownAdmin || (gu && gu>Date.now()) || discovered;
       M.Net.onProgress=m=>M.lobbyMsg(m);
       try{ await M.Net.join(code,{isCreator:M.Perms.isAdmin()}); }finally{ M.Net.onProgress=null; }
       M.State.self.id=M.T.selfId;
       if(!bypass){
-        /* someone must answer for the room to exist — a terminated or unknown code
-           stays silent and is reported as not found */
-        M.log('info','[discovery] probing namespace mj-'+code+' — waiting for a participant to answer');
+        M.log('info','[discovery] probing namespace '+M.App.nsRoom(rid)+' — waiting for a participant to answer');
         const found=await M.Net.probeRoom(6000);
         M.log('info','[discovery] probe result: '+(found?'FOUND':'no answer')+' · relay ok='+M.Recovery._lastOk);
         if(!found){
           try{ M.Net.leave(); }catch(e){}
           M.App.resetState();
-          safeDel(localStorage,'mj.grace.'+code);   /* a room that never existed must leave no trace behind */
-          if(M.Recovery._lastOk===false){
-            /* the relay itself is unreachable — existence can't be judged; say so honestly */
-            M.lobbyMsg(M.t('join_failed'),true);
-            M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500});
-          } else {
-            M.lobbyMsg(M.t('room_not_found'),true);
-            M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500});
-          }
+          safeDel(localStorage,'mj.grace.'+rid);
+          if(M.Recovery._lastOk===false){ M.lobbyMsg(M.t('join_failed'),true); M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500}); }
+          else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
           M.$('#btnJoin').disabled=false;
           return;
         }
@@ -7594,7 +7625,7 @@ M.App = {
       }
     },20000);
     M.Net.onProgress=m=>M.lobbyMsg(m);
-    try{ await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
+    try{ if(!M.Net.room) await M.Net.join(code,{isCreator}); }finally{ clearTimeout(failTimer); M.Net.onProgress=null; }
     M.State.self.id=M.T.selfId;
     /* room-scoped data restoration is centralized in M.App.restoreRoomLocal and runs only
        once the instance rid is known (admins immediately, members at the signed snapshot) */
@@ -7627,7 +7658,7 @@ M.App = {
     },500);
   },
   resetState(){
-    M.Net.room=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map(); M.Net._encBlocked=false;
+    M.Net.room=null; M.Net.disc=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map(); M.Net._encBlocked=false;
     M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
@@ -7670,6 +7701,11 @@ M.lobbyMsg = (txt,err) => { const e=M.$('#lobbyMsg'); e.textContent=txt||''; e.c
    current room instance id (rid) is known and trusted. skey() returns null until
    then; putRoom() no-ops; getRoom()/getRoomStore() return null. A reused 6-char
    code therefore never exposes a previous instance's data. */
+/* room identity: the visible 6-char code is for humans; the random rid is the true
+   signaling/persistence identity. The code-discovery namespace (mj-c-<code>) lets
+   code-only joiners learn the current rid, which is never derivable from the code. */
+M.App.nsRoom = function(rid){ return 'mj-'+rid; };
+M.App.nsCode = function(code){ return 'mj-c-'+code; };
 M.App.rkey = function(base){ const rid=M.State.room?.rid; return rid? base+'.'+rid : null; };   /* ONLY the authenticated room rid — never a pending Admin rid */
 M.App.skey = function(base){ return M.App.rkey(base); };   /* null until rid known */
 M.App.putRoom = function(base,val){ const k=M.App.skey(base); if(k) M.Store.set(k,val); };
@@ -8269,8 +8305,12 @@ document.addEventListener('DOMContentLoaded',()=>{
         M.$('#lobbyMsg').classList.add('ok');
         if(savedName) setTimeout(()=>M.$('#btnJoin').focus(),100);
       } else {
+        /* code-only URL: prefill and let discovery resolve the live room instance */
         M.$('#modeJoin').click();
-        M.lobbyMsg(M.t('join_link_required'),true);
+        M.$('#codeInput').value=rc.toUpperCase();
+        M.lobbyMsg('✓ '+M.t('room_code')+': '+rc.toUpperCase());
+        M.$('#lobbyMsg').classList.add('ok');
+        if(savedName) setTimeout(()=>M.$('#btnJoin').focus(),100);
       }
     }
     const note=safeGet(sessionStorage,'mj.note');
