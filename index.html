@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.63.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.64.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1662,7 +1662,7 @@ en:{
  rc_allow:'Allow', rc_banner:'is viewing & guiding your screen', rc_revoke:'Revoke access',
  rc_wait:'awaiting member approval…', rc_connect:'member approved — connecting…',
  rc_start_ok:'Session active — click the window, then move, click, scroll or type', rc_declined:'The member declined the request',
- rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', select_members:'Select at least one member to call', select_all:'Select all', clear_all:'Clear selection',
+ rc_unsup:'Screen capture is not supported by this browser (Android/iOS) — a desktop browser is required', rc_mob_na:'Screen capture is not available in Android/iOS browsers — remote control needs a desktop browser on the member\u2019s side', rc_ended:'Remote session ended', rc_you_declined:'Request declined', rc_sign_fail:'Request could not be signed — Remote Control aborted', select_members:'Select at least one member to call', select_all:'Select all', clear_all:'Clear selection',
  rc_member_on:'The Admin now sees your screen — use the red banner to revoke anytime',
  rc_hint:'Your pointer, clicks, scrolling and typing are mirrored on the member\u2019s screen as live guidance. The member can revoke access at any moment.',
  rc_request_cam_body:'wants to view your device in real time. Phones cannot share their screen inside browsers, so your CAMERA will be shared with the Admin only \u2014 point it at your screen. You can revoke at any time.',
@@ -1860,7 +1860,7 @@ ar:{
  rc_allow:'سماح', rc_banner:'يشاهد شاشتك ويرشدك الآن', rc_revoke:'إلغاء الوصول',
  rc_wait:'بانتظار موافقة العضو…', rc_connect:'وافق العضو — جارٍ الاتصال…',
  rc_start_ok:'الجلسة نشطة — انقر النافذة ثم حرّك وانقر واكتب', rc_declined:'رفض العضو الطلب',
- rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', select_members:'اختر عضواً واحداً على الأقل للاتصال', select_all:'تحديد الكل', clear_all:'إلغاء التحديد',
+ rc_unsup:'التقاط الشاشة غير مدعوم في هذا المتصفح (أندرويد/iOS) — يلزم متصفح حاسوب', rc_mob_na:'التقاط الشاشة غير متاح في متصفحات أندرويد/iOS — التحكم عن بُعد يتطلب متصفح حاسوب لدى العضو', rc_ended:'انتهت جلسة التحكم', rc_you_declined:'تم رفض الطلب', rc_sign_fail:'تعذّر توقيع الطلب — تم إحباط التحكم عن بُعد', select_members:'اختر عضواً واحداً على الأقل للاتصال', select_all:'تحديد الكل', clear_all:'إلغاء التحديد',
  rc_member_on:'أصبح المشرف يرى شاشتك — استخدم الشريط الأحمر للإلغاء في أي وقت',
  rc_hint:'تظهر حركات مؤشرك ونقراتك وكتابتك على شاشة العضو كإرشاد حي. يمكن للعضو إلغاء الوصول في أي لحظة.',
  rc_request_cam_body:'يرغب في مشاهدة جهازك مباشرة. لا تستطيع الهواتف مشاركة شاشتها داخل المتصفحات، لذا ستُشارَك كاميرتك مع المشرف فقط — وجّهها نحو شاشتك. يمكنك الإلغاء في أي وقت.',
@@ -2108,6 +2108,24 @@ M.Admin = {
     const {sig, ...rest}=obj;
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(rest)));
     return M.b64(raw);
+  },
+  /* verify a {rid,ts,from,sig[,pub]} payload against the authenticated Admin key.
+     Reuses the established model: the invitation pin (k) authenticates the public key;
+     the signature proves possession of the private key. Works even before the Admin
+     key is cached locally, without first-seen trust. */
+  async authVerify(obj){
+    if(!obj||!obj.sig||!obj.from) return false;
+    if(!M.State.room?.rid || obj.rid!==M.State.room.rid) return false;
+    let key=M.State.roomPub;
+    if(!key){
+      if(!obj.pub || !M.State.roomPubPin) return false;
+      const fp=M.SHA.create().update(M.te.encode(JSON.stringify(obj.pub))).hex().slice(0,16);
+      if(fp!==M.State.roomPubPin) return false;   /* not the Admin named by this invitation */
+      try{ key=await crypto.subtle.importKey('jwk',obj.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(obj.pub); }catch(e){ return false; }
+    } else if(obj.pub && M.State.roomPubStr && JSON.stringify(obj.pub)!==M.State.roomPubStr) return false;
+    try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(obj.sig),M.te.encode(JSON.stringify({rid:obj.rid,ts:obj.ts,from:obj.from}))); }
+    catch(e){ return false; }
   },
   async verifyObj(obj){
     if(!obj||!obj.sig||!M.State.roomPub) return false;
@@ -4767,10 +4785,19 @@ M.RC = {
     };
   },
   /* ---------------- Admin side ---------------- */
-  request(peerId){
+  async request(peerId){
     if(M.RC.admin){ M.toast('warn',M.t('rc_win_title'),'One session at a time — end the current one first.'); return; }
     const m=M.State.peers.get(peerId);
     if(!m||m.status!=='online'){ M.toast('warn',M.t('rc_win_title'),M.t('offline')); return; }
+    /* Remote Control is an Admin capability: an unauthenticated identity never requests it */
+    if(!M.Perms.isAdmin()){ M.toast('warn',M.t('rc_win_title'),M.t('perm_denied')); return; }
+    /* fail closed: sign BEFORE anything is sent or any UI opens. A signing failure
+       aborts the whole request — an unsigned Remote Control request is never sent. */
+    const base={t:'req',to:peerId,fromName:M.State.self.name,rid:M.State.room?.rid,ts:Date.now(),from:M.State.self.id};
+    let sig;
+    try{ sig=await M.Admin.signObj({rid:base.rid,ts:base.ts,from:base.from}); }
+    catch(e){ M.log('err','Remote Control request aborted: signing failed ('+(e.message||e)+')'); M.toast('warn',M.t('rc_win_title'),M.t('rc_sign_fail')); return; }
+    const msg={...base, sig, pub:M.Admin.pubJwk};
     const mobile=m.mob||m.os==='Android'||m.os==='iOS';
     M.RC.admin={peerId,status:'await',startedAt:0,stream:null,mode:mobile?'cam':'screen'};
     M.$('#rcWin').classList.remove('hidden');
@@ -4781,14 +4808,8 @@ M.RC = {
     M.$('#rcVideo').srcObject=null;
     M.$('#rcHint').textContent=M.t(mobile?'rc_wait_cam':'rc_wait');
     M.$('#rcFoot').textContent=M.t(mobile?'rc_hint_cam':'rc_hint');
-    /* sign the request so the member can verify the requester is the authenticated
-       Admin of THIS instance; approval is still always explicit on the member side */
-    const base={t:'req',to:peerId,fromName:M.State.self.name,rid:M.State.room?.rid,ts:Date.now(),from:M.State.self.id};
-    const sendReq=async()=>{
-      let sig; if(M.Perms.isAdmin()){ try{ sig=await M.Admin.signObj({rid:base.rid,ts:base.ts,from:base.from}); }catch(e){} }
-      try{ M.Net.send('rc',{...base,sig},peerId); }catch(e){}
-    };
-    sendReq(); setTimeout(sendReq,1300);
+    const sendReq=()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} };
+    sendReq(); setTimeout(sendReq,1300);   /* one retransmit for relay reliability, same valid signature */
     M.log('info','remote-control requested → '+m.name);
   },
   /* admin shares their own screen INTO the session so the member can watch what
@@ -4907,12 +4928,27 @@ M.RC = {
     M.log('info','remote-control ended (admin side)');
   },
   /* ---------------- Member side ---------------- */
-  onMsg(d,from){
+  async onMsg(d,from){
     if(!d||!d.t) return;
     switch(d.t){
       case 'req': {
         if(d.to && d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(from,d.fromName);
+        /* AUTHORIZATION GATE — the dialog is shown ONLY for a fully authenticated Admin
+           request. Every check is mandatory; any failure rejects silently with a
+           diagnostic and never surfaces a dialog or an Admin badge. */
+        if(!d.sig || !d.pub || !d.rid || !d.from || d.from!==from){
+          M.log('warn','RC request rejected — missing signature/identity from '+M.fmt.idShort(from)); return;
+        }
+        if(!M.State.room?.rid || d.rid!==M.State.room.rid){
+          M.log('warn','RC request rejected — rid '+(d.rid||'none')+' != current '+(M.State.room?.rid||'none')); return;
+        }
+        if(typeof d.ts!=='number' || Math.abs(Date.now()-d.ts)>M.Net.HB_FRESH){
+          M.log('warn','RC request rejected — stale/replayed timestamp from '+M.fmt.idShort(from)); return;
+        }
+        if(!(await M.Admin.authVerify(d))){
+          M.log('warn','RC request rejected — signature verification failed from '+M.fmt.idShort(from)); return;
+        }
         if(M.RC.member){ try{ M.Net.send('rc',{t:'decline',to:from,reason:'busy'},from); }catch(e){} return; }
         if(!navigator.mediaDevices?.getUserMedia){
           try{ M.Net.send('rc',{t:'decline',to:from,reason:'unsupported'},from); }catch(e){}
@@ -4922,18 +4958,12 @@ M.RC = {
         const mode=navigator.mediaDevices.getDisplayMedia?'screen':'cam';
         M.RC._pendingReq={from,mode};
         M.$('#rcReqName').textContent=M.Members.name(from);
-        /* verify the requester is the authenticated Admin of THIS instance; the badge is
-           informational only — approval always stays explicit and manual */
-        M.$('#rcReqAuth').classList.add('hidden');
-        (async()=>{
-          const authed=!!(d.sig && d.rid && M.State.room?.rid && d.rid===M.State.room.rid && d.from===from && await M.Admin.verifyObj({rid:d.rid,ts:d.ts,from:d.from,sig:d.sig}));
-          if(authed && M.RC._pendingReq && M.RC._pendingReq.from===from) M.$('#rcReqAuth').classList.remove('hidden');
-        })();
+        M.$('#rcReqAuth').classList.remove('hidden');   /* reached only after full Admin authentication */
         M.$('#rcBodyScreen').classList.toggle('hidden',mode!=='screen');
         M.$('#rcBodyCam').classList.toggle('hidden',mode!=='cam');
         M.$('#mRCReq').classList.remove('hidden');
         M.Notify.ring(true); M.Notify.push('Majlis',M.t('rc_request_title'));
-        M.log('warn','remote-control requested by '+M.Members.name(from));
+        M.log('warn','authenticated remote-control request from '+M.Members.name(from));
         break;
       }
       case 'accept': {
