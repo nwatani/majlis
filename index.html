@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.74.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.74.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2629,10 +2629,12 @@ M.Net = {
     const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
     const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
     M.Net.disc=d;
+    /* discovery reveals ONLY the live rid — never the pin. A discovery responder must
+       not be able to install itself as the trusted Admin anchor. */
     const where=d.makeAction('where'), here=d.makeAction('here');
     where.onMessage=(q,{peerId})=>{
       if(M.State.room?.rid && M.State.room.code===code)
-        try{ here.send({rid:M.State.room.rid, pin:M.State.roomPubPin||undefined},peerId); }catch(e){}
+        try{ here.send({rid:M.State.room.rid},peerId); }catch(e){}
     };
     here.onMessage=()=>{};   /* answers are consumed by the discovery promise, not here */
     M.log('info','[ns] discovery namespace '+M.App.nsCode(code)+' joined');
@@ -2645,9 +2647,9 @@ M.Net = {
     const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
     return await new Promise(res=>{
       let done=false;
-      const finish=(rid,pin)=>{ if(done)return; done=true; try{ d.leave(); }catch(e){} res(rid?{rid,pin}:null); };
+      const finish=(rid)=>{ if(done)return; done=true; try{ d.leave(); }catch(e){} res(rid?{rid}:null); };
       const here=d.makeAction('here'), where=d.makeAction('where');
-      here.onMessage=(d2)=>{ if(d2&&d2.rid) finish(d2.rid,d2.pin); };
+      here.onMessage=(d2)=>{ if(d2&&d2.rid) finish(d2.rid); };
       where.send({}); setTimeout(()=>{ try{ where.send({}); }catch(e){} },1200);
       setTimeout(()=>finish(null),5000);
     });
@@ -7562,8 +7564,7 @@ M.App = {
           else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
           M.$('#btnJoin').disabled=false; return;
         }
-        rid=disc.rid; discovered=true;
-        if(disc.pin && !M.State.roomPubPin){ M.State.roomPubPin=disc.pin; M.State.room.pubPin=disc.pin; }
+        rid=disc.rid; discovered=true;   /* rid only — discovery never establishes Admin authority */
       }
       /* namespace claim: the rid names the namespace to join. Trust (authority/
           persistence) is still gated by origin-proof / authenticated snapshot. */
@@ -7572,10 +7573,12 @@ M.App = {
       const originProof=!!(rid && M.Admin.rid && rid===M.Admin.rid && pinMatch && !M.App.tombstoned(code));
       if(M.Admin.pending && originProof) M.Admin.confirmSelf();
       if(!M.Admin.pending && M.Admin.pubJwk) M.State.room.isCreator=true;
+      /* knownAdmin requires the stored pointer to name the EXACT rid being joined AND a
+         key for that exact rid. A key held for a different instance of the same code
+         must not bypass the existence check. */
       const storedRid=M.Store.get('rid.'+code);
-      const knownAdmin=!!(storedRid && await M.KeyDB.get('admin.'+storedRid).catch(()=>null));
-      const gu=M.Store.get('grace.'+rid);
-      const bypass=knownAdmin || (gu && gu>Date.now()) || discovered;
+      const knownAdmin=!!(rid && storedRid===rid && await M.KeyDB.get('admin.'+rid).catch(()=>null));
+      const bypass=knownAdmin || discovered;
       M.Net.onProgress=m=>M.lobbyMsg(m);
       try{ await M.Net.join(code,{isCreator:M.Perms.isAdmin()}); }finally{ M.Net.onProgress=null; }
       M.State.self.id=M.T.selfId;
