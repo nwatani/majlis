@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.72.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.73.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2886,6 +2886,10 @@ M.Notify = {
 M.Chat = {
   threads: new Map(),   // key -> [msg]   key: 'room' | peerId
   unread: new Map(),    // key -> n
+  /* intentional retention policy, kept consistent across memory / storage / render:
+     keep 400 in memory, persist the last 250 room messages, render the same 250,
+     and keep 150 per DM. These are deliberate performance bounds, not silent loss. */
+  LIM:{ mem:400, store:250, render:250, dm:150 },
   _typingTimers: new Map(),
   key(target){ return target||'room'; },
   init(){
@@ -2991,7 +2995,7 @@ M.Chat = {
   },
   append(key,msg,fromMe){
     let th=M.Chat.threads.get(key); if(!th){ th=[]; M.Chat.threads.set(key,th); }
-    th.push({...msg,me:fromMe}); if(th.length>400) th.splice(0,th.length-400);
+    th.push({...msg,me:fromMe}); if(th.length>M.Chat.LIM.mem) th.splice(0,th.length-M.Chat.LIM.mem);
     if(M.Chat.renderKey===key || (key==='room' && M.Chat.renderKey==='room')) M.Chat.renderOne(msg,fromMe,key);
     if(key!=='room') M.Chat._fpMap.set(key, M.State.peers.get(key)?.fp || M.Chat._fpMap.get(key));
     M.Chat.persist();
@@ -3004,12 +3008,12 @@ M.Chat = {
     if(!M.State.room) return;
     try{
       const clean=m=>{ if(!m.file) return m; const c={...m,file:{...m.file}}; delete c.file.url; return c; };  /* blob urls don't survive a refresh */
-      const room=(M.Chat.threads.get('room')||[]).slice(-250).map(clean);
+      const room=(M.Chat.threads.get('room')||[]).slice(-M.Chat.LIM.store).map(clean);
       const dms=[];
       M.Chat.threads.forEach((th,key)=>{
         if(key==='room'||!th.length) return;
         const fp=M.State.peers.get(key)?.fp || M.Chat._fpMap.get(key);
-        if(fp) dms.push({fp, msgs:th.slice(-150).map(clean)});
+        if(fp) dms.push({fp, msgs:th.slice(-M.Chat.LIM.dm).map(clean)});
       });
       M.App.putRoom('chat',{v:1,room,dms});   /* instance-scoped; no-op until rid known */
     }catch(e){}
@@ -3017,16 +3021,30 @@ M.Chat = {
   restoreLocal(){
     try{
       const data=M.App.getRoom('chat'); if(!data) return;
-      /* never clobber live messages: only fill an empty room thread on late restore */
-      let restored=false;
-      if(data.room?.length && !(M.Chat.threads.get('room')||[]).length){
-        M.Chat.threads.set('room',data.room.map(m=>({...m,me:m.from===M.State.self.id})));
-        restored=true;
+      /* MERGE persisted room history into the live thread instead of requiring it to be
+         empty: dedupe by message id, skip persisted system messages (the app recreates
+         those locally), preserve live messages, sort by ts, apply retention after merge. */
+      let merged=0;
+      if(data.room?.length){
+        const cur=M.Chat.threads.get('room')||[];
+        const ids=new Set(); cur.forEach(m=>{ if(m.id) ids.add(m.id); });
+        const add=[];
+        data.room.forEach(pm=>{
+          if(!pm||pm.sys) return;               /* local system events are recreated; don't duplicate */
+          if(pm.id && ids.has(pm.id)) return;   /* already present (live or previously restored) */
+          if(pm.id) ids.add(pm.id);
+          add.push({...pm,me:pm.from===M.State.self.id});
+        });
+        if(add.length){
+          const thread=[...cur,...add].sort((a,b)=>(a.ts||0)-(b.ts||0)).slice(-M.Chat.LIM.mem);
+          M.Chat.threads.set('room',thread);
+          merged=add.length;
+        }
       }
       M.Chat._pendingDms=new Map((data.dms||[]).map(d=>[d.fp,d.msgs]));
       M.Chat._tryRestoreDms();
-      if(restored && M.Chat.renderKey==='room' && M.UI.tab==='chat') M.Chat.renderAll();  /* show restored messages immediately */
-      M.log('info','restored local chat cache ('+(data.room?.length||0)+' room messages)');
+      if(merged && M.Chat.renderKey==='room' && M.UI.tab==='chat') M.Chat.renderAll();
+      M.log('info','restored local chat cache ('+merged+' room messages merged)');
     }catch(e){}
   },
   _tryRestoreDms(){
@@ -3067,7 +3085,7 @@ M.Chat = {
     }
     if(added){
       th.sort((a,b)=>a.ts-b.ts);
-      if(th.length>400) th.splice(0,th.length-400);
+      if(th.length>M.Chat.LIM.mem) th.splice(0,th.length-M.Chat.LIM.mem);
       M.log('info','restored '+added+' messages from other members');
       if(M.Chat.renderKey==='room' && M.UI.tab==='chat') M.Chat.renderAll();
       M.Chat.persist();
@@ -3098,7 +3116,7 @@ M.Chat = {
   renderAll(){
     const list=M.$('#msgList'); list.innerHTML='';
     const th=M.Chat.threads.get(M.Chat.renderKey)||[];
-    th.slice(-150).forEach(m=>M.Chat.renderOne(m,m.me,M.Chat.renderKey,true));
+    th.slice(-M.Chat.LIM.render).forEach(m=>M.Chat.renderOne(m,m.me,M.Chat.renderKey,true));
     list.scrollTop=list.scrollHeight;
   },
   renderOne(m,fromMe,key,batch){
