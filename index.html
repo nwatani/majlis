@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.77.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.78.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2549,7 +2549,21 @@ M.Net = {
       if(await M.Id.verifyProof(proof,chal)){
         M.Id._chal.delete(peerId);
         M.Id._fails?.delete(peerId);
-        if(p){ p.mid=proof.mid; p.midAuth=true; M.bus.emit('members'); M.log('info','member identity authenticated: '+M.Id.short()); }
+        if(p){ p.mid=proof.mid; p.midAuth=true; }
+        /* ONLY NOW — after proof — migrate the old authenticated peer's identity-bound
+           state to this new transport peer. Before this point nothing was inherited. */
+        /* absorb only a DEAD/stale previous session of this identity; a still-live second
+           tab of the same person remains its own entry */
+        let oldId=null;
+        M.State.peers.forEach((om,oid)=>{
+          if(oid===peerId || !om.midAuth || om.mid!==proof.mid) return;
+          const lb=M.Net.lastHb.get(oid);
+          const dead=om.status!=='online'||!lb||Date.now()-lb>20000;
+          if(dead && (!oldId || om.lastSeen>(M.State.peers.get(oldId)?.lastSeen||0))) oldId=oid;
+        });
+        if(oldId) M.Members.migrateIdentity(oldId,peerId);
+        M.bus.emit('members');
+        M.log('info','member identity authenticated: '+M.Id.short());
       } else {
         const f=M.Id._fails?.get(peerId)||{n:0,t:Date.now()};
         if(Date.now()-f.t>30000) f={n:0,t:Date.now()};
@@ -2583,7 +2597,15 @@ M.Net = {
     M.Net.A.hello.onMessage = (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
       M.Dupe.check(peerId,d);
-      if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
+      if(d&&d.n){
+        /* HELLO follows the same rule as heartbeat: a claimed identity is stored only as
+           an unverified claim; the raw mid never becomes the authenticated p.mid. */
+        const patch={...d,status:'online'};
+        if(d.mid&&d.midpub&&M.Id.verifyMid(d.mid,d.midpub)){ patch.claimedMid=d.mid; patch.claimedMidPub=d.midpub; }
+        M.Members.upsert(peerId,patch);
+        const pp=M.State.peers.get(peerId);
+        if(pp&&pp.claimedMid&&!pp.midAuth&&M.Id.priv) M.Id.challengePeer(peerId);
+      }
       /* admin → EVERY joiner receives the current board/timer/policy state unconditionally,
          so a member is never left with a closed board or an unverified Admin regardless of
          whether the board happens to be open */
@@ -2929,17 +2951,19 @@ M.Members = {
     const early=M.Net._early?.get(peerId);
     if(early && !patch.n) patch={...early,...patch};
     if(patch.n && patch.status==='connecting') patch.status='online';   /* identified via handshake/heartbeat → online at once, call buttons appear immediately */
+    /* DEFENSIVE: untrusted payloads can never set authenticated identity. A claimed mid
+        remains only a claim until proof-of-possession; midAuth is set only by verifyProof. */
+    delete patch.mid; delete patch.midAuth; delete patch.midpub;
     let m=M.State.peers.get(peerId);
     const isNew=!m;
     let migrated=false;
     if(isNew && patch.fp){
-      /* ---- stable identity ----
-         The same person (same fingerprint = entered name + device) rejoining under a new
-         peer id inherits their previous entry — they are NEVER added again as a generic
-         "guest-…" duplicate. A still-active session with the same fingerprint (e.g. a
-         second tab) is kept as its own entry, also with the real name. */
+      /* ---- legacy fingerprint reconnect ----
+         The same device rejoining under a new peer id inherits its previous entry by fp so
+         it is never added as a generic "guest-…" duplicate. Cryptographic (mid) migration
+         is deliberately NOT done here — it happens only after proof-of-possession. */
       let old=null, oldId=null;
-      M.State.peers.forEach((om,oid)=>{ if(oid!==peerId && (om.midAuth&&om.mid&&patch.claimedMid? om.mid===patch.claimedMid : om.fp===patch.fp) && (!old || om.lastSeen>old.lastSeen)){ old=om; oldId=oid; } });
+      M.State.peers.forEach((om,oid)=>{ if(oid!==peerId && !om.midAuth && om.fp===patch.fp && (!old || om.lastSeen>old.lastSeen)){ old=om; oldId=oid; } });
       const lastHb=M.Net.lastHb.get(oldId);
       const dead = old && ( old.status!=='online' || !lastHb || Date.now()-lastHb>20000 );
       if(old && dead){
@@ -2953,27 +2977,44 @@ M.Members = {
         try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
         m=old; m.id=peerId; migrated=true;
         M.bus.emit('sysmsg',{text:M.t('sys_reconnect',{n:m.name})});
-        M.log('info','identity matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
+        M.log('info','legacy fp matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
       }
     }
     if(!m) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
     Object.assign(m,patch); m.lastSeen=Date.now();
     if(patch.n) m.identifying=false;
     M.State.peers.set(peerId,m);
-    /* reconnect rebinding: a returning device keeps its device fingerprint, so transfers
-       bound to that fingerprint follow it to its new peerId */
-    /* FT rebinding by cryptographic identity only after proof-of-possession; fp is the
-        legacy compatibility fallback */
-    if((patch.midAuth||patch.fp) && M.FT){
-      M.FT.sends.forEach(t=>{ if(t.target==='*'||t.target===peerId) return;
-        if((patch.midAuth&&patch.mid&&t.rmid===patch.mid)||(patch.fp&&t.rfp===patch.fp)) t.target=peerId; });
-      M.FT.recvs.forEach(r=>{ if(r.from===peerId) return;
-        if((patch.midAuth&&patch.mid&&r.smid===patch.mid)||(patch.fp&&r.sfp===patch.fp)) r.from=peerId; });
+    /* legacy fp FT rebinding only; mid-based rebinding happens after proof in migrateIdentity */
+    if(patch.fp && M.FT){
+      M.FT.sends.forEach(t=>{ if(t.target==='*'||t.target===peerId) return; if(t.rfp===patch.fp) t.target=peerId; });
+      M.FT.recvs.forEach(r=>{ if(r.from!==peerId && r.sfp===patch.fp) r.from=peerId; });
     }
     if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
     if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
     M.bus.emit('members');
     return m;
+  },
+  /* Move an authenticated member's identity-bound state from an old transport peer to a
+     new one. Called ONLY after verifyProof succeeded, so the new peer has proven
+     possession of the private key bound to this mid. */
+  migrateIdentity(oldId,newId){
+    if(oldId===newId) return;
+    const old=M.State.peers.get(oldId); if(!old||!old.midAuth) return;
+    M.State.peers.delete(oldId); M.Net.lastHb.delete(oldId);
+    if(M.Chat.threads.has(oldId)){ M.Chat.threads.set(newId,M.Chat.threads.get(oldId)); M.Chat.threads.delete(oldId); }
+    if(M.Chat.unread.has(oldId)){ M.Chat.unread.set(newId,M.Chat.unread.get(oldId)); M.Chat.unread.delete(oldId); }
+    if(M.Chat.renderKey===oldId) M.Chat.renderKey=newId;
+    if(M.State.chatTarget===oldId) M.State.chatTarget=newId;
+    if(M.Chat._midMap){ for(const [k,v] of [...M.Chat._midMap]){ if(v===old.mid) M.Chat._midMap.set(newId,old.mid); } }
+    if(M.State.perms?.overrides?.[oldId]){ M.State.perms.overrides[newId]=M.State.perms.overrides[oldId]; delete M.State.perms.overrides[oldId]; }
+    if(M.State.wb.editors[oldId]!=null){ M.State.wb.editors[newId]=M.State.wb.editors[oldId]; delete M.State.wb.editors[oldId]; }
+    try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
+    if(M.FT){
+      M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
+      M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
+    }
+    M.bus.emit('members');
+    M.log('info','authenticated identity migrated ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(newId)+')');
   },
   offline(peerId, graceful){
     const m=M.State.peers.get(peerId); if(!m) return;
