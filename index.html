@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.59.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.60.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1525,6 +1525,8 @@ en:{
  priv_link_warn:'Private room: anyone who receives this full invitation link can access this room\u2019s encrypted content. Share it only with people you trust.',
  priv_link_tip:'The link contains the room\u2019s decryption key \u2014 never post it publicly.',
  open_link_tip:'anyone with the 6-character code can join manually.',
+ enc_unknown_title:'Room content locked',
+ enc_unknown_body:'Use the room\u2019s invitation link to access this room\u2019s content.',
  decline:'Decline', accept:'Accept', start_group:'Start a group call', group_note:'Group calls use a peer-to-peer mesh — best with up to ~6 participants.',
  cancel:'Cancel', voice:'Voice', video:'Video', devices:'Devices', mic:'Microphone', camera:'Camera', speaker:'Speaker', apply:'Apply', dev_no_call:'Join a call first — device changes apply to live calls',
  send_to:'Send to…', confirm:'Confirm',
@@ -1772,6 +1774,8 @@ ar:{
  enc_open:'مفتوحة', priv_notice:'غرفة خاصة — انضممت بالرمز فقط. استخدم رابط الدعوة الكامل لقراءة المحتوى المشفّر وإرساله.',
  enc_required_title:'غرفة خاصة',
  enc_required_body:'هذه غرفة خاصة مشفّرة. استخدم رابط الدعوة الكامل للوصول إلى المحتوى المشفّر.',
+ enc_unknown_title:'محتوى الغرفة مقفل',
+ enc_unknown_body:'استخدم رابط دعوة الغرفة للوصول إلى محتوى هذه الغرفة.',
  enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
  enc_open_tip:'هذه الغرفة مفتوحة عمداً — المحتوى ينتقل بدون تشفير. استخدم غرفة خاصة للمواضيع الحساسة.',
  wb_save_fail:'السبورة أكبر من أن تُحفظ على هذا الجهاز — قد لا تبقى التغييرات الأخيرة بعد التحديث',
@@ -2476,11 +2480,15 @@ M.Net = {
       try{ const e=await M.Crypto.enc(obj); M.Net.send(action,e,target); return true; }
       catch(err){ M.log('err','enc send failed '+err.message); return false; }
     }
-    /* NEVER downgrade to plaintext in a Private room (or one whose encryption state is
-       still unconfirmed). Only an explicitly Open room may send plaintext. */
+    /* NEUTRAL/UNKNOWN state: a code-only joiner has not established whether the room is
+       Open or Private, so protected sends stay blocked and the user is told to use the
+       invitation link. A Private room is NEVER downgraded by an unauthenticated peer.
+       Only an authenticated Admin declaration (verified hb/snapshot) sets roomEnc=false. */
     if(M.State.roomEnc!==false){
-      if(!M.Net._encBlocked){ M.Net._encBlocked=true; M.toast('warn',M.t('enc_required_title'),M.t('enc_required_body'),{ms:7000}); }
-      M.log('warn','blocked '+action+' — private/unconfirmed room without the room key');
+      const unknown=(M.State.roomEnc==null);
+      if(!M.Net._encBlocked){ M.Net._encBlocked=true;
+        M.toast('warn', unknown?M.t('enc_unknown_title'):M.t('enc_required_title'), unknown?M.t('enc_unknown_body'):M.t('enc_required_body'), {ms:7000}); }
+      M.log('warn','blocked '+action+' — room encryption state '+(unknown?'unknown':'private')+'; no key');
       return false;
     }
     M.Net.send(action,obj,target); return true;
