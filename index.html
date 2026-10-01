@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.66.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.67.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2137,6 +2137,26 @@ M.Admin = {
      room rid, ADOPT the rid from the signature. Safe because the signature proves
      possession of the Admin private key whose public key matches the invitation pin,
      and the rid itself is inside the signed payload. Returns the verified rid or null. */
+  /* verify an authenticated Whiteboard state message from a member who may not yet
+     hold the Admin key or rid: bootstrap the key from the carried pub + invitation pin
+     and adopt the signed rid. Mirrors verify()'s pin-bootstrap so a fresh member can
+     open the board from the Admin's signed state. */
+  async verifyState(m){
+    if(!m||!m.sig||!m.pub) return false;
+    let key=M.State.roomPub;
+    if(!key){
+      if(!M.State.roomPubPin) return false;
+      const fp=M.SHA.create().update(M.te.encode(JSON.stringify(m.pub))).hex().slice(0,16);
+      if(fp!==M.State.roomPubPin) return false;
+      try{ key=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(m.pub); }catch(e){ return false; }
+    } else if(JSON.stringify(m.pub)!==M.State.roomPubStr) return false;
+    const {sig,pub,...body}=m;
+    let ok=false;
+    try{ ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(sig),M.te.encode(JSON.stringify(body))); }catch(e){ return false; }
+    if(ok && m.rid && M.State.room && !M.State.room.rid) M.State.room.rid=m.rid;
+    return ok;
+  },
   async verifyHeartbeat(d){
     if(!d||!d.sig||!d.pub||!d.from||!d.rid) return null;
     let key=M.State.roomPub;
@@ -3763,7 +3783,7 @@ M.UI = {
     M.$('#btnCC').classList.toggle('hidden',!authAdmin);
     M.$('#btnTerm').classList.toggle('hidden',!authAdmin);
     M.$('#btnBoard').classList.toggle('hidden',!authAdmin);
-    M.Grace.settle=Date.now();
+    M.Grace.settle=Date.now(); M.Grace.sawAdmin=false;
     /* resume a room-level deadline that survived our leave — the timer stays visible across rejoins */
     if(!M.Perms.isAdmin() && M.State.room){
       const gu=M.App.getRoom('grace');
@@ -6737,7 +6757,9 @@ M.WB = {
          Code-only members have no authenticated pin → Admin state stays rev-guarded. */
       /* ONLY signed Admin state is authoritative; a higher revision from an
          unauthenticated peer never applies, regardless of revision number */
-      const fromAdmin=!!(d.admin && d.sig && await M.Admin.verifyObj(d));
+      /* verifyObj for members who already hold the key; verifyState bootstraps the key
+         from the pin and adopts the rid for a fresh member so the board opens */
+      const fromAdmin=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
       if(!fromAdmin){ M.log('warn','non-authoritative board state ignored from '+M.fmt.idShort(from)); return; }
       M.log('info','authoritative board state received from verified Admin signature');
       M.WB.objs.clear(); M.WB.order=[];
@@ -6758,7 +6780,7 @@ M.WB = {
   },
   sendState(target){
     const objects=[...M.WB.objs.values()];
-    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin()};
+    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined,pub:M.Perms.isAdmin()?M.Admin.pubJwk:undefined};
     if(M.Perms.isAdmin()){
       /* authoritative state is signed; receivers verify the signature against the
          accepted Admin key — the pin identifies, the signature authorizes.
@@ -7395,6 +7417,9 @@ M.App = {
     try{ M.WB.restoreClip(); }catch(e){}
     /* ask the room to backfill anything this device missed while it was away */
     setTimeout(()=>{ try{ M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },900);
+    /* if the authenticated snapshot hasn't arrived yet, proactively request the signed
+       room/whiteboard state so the board opens and the Admin is verified */
+    setTimeout(()=>{ if(M.State.room && !M.State.room.rid && !M.Perms.isAdmin()){ try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){} } },3500);
     M.Chat.append('room',{sys:true,text:`${M.t('sys_joined',{n:M.State.self.name})} · ${M.Perms.isAdmin()?M.t('admin'):M.t('member')}`,ts:Date.now()},false);
     M.log('info','entered room '+code+' ('+(M.Crypto.has()?'E2EE':'plaintext signaling')+')');
   },
@@ -7856,9 +7881,11 @@ M.Grace = {
       if(!p.adminVerifiedAt) return false;
       return (now-p.adminVerifiedAt) < M.Net.HB_FRESH;   /* verified presence expired → admin absent */
     });
-    if(adminOn){ if(M.Grace.until) M.Grace.cancel(true); return; }
-    /* The deadline belongs to the ROOM, not to a member's session: once the Admin is gone,
-       the 10-minute termination clock runs regardless of who leaves or rejoins. */
+    if(adminOn){ M.Grace.sawAdmin=true; if(M.Grace.until) M.Grace.cancel(true); return; }
+    /* Only a member who has previously VERIFIED the Admin as present may run the
+        abandonment clock. A member who never authenticated the Admin has no basis to
+        terminate the room, so the room can never be wrongly terminated. */
+    if(!M.Grace.sawAdmin) return;
     if(!M.Grace.until) M.Grace.start(Date.now()+M.Grace.PERIOD,'admin absent');
   },
   start(until,why){
