@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.67.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.68.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2177,7 +2177,9 @@ M.Admin = {
     if(!obj||!obj.sig||!M.State.roomPub) return false;
     if(!M.State.room?.rid) return false;   /* no authenticated instance yet → explicit rejection */
     if(obj.rid!==M.State.room.rid) return false;   /* bound to the current instance */
-    const {sig,...rest}=obj;
+    /* strip sig AND pub: authoritative payloads (like Whiteboard state) carry pub outside
+       the signed body; member ops carry neither. Verifying over {sig,pub,...} would mismatch. */
+    const {sig,pub,...rest}=obj;
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(rest))); }
     catch(e){ return false; }
   },
@@ -2452,7 +2454,7 @@ M.Net = {
       if(d && d.hbs && d.hbFrom && d.rid && d.hbFrom===peerId && Math.abs(Date.now()-d.ts)<=M.Net.HB_FRESH){
         const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub});
         if(vrid){
-          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','adopted authenticated room rid '+M.fmt.idShort(vrid)+' from verified Admin heartbeat'); }
+          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','adopted authenticated room rid '+M.fmt.idShort(vrid)+' from verified Admin heartbeat'); try{ M.Chat.restoreLocal(); }catch(e){} }
           verifiedAt=Date.now();
         }
       }
@@ -2712,6 +2714,12 @@ M.Members = {
     Object.assign(m,patch); m.lastSeen=Date.now();
     if(patch.n) m.identifying=false;
     M.State.peers.set(peerId,m);
+    /* reconnect rebinding: a returning device keeps its device fingerprint, so transfers
+       bound to that fingerprint follow it to its new peerId */
+    if(patch.fp && M.FT){
+      M.FT.sends.forEach(t=>{ if(t.target!=='*' && t.rfp===patch.fp && t.target!==peerId){ t.target=peerId; } });
+      M.FT.recvs.forEach(r=>{ if(r.sfp===patch.fp && r.from!==peerId){ r.from=peerId; } });
+    }
     if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
     if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
     M.bus.emit('members');
@@ -2935,7 +2943,8 @@ M.Chat = {
   restoreLocal(){
     try{
       const data=M.App.getRoom('chat'); if(!data) return;
-      if(data.room?.length) M.Chat.threads.set('room',data.room.map(m=>({...m,me:m.from===M.State.self.id})));
+      /* never clobber live messages: only fill an empty room thread on late restore */
+      if(data.room?.length && !(M.Chat.threads.get('room')||[]).length) M.Chat.threads.set('room',data.room.map(m=>({...m,me:m.from===M.State.self.id})));
       M.Chat._pendingDms=new Map((data.dms||[]).map(d=>[d.fp,d.msgs]));
       M.Chat._tryRestoreDms();
       M.log('info','restored local chat cache ('+(data.room?.length||0)+' room messages)');
@@ -3161,8 +3170,19 @@ M.FT = {
   },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
   /* ownership: is `from` the legitimate counterparty for this transfer?
-     Targeted transfer → the exact other endpoint. Room transfer → any current member. */
-  authSendPeer(t,from){ return t.target==='*' ? !!M.State.peers.get(from) : from===t.target; },
+     Targeted transfer → the exact other endpoint OR the same device fingerprint after a
+     reconnect (peerId changes on reconnect, the device fp does not). Room → any member. */
+  authSendPeer(t,from){
+    if(t.target==='*') return !!M.State.peers.get(from);
+    if(from===t.target) return true;
+    const fp=M.State.peers.get(from)?.fp;
+    return !!(t.rfp && fp && fp===t.rfp);
+  },
+  recvAuth(r,from){
+    if(from===r.from) return true;
+    const fp=M.State.peers.get(from)?.fp;
+    return !!(r.sfp && fp && fp===r.sfp);
+  },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
     M.bus.on('ftChunk', d=>M.FT.onChunk(d));
@@ -3264,7 +3284,9 @@ M.FT = {
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
     /* the offer must actually transmit before the transfer is recorded or shown —
        a blocked (encrypted-no-key) offer leaves no ghost transfer record */
-    const sent=await M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip},isRoom?undefined:target);
+    t.rfp=isRoom?undefined:(M.State.peers.get(target)?.fp||undefined);   /* bind transfer to the receiver's device, not its peerId */
+    t.sfp=M.State.self.fp;
+    const sent=await M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,rfp:t.rfp,sfp:t.sfp},isRoom?undefined:target);
     if(!sent){ return null; }
     M.FT.sends.set(id,t);
     M.FT.trackRoom(id,t.room);
@@ -3334,7 +3356,7 @@ M.FT = {
         const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
         if(!gate.ok){ M.log('warn','rejected file (perms): '+d.name); M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); return; }
         (async()=>{
-          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code, voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
+          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code, sfp:d.sfp||undefined, voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
             expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
             hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
           /* ---- resume from persisted chunks (survives refresh / crash) ---- */
@@ -3397,7 +3419,8 @@ M.FT = {
         break;
       }
       case 'done': {
-        const r=M.FT.recvs.get(d.id); if(!r || r.from!==from) return;   /* only the transfer's sender may complete it */
+        const r=M.FT.recvs.get(d.id); if(!r || !M.FT.recvAuth(r,from)) return;   /* only the transfer's sender (or its reconnected device) may complete it */
+        if(r.from!==from) r.from=from;   /* sender reconnected under a new peerId */
         if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
         else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.name); }
         break;
@@ -3411,8 +3434,8 @@ M.FT = {
       }
       case 'cancel': {
         /* a send may only be canceled by its intended receiver; a receive only by its sender */
-        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
-        const r=M.FT.recvs.get(d.id); if(r && r.from===from){ r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ if(t.target!=='*'&&t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const r=M.FT.recvs.get(d.id); if(r && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
         M.log('warn','transfer canceled '+(d.id||''));
         M.UI.badges();
         break;
@@ -6761,6 +6784,8 @@ M.WB = {
          from the pin and adopts the rid for a fresh member so the board opens */
       const fromAdmin=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
       if(!fromAdmin){ M.log('warn','non-authoritative board state ignored from '+M.fmt.idShort(from)); return; }
+      { const ap=M.State.peers.get(from); if(ap) ap.adminVerifiedAt=Date.now(); }  /* verified Admin presence for Grace */
+      try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
       M.log('info','authoritative board state received from verified Admin signature');
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
@@ -6780,12 +6805,14 @@ M.WB = {
   },
   sendState(target){
     const objects=[...M.WB.objs.values()];
-    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined,pub:M.Perms.isAdmin()?M.Admin.pubJwk:undefined};
+    /* pub travels OUTSIDE the signed payload (alongside sig), exactly like Admin
+       commands — receivers strip {sig,pub} before verifying, so both must match. */
+    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined};
     if(M.Perms.isAdmin()){
       /* authoritative state is signed; receivers verify the signature against the
          accepted Admin key — the pin identifies, the signature authorizes.
          Fail closed: a signing failure aborts the broadcast, never sends unsigned */
-      M.Admin.signObj(msg).then(sig=>{ msg.sig=sig; M.Net.sendEnc('wb',msg,target); })
+      M.Admin.signObj(msg).then(sig=>{ M.Net.sendEnc('wb',{...msg, sig, pub:M.Admin.pubJwk},target); })
         .catch(e=>{ M.log('err','authoritative board state aborted — signing failed: '+(e.message||e)); });
     } else M.Net.sendEnc('wb',msg,target);
   },
