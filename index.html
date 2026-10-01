@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.69.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.71.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2168,8 +2168,12 @@ M.Admin = {
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }catch(e){ return null; }
     } else if(JSON.stringify(d.pub)!==M.State.roomPubStr) return null;
     if(M.State.room?.rid && d.rid!==M.State.room.rid) return null;   /* known instance must match */
+    /* reconstruct the EXACT canonical payload the Admin signed: {rid, ts, from, wbo}.
+       wbo is included only when present (Admin heartbeats carry it; members' don't). */
+    const payload={rid:d.rid, ts:d.ts, from:d.from};
+    if(d.wbo!==undefined) payload.wbo=d.wbo;
     try{
-      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(d.sig),M.te.encode(JSON.stringify({rid:d.rid,ts:d.ts,from:d.from})));
+      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(d.sig),M.te.encode(JSON.stringify(payload)));
       return ok? d.rid : null;
     }catch(e){ return null; }
   },
@@ -2447,16 +2451,24 @@ M.Net = {
          trusted when it (1) verifies against the authenticated Admin key, (2) names the
          current room instance, (3) is bound to the delivering peer, and (4) is fresh. */
       let verifiedAt=null;
-      /* verifyHeartbootstraps the Admin key from the pin AND adopts the signed rid when
-         the member doesn't hold one yet — so a fresh member in a normal room (no open
-         board/timer snapshot) still verifies the Admin's first heartbeat. A stale or
-         mismatched rid/key is still rejected; nothing is trusted from adm:true. */
+      /* verifyHeartbeat bootstraps the Admin key from the pin, verifies the canonical
+         signed payload {rid,ts,from,wbo}, and adopts the signed rid when the member
+         doesn't hold one yet. A stale/mismatched key/rid is rejected; adm:true is ignored. */
       if(d && d.hbs && d.hbFrom && d.rid && d.hbFrom===peerId && Math.abs(Date.now()-d.ts)<=M.Net.HB_FRESH){
-        const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub});
+        const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub,wbo:d.wbo});
         if(vrid){
-          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','adopted authenticated room rid '+M.fmt.idShort(vrid)+' from verified Admin heartbeat'); try{ M.Chat.restoreLocal(); }catch(e){} }
+          M.log('info','WB: authenticated Admin heartbeat received');
+          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','WB: current rid established'); try{ M.Chat.restoreLocal(); }catch(e){} }
           verifiedAt=Date.now();
-          M.WB.maybeReqState();   /* Admin just proved present — pull the signed board state now */
+          if(typeof d.wbo==='boolean' && d.wbo!==M.State.wb.open){
+            M.State.wb.open=d.wbo; M.WB.refreshUI();
+            if(d.wbo){
+              M.log('info','WB: authenticated Admin reports board OPEN');
+              if(!M.Perms.isAdmin()) M.UI.setTab('board');
+              M.log('info','WB: board opened');
+            } else M.log('info','WB: authenticated Admin reports board CLOSED');
+          }
+          M.WB.maybeReqState();   /* Admin proved present — pull the signed object state now */
         }
       }
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
@@ -2573,14 +2585,19 @@ M.Net = {
        Authenticated Admins attach a lightweight signature over {rid,ts} so members can verify
        admin presence without ever trusting the plain adm flag. */
     const amAdmin=M.Perms.isAdmin();   /* a pending identity never advertises itself as Admin */
+    /* wbo: the board-open flag, signed inside the heartbeat so members converge on the
+        Whiteboard state within one heartbeat. Only Admins send it; members never do,
+        so their heartbeats keep the exact {rid,ts,from} payload unchanged. */
     const hb={ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.State.room?.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''};
+    if(amAdmin) hb.wbo=!!M.State.wb.open;
     /* bind the signature to the sender's session identity so a captured heartbeat
         cannot be replayed by another peer */
     if(amAdmin){
       hb.pub=M.Admin.pubJwk;   /* carried so a fresh member can bootstrap the Admin key from the invitation pin */
       /* fail closed: if signing fails, send NO heartbeat this cycle — never transmit an
-         unsigned/incomplete Admin heartbeat. The next 12s cycle retries naturally. */
-      try{ hb.hbFrom=M.State.self.id; hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts,from:hb.hbFrom}); }
+          unsigned/incomplete Admin heartbeat. The next 12s cycle retries naturally.
+          Canonical signed payload: {rid, ts, from, wbo} — verified identically below. */
+      try{ hb.hbFrom=M.State.self.id; hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts,from:hb.hbFrom,wbo:hb.wbo}); }
       catch(e){ M.log('err','Admin heartbeat aborted: signing failed ('+(e.message||e)+')'); return; }
     }
     M.Net.send('hb',hb);   /* rn/tp keep late joiners on the current room name & topic */
@@ -6527,9 +6544,16 @@ M.WB = {
   /* is an Admin currently reachable? When yes, the Admin alone answers state
      requests — a random member can never overwrite the board with older state. */
   adminOnline(){
-    /* adm:true from peers is an untrusted presence hint — authoritative admin-online
-       status derives only from the locally authenticated Admin identity */
-    return M.Perms.isAdmin();
+    /* "Is the authenticated Admin for THIS instance currently online?"
+       Admin device → its own authenticated identity. Member device → a remote peer
+       whose Admin heartbeat passed ECDSA + rid + sender + freshness verification and
+       is still fresh. Never adm:true, never first-seen. */
+    if(M.Perms.isAdmin()) return true;
+    const now=Date.now();
+    for(const p of M.State.peers.values()){
+      if(p.adminVerifiedAt && (now-p.adminVerifiedAt)<M.Net.HB_FRESH) return true;
+    }
+    return false;
   },
   clampPt(wx,wy){ return M.WB.inA4()? [M.clamp(wx,10,M.WB.A4.w-10),M.clamp(wy,10,M.WB.A4.h-10)] : [wx,wy]; },
   fitSheet(){
@@ -6785,8 +6809,9 @@ M.WB = {
       /* verifyObj for members who already hold the key; verifyState bootstraps the key
          from the pin and adopts the rid for a fresh member so the board opens */
       const fromAdmin=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
-      if(!fromAdmin){ M.log('warn','non-authoritative board state ignored from '+M.fmt.idShort(from)); return; }
+      if(!fromAdmin){ M.log('warn','WB: state request rejected — unauthenticated state from '+M.fmt.idShort(from)); return; }
       { const ap=M.State.peers.get(from); if(ap) ap.adminVerifiedAt=Date.now(); }  /* verified Admin presence for Grace */
+      M.log('info','WB: authoritative state accepted');
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
       M.log('info','authoritative board state received from verified Admin signature');
       M.WB.objs.clear(); M.WB.order=[];
@@ -6819,21 +6844,26 @@ M.WB = {
     } else M.Net.sendEnc('wb',msg,target);
   },
   maybeReqState(){
-    /* request recovery when the board is open and either empty, or an authoritative
-       Admin is online whose state should replace any stale local copy */
-    if(M.State.wb.open && !M.Perms.isAdmin() && (M.WB.objs.size===0 || M.WB.adminOnline())) M.Net.sendEnc('wb',{t:'req'});
+    /* recovery request: a member with a verified online Admin requests the signed
+       state whether or not the board is locally open yet (the request exists precisely
+       to make it open). Bounded by tickReq's retry counter. */
+    if(M.Perms.isAdmin() || !M.State.room) return;
+    if(M.WB.adminOnline() && (M.WB.objs.size===0 || !M.State.wb.open)){
+      M.log('info','WB: requesting authoritative state');
+      M.Net.sendEnc('wb',{t:'req'});
+    }
   },
   /* convergence: while the Admin is verified online, a member whose board hasn't
      opened yet re-requests the signed state a bounded number of times, so a dropped
      snapshot or request on a flaky relay always converges. Resets once it opens. */
   tickReq(){
     if(M.Perms.isAdmin() || !M.State.room) return;
-    if(!M.State.wb.open && M.WB.adminOnline() && (M.WB._reqN||0)<6){
+      if(!M.State.wb.open && M.WB.adminOnline() && (M.WB._reqN||0)<6){
       M.WB._reqN=(M.WB._reqN||0)+1;
+      M.log('info','WB: requesting authoritative state (retry '+M.WB._reqN+')');
       try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}
-      M.log('info','board state re-request attempt '+M.WB._reqN);
     }
-    if(M.State.wb.open) M.WB._reqN=0;
+    if(M.State.wb.open && M.WB.objs.size>0) M.WB._reqN=0;
   },
 
   /* ---------- admin control ---------- */
@@ -6861,6 +6891,7 @@ M.WB = {
         if(b.tp!=null){ M.State.room.topic=b.tp; }
         if(b.rn!=null||b.tp!=null) M.UI.roomName();
         M.WB.refreshUI(); M.bus.emit('timer');
+        if(b.wb && b.wb.open){ M.log('info','WB: authenticated Admin reports board OPEN'); M.log('info','WB: board opened'); if(!M.Perms.isAdmin()) M.UI.setTab('board'); }
         M.WB.maybeReqState();   /* board just opened for us — pull the authoritative object state */
         M.log('info','board state snapshot received (open='+W.open+', mode='+W.mode+')');
         break;
@@ -6868,9 +6899,10 @@ M.WB = {
         W.open=!!b.on;
         if(b.on){
           M.toast('info',M.t('wb_opened'));
+          M.log('info','WB: board opened');
           M.WB.maybeReqState();
           if(!M.Perms.isAdmin()) M.UI.setTab('board');   /* members land on the board the moment the admin opens it */
-        } else { M.toast('warn',M.t('wb_closed_ev')); M.WB.commitText(); }
+        } else { M.toast('warn',M.t('wb_closed_ev')); M.log('info','WB: authenticated Admin closed the board'); M.WB.commitText(); }
         break;
       case 'mode': W.mode=b.m; M.toast('info',M.t('wb_mode_chg',{m:M.t(b.m==='admin'?'admin_only':b.m==='view'?'view_only':'collab')})); break;
       case 'lock': W.locked=!!b.on; M.toast(b.on?'warn':'info', M.t(b.on?'wb_locked':'wb_unlocked')); break;
