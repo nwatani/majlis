@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.68.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.69.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2456,6 +2456,7 @@ M.Net = {
         if(vrid){
           if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','adopted authenticated room rid '+M.fmt.idShort(vrid)+' from verified Admin heartbeat'); try{ M.Chat.restoreLocal(); }catch(e){} }
           verifiedAt=Date.now();
+          M.WB.maybeReqState();   /* Admin just proved present — pull the signed board state now */
         }
       }
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
@@ -5808,6 +5809,7 @@ M.WB = {
     M.WB._curSend=M.throttle(pt=>{ if(M.State.wb.open && M.Net.A.cur) M.Net.send('cur',pt); },90);
     M.bus.on('netReady',()=>{ M.Net.A.cur.onMessage=(d,{peerId})=>{ if(d&&typeof d.x==='number'){ M.WB.activePeers.set(peerId,{...d,t:Date.now()}); M.WB.dirty=true; M.WB.peersUI(); } }; });
     setInterval(()=>{ let ch=false; M.WB.activePeers.forEach((v,k)=>{ if(Date.now()-v.t>5000){ M.WB.activePeers.delete(k); ch=true; } }); if(ch){ M.WB.dirty=true; M.WB.peersUI(); } },2000);
+    setInterval(()=>M.WB.tickReq(),7000);   /* bounded state convergence while the Admin is verified online */
     /* render loop — UNKILLABLE: the next frame is scheduled FIRST, and a draw
        error can never stop the chain or blank the board again */
     const loop=()=>{
@@ -6820,6 +6822,18 @@ M.WB = {
     /* request recovery when the board is open and either empty, or an authoritative
        Admin is online whose state should replace any stale local copy */
     if(M.State.wb.open && !M.Perms.isAdmin() && (M.WB.objs.size===0 || M.WB.adminOnline())) M.Net.sendEnc('wb',{t:'req'});
+  },
+  /* convergence: while the Admin is verified online, a member whose board hasn't
+     opened yet re-requests the signed state a bounded number of times, so a dropped
+     snapshot or request on a flaky relay always converges. Resets once it opens. */
+  tickReq(){
+    if(M.Perms.isAdmin() || !M.State.room) return;
+    if(!M.State.wb.open && M.WB.adminOnline() && (M.WB._reqN||0)<6){
+      M.WB._reqN=(M.WB._reqN||0)+1;
+      try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}
+      M.log('info','board state re-request attempt '+M.WB._reqN);
+    }
+    if(M.State.wb.open) M.WB._reqN=0;
   },
 
   /* ---------- admin control ---------- */
