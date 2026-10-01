@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.61.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.62.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -5446,7 +5446,7 @@ M.Rec = {
 M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
-  mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default; admin can switch to free canvas */
+  mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default — ideal for PDF export; admin can switch to free canvas */
   tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
@@ -5456,7 +5456,7 @@ M.WB = {
     /* bus */
     M.bus.on('wbIn', d=>M.WB.onNet(d));
     M.bus.on('wbCtrl', b=>M.WB.applyCtrl(b));
-    M.bus.on('boardShown', ()=>{ M.WB.resize(); M.WB.dirty=true; M.WB.maybeReqState(); M.WB.refreshUI(); });
+    M.bus.on('boardShown', ()=>{ M.WB.resize(); if(M.WB.inA4()) M.WB.fitSheet(); M.WB.dirty=true; M.WB.maybeReqState(); M.WB.refreshUI(); });
     M.bus.on('resize', ()=>M.WB.resize());
     M.bus.on('nudge', ()=>M.WB.maybeReqState());
     M.bus.on('perms', ()=>M.WB.refreshUI());
@@ -6374,7 +6374,9 @@ M.WB = {
       const c=(M.WB.color||'').replace('#','');
       if(c.length===6){ const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
         if(0.299*r+0.587*g+0.114*b>200){ M.WB.color='#111111'; const d=M.$('#wbColorDot'); if(d) d.style.background=M.WB.color; } }
-      if(changed) M.WB.fitSheet();
+      if(changed) M.WB.fitSheet();          /* center the sheet at a fitting zoom */
+    } else if(changed){
+      M.WB.view={x:80,y:60,s:1}; M.WB.zoomLbl();   /* back to the original free-canvas framing */
     }
     M.WB.dirty=true;
   },
@@ -7301,6 +7303,7 @@ M.App = {
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
+    M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
