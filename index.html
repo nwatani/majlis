@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.72.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.72.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2107,7 +2107,9 @@ M.Admin = {
     if(isCreator){
       /* fresh instance gets a fresh key: non-extractable, IndexedDB-backed, keyed by rid */
       const newRid=M.uid(12);
-      const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+      /* usages cover the pair: private stays non-extractable for signing, and the
+         exported public JWK carries a valid 'verify' usage for members to import */
+      const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
       const pubJwk=await crypto.subtle.exportKey('jwk',kp.publicKey);
       try{ await M.KeyDB.set('admin.'+newRid,{priv:kp.privateKey,pubJwk}); }
       catch(e){ throw new Error('Could not securely store the admin key ('+(e&&e.name||e)+'). The room was not created.'); }
@@ -2128,6 +2130,18 @@ M.Admin = {
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(rest)));
     return M.b64(raw);
   },
+  /* import an Admin PUBLIC JWK for verification only.
+     The ORIGINAL jwk is never mutated — it is what the invitation fingerprint (k) was
+     computed from, so existing rooms keep working. Some browsers export the public JWK
+     with key_ops:[] when the pair was generated with ['sign'] only, which makes a plain
+     importKey(...,['verify']) throw DataError. We therefore import a COPY whose key_ops
+     restriction is removed when it would block verification, leaving the stored and
+     compared JWK untouched. alg:ES256 is consistent with P-256 and is left as-is. */
+  async importAdminVerifyKey(jwk){
+    const copy=Object.assign({},jwk);
+    if(Array.isArray(copy.key_ops) && !copy.key_ops.includes('verify')) delete copy.key_ops;
+    return await crypto.subtle.importKey('jwk',copy,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+  },
   /* verify a {rid,ts,from,sig[,pub]} payload against the authenticated Admin key.
      Reuses the established model: the invitation pin (k) authenticates the public key;
      the signature proves possession of the private key. Works even before the Admin
@@ -2140,7 +2154,7 @@ M.Admin = {
       if(!obj.pub || !M.State.roomPubPin) return false;
       const fp=M.SHA.create().update(M.te.encode(JSON.stringify(obj.pub))).hex().slice(0,16);
       if(fp!==M.State.roomPubPin) return false;   /* not the Admin named by this invitation */
-      try{ key=await crypto.subtle.importKey('jwk',obj.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+      try{ key=await M.Admin.importAdminVerifyKey(obj.pub);
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(obj.pub); }catch(e){ return false; }
     } else if(obj.pub && M.State.roomPubStr && JSON.stringify(obj.pub)!==M.State.roomPubStr) return false;
     /* Verify against the EXACT canonical payload the sender signed. reqId is part of
@@ -2167,7 +2181,7 @@ M.Admin = {
       if(!M.State.roomPubPin) return false;
       const fp=M.SHA.create().update(M.te.encode(JSON.stringify(m.pub))).hex().slice(0,16);
       if(fp!==M.State.roomPubPin) return false;
-      try{ key=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+      try{ key=await M.Admin.importAdminVerifyKey(m.pub);
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(m.pub); }catch(e){ return false; }
     } else if(JSON.stringify(m.pub)!==M.State.roomPubStr) return false;
     const {sig,pub,...body}=m;
@@ -2183,7 +2197,7 @@ M.Admin = {
       if(!M.State.roomPubPin){ M.WBDbg.lastHbReject='no authenticated Admin anchor (invitation pin missing)'; return null; }
       const fp=M.SHA.create().update(M.te.encode(JSON.stringify(d.pub))).hex().slice(0,16);
       if(fp!==M.State.roomPubPin){ M.WBDbg.lastHbReject='Admin key fingerprint does not match invitation pin'; return null; }
-      try{ key=await crypto.subtle.importKey('jwk',d.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+      try{ key=await M.Admin.importAdminVerifyKey(d.pub);
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }
       catch(e){
         /* diagnostic only: record the exact WebCrypto exception plus safe public-key
@@ -2253,7 +2267,7 @@ M.Admin = {
         if(!M.State.roomPubPin){ M.log('warn','admin command rejected — no authenticated Admin anchor (join with the full invitation link)'); return false; }
         const fp=M.SHA.create().update(M.te.encode(pubStr)).hex().slice(0,16);
         if(fp!==M.State.roomPubPin){ M.log('warn','admin key fingerprint mismatch — command rejected'); return false; }
-        M.State.roomPub=await crypto.subtle.importKey('jwk',m.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); M.State.roomPubStr=pubStr;
+        M.State.roomPub=await M.Admin.importAdminVerifyKey(m.pub); M.State.roomPubStr=pubStr;
       }
       const {sig,pub,...body}=m;
       const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(body)));
