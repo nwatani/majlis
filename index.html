@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.65.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.65.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2133,6 +2133,26 @@ M.Admin = {
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(obj.sig),M.te.encode(JSON.stringify(payload))); }
     catch(e){ return false; }
   },
+  /* verify an Admin heartbeat and, when the member doesn't yet hold the authenticated
+     room rid, ADOPT the rid from the signature. Safe because the signature proves
+     possession of the Admin private key whose public key matches the invitation pin,
+     and the rid itself is inside the signed payload. Returns the verified rid or null. */
+  async verifyHeartbeat(d){
+    if(!d||!d.sig||!d.pub||!d.from||!d.rid) return null;
+    let key=M.State.roomPub;
+    if(!key){
+      if(!M.State.roomPubPin) return null;   /* no anchor at all → cannot authenticate */
+      const fp=M.SHA.create().update(M.te.encode(JSON.stringify(d.pub))).hex().slice(0,16);
+      if(fp!==M.State.roomPubPin) return null;
+      try{ key=await crypto.subtle.importKey('jwk',d.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }catch(e){ return null; }
+    } else if(JSON.stringify(d.pub)!==M.State.roomPubStr) return null;
+    if(M.State.room?.rid && d.rid!==M.State.room.rid) return null;   /* known instance must match */
+    try{
+      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(d.sig),M.te.encode(JSON.stringify({rid:d.rid,ts:d.ts,from:d.from})));
+      return ok? d.rid : null;
+    }catch(e){ return null; }
+  },
   async verifyObj(obj){
     if(!obj||!obj.sig||!M.State.roomPub) return false;
     if(!M.State.room?.rid) return false;   /* no authenticated instance yet → explicit rejection */
@@ -2403,11 +2423,16 @@ M.Net = {
          trusted when it (1) verifies against the authenticated Admin key, (2) names the
          current room instance, (3) is bound to the delivering peer, and (4) is fresh. */
       let verifiedAt=null;
-      /* authVerify bootstraps the Admin public key from the carried pub + invitation pin,
-         so a fresh member who joined via the full invitation verifies the Admin's very
-         first heartbeat. rid/sender/freshness still gate it; a stale key gets nothing. */
-      if(d && d.hbs && d.hbFrom && d.rid && d.rid===M.State.room?.rid && d.hbFrom===peerId && Math.abs(Date.now()-d.ts)<=M.Net.HB_FRESH){
-        if(await M.Admin.authVerify({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub})) verifiedAt=Date.now();
+      /* verifyHeartbootstraps the Admin key from the pin AND adopts the signed rid when
+         the member doesn't hold one yet — so a fresh member in a normal room (no open
+         board/timer snapshot) still verifies the Admin's first heartbeat. A stale or
+         mismatched rid/key is still rejected; nothing is trusted from adm:true. */
+      if(d && d.hbs && d.hbFrom && d.rid && d.hbFrom===peerId && Math.abs(Date.now()-d.ts)<=M.Net.HB_FRESH){
+        const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub});
+        if(vrid){
+          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','adopted authenticated room rid '+M.fmt.idShort(vrid)+' from verified Admin heartbeat'); }
+          verifiedAt=Date.now();
+        }
       }
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
       const patch={status:'online'};
