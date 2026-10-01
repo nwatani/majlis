@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.57.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.58.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2374,6 +2374,13 @@ M.Net = {
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
       if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
+      /* A KEYLESS joiner (no k, no rk) holds zero Private material, so accepting the
+         Admin's enc:false cannot expose any Private content to them; it simply lets
+         code-only Open rooms function. A Private-invited member holds rk and never
+         takes this path, so Private rooms never downgrade. */
+      if(d.enc===false && !M.State.roomPubPin && !M.Crypto.has() && M.State.roomEnc==null){
+        M.State.roomEnc=false; M.UI.encBadge(); M.log('info','keyless joiner: room is Open per admin heartbeat');
+      }
       M.Members.upsert(peerId,patch);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
          only through signed Admin commands / snapshots, never through heartbeats */
@@ -2460,16 +2467,21 @@ M.Net = {
   },
   _early:new Map(),
   send(action,obj,target){ if(target!=null) M.Net.A[action].send(obj,{target}); else M.Net.A[action].send(obj); },
-  sendEnc(action,obj,target){
-    if(M.Crypto.has()){ M.Crypto.enc(obj).then(e=>M.Net.send(action,e,target)).catch(err=>M.log('err','enc send failed '+err.message)); return; }
+  async sendEnc(action,obj,target){
+    /* returns true only when the payload was actually transmitted; callers must not
+       treat a blocked send as success (no ghost chat/file records) */
+    if(M.Crypto.has()){
+      try{ const e=await M.Crypto.enc(obj); M.Net.send(action,e,target); return true; }
+      catch(err){ M.log('err','enc send failed '+err.message); return false; }
+    }
     /* NEVER downgrade to plaintext in a Private room (or one whose encryption state is
        still unconfirmed). Only an explicitly Open room may send plaintext. */
     if(M.State.roomEnc!==false){
       if(!M.Net._encBlocked){ M.Net._encBlocked=true; M.toast('warn',M.t('enc_required_title'),M.t('enc_required_body'),{ms:7000}); }
       M.log('warn','blocked '+action+' — private/unconfirmed room without the room key');
-      return;
+      return false;
     }
-    M.Net.send(action,obj,target);
+    M.Net.send(action,obj,target); return true;
   },
   async hbTick(){
     if(!M.Net.connected) return;
@@ -2480,7 +2492,13 @@ M.Net = {
     const hb={ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.State.room?.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''};
     /* bind the signature to the sender's session identity so a captured heartbeat
        cannot be replayed by another peer */
-    if(amAdmin){ hb.hbFrom=M.State.self.id; try{ hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts,from:hb.hbFrom}); }catch(e){} }
+    if(amAdmin){
+      hb.enc=M.Crypto.has();   /* the room's encryption state, carried by the authenticated Admin */
+      /* fail closed: if signing fails, send NO heartbeat this cycle — never transmit an
+         unsigned/incomplete Admin heartbeat. The next 12s cycle retries naturally. */
+      try{ hb.hbFrom=M.State.self.id; hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts,from:hb.hbFrom}); }
+      catch(e){ M.log('err','Admin heartbeat aborted: signing failed ('+(e.message||e)+')'); return; }
+    }
     M.Net.send('hb',hb);   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
@@ -2739,9 +2757,11 @@ M.Chat = {
     });
     M.bus.on('sysmsg', ({text})=>M.Chat.append('room',{sys:true,text,ts:Date.now()},false));
   },
-  send(text,target){
+  async send(text,target){
     const msg={id:M.uid(8), to:target||null, text, ts:Date.now(), from:M.State.self.id, name:M.State.self.name};
-    M.Net.sendEnc('chat',msg,target||undefined);
+    /* append only after the (encrypted) send actually succeeds — no ghost messages */
+    const ok=await M.Net.sendEnc('chat',msg,target||undefined);
+    if(!ok) return;
     M.Chat.append(M.Chat.key(target),msg,true);
   },
   onIn(d){
@@ -3141,7 +3161,7 @@ M.FT = {
     const k='ftids.'+code; const list=M.Store.get(k)||[];
     const i=list.indexOf(id); if(i>=0){ list.splice(i,1); M.Store.set(k,list); }
   },
-  start(file,target,opts){
+  async start(file,target,opts){
     const isRoom=target==='*';
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
@@ -3158,9 +3178,12 @@ M.FT = {
       voice:!!(opts&&opts.voice), dur:(opts&&opts.dur)||0, shot:!!(opts&&opts.shot), clip:!!(opts&&opts.clip),
       preview:(opts&&opts.preview)||((opts&&opts.voice)?URL.createObjectURL(file):null),   /* sender can play their own voice note right away */
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
+    /* the offer must actually transmit before the transfer is recorded or shown —
+       a blocked (encrypted-no-key) offer leaves no ghost transfer record */
+    const sent=await M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip},isRoom?undefined:target);
+    if(!sent){ return null; }
     M.FT.sends.set(id,t);
     M.FT.trackRoom(id,t.room);
-    M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip},isRoom?undefined:target);
     M.Chat.fileCard(M.Chat.key(isRoom?null:target),{id,name:t.name,size:t.size,dir:'up',peerName:isRoom?M.t('room'):M.Members.name(target),statusLabel:M.t('st_queued'),voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,preview:t.preview});
     M.log('info',`file offer → ${isRoom?'room':M.fmt.idShort(target)}: ${t.name} (${M.fmt.bytes(t.size)})`);
     M.FT.render(); M.FT.pump();
@@ -6546,14 +6569,13 @@ M.WB = {
   async onNet(d){
     if(!d||!d.t) return;
     const from=d.peerId;
-    /* data implies state: if live board traffic arrives, the board is open by definition.
-       This is the third recovery path — a viewer can never be trapped behind the
-       "closed" overlay while the admin's strokes stream in behind it. */
-    if((d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state') && !M.State.wb.open){
-      M.State.wb.open=true; M.WB.refreshUI();
-      M.log('info','board auto-opened by incoming board data from '+M.fmt.idShort(from));
-    }
     const fromAdmin=!!(d.sig && await M.Admin.verifyObj(d));   /* signature against the accepted Admin key */
+    /* ONLY an authenticated Admin message may open the board. An unauthenticated peer's
+       state/up/add can never flip the board open. */
+    if(fromAdmin && (d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state') && !M.State.wb.open){
+      M.State.wb.open=true; M.WB.refreshUI();
+      M.log('info','board auto-opened by AUTHORIZED admin board data from '+M.fmt.idShort(from));
+    }
     if(d.t==='up'||d.t==='add'){
       if(!M.WB.peerCanEdit(from,fromAdmin)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
       M.WB.applyUp(d.o); return;
@@ -6642,6 +6664,13 @@ M.WB = {
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
         if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* members learn the room's encryption state from the Admin */
+        /* A KEYLESS joiner (no k, no rk) holds zero Private material, so an unverified
+           admin snapshot declaring the room Open cannot expose any Private content to
+           them; accepting it lets code-only Open rooms function. A Private-invited
+           member holds rk and never takes this path, so Private never downgrades. */
+        else if(b.enc===false && !M.State.roomPubPin && !M.Crypto.has() && M.State.roomEnc==null){
+          M.State.roomEnc=false; M.UI.encBadge(); M.log('info','keyless joiner: room is Open per admin snapshot');
+        }
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
