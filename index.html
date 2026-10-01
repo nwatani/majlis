@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.72.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.72.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2184,7 +2184,9 @@ M.Admin = {
       try{ key=await M.Admin.importAdminVerifyKey(m.pub);
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(m.pub); }catch(e){ return false; }
     } else if(JSON.stringify(m.pub)!==M.State.roomPubStr) return false;
-    const {sig,pub,...body}=m;
+    /* peerId is transport metadata injected by the wb channel AFTER signing; it must
+       never enter the canonical payload. sig/pub are excluded as the protocol requires. */
+    const {sig,pub,peerId,...body}=m;
     let ok=false;
     try{ ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(sig),M.te.encode(JSON.stringify(body))); }catch(e){ return false; }
     if(ok && m.rid && M.State.room && !M.State.room.rid) M.State.room.rid=m.rid;
@@ -2227,9 +2229,9 @@ M.Admin = {
     if(!obj||!obj.sig||!M.State.roomPub) return false;
     if(!M.State.room?.rid) return false;   /* no authenticated instance yet → explicit rejection */
     if(obj.rid!==M.State.room.rid) return false;   /* bound to the current instance */
-    /* strip sig AND pub: authoritative payloads (like Whiteboard state) carry pub outside
-       the signed body; member ops carry neither. Verifying over {sig,pub,...} would mismatch. */
-    const {sig,pub,...rest}=obj;
+    /* strip sig, pub, AND peerId: peerId is transport metadata injected by the wb channel
+       after signing; sig/pub live outside the signed body. Verifying over them would mismatch. */
+    const {sig,pub,peerId,...rest}=obj;
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(rest))); }
     catch(e){ return false; }
   },
