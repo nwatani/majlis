@@ -211,7 +211,6 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #roomChip svg{width:15px;height:15px;color:var(--mut)}
 #roomEncBadge{font-size:9px;font-weight:800;letter-spacing:.09em;padding:2px 7px;border-radius:5px;border:1px solid;flex:none}
 #roomEncBadge.e2ee{color:var(--teal);border-color:rgba(56,207,182,.5);background:rgba(56,207,182,.1)}
-#roomEncBadge.open{color:var(--warn);border-color:rgba(245,168,60,.55);background:rgba(245,168,60,.12);animation:ledPulse 2.4s ease-in-out infinite}
 #topStatus{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);font-family:var(--mono)}
 .grow{flex:1}
 #btnMenu{display:none;width:auto;padding:0 9px;gap:6px}
@@ -798,8 +797,10 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
       <div class="rp-row"><span class="k">SIGNAL</span><span class="led pulse" id="ledSig"></span><b id="lblSig">standby — create or join a room</b></div>
       <div class="rp-row"><span class="k">STRATEGY</span><b id="lblStrategy">MQTT mesh · WebRTC</b></div>
       <div class="rp-row"><span class="k">TRANSPORT</span><b id="lblTransport">DTLS-SRTP encrypted</b></div>
+      <div class="rp-row"><span class="k">ENCRYPTION</span><span class="led ok" style="box-shadow:0 0 8px rgba(62,207,142,.7)"></span><b><span style="color:var(--teal);letter-spacing:.06em">E2EE</span> · AES-256-GCM</b><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2" style="flex:none"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
     </div>
     <div class="lb-chips">
+      <span class="chip t" style="display:inline-flex;align-items:center;gap:6px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex:none"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>E2EE · AES-256-GCM</span>
       <span class="chip t" data-i18n="chip_calls">Voice &amp; video calls</span>
       <span class="chip a" data-i18n="chip_files">P2P file transfer</span>
       <span class="chip t" data-i18n="chip_board">Collaborative board</span>
@@ -820,19 +821,20 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
       </div>
       <div id="createPane">
         <div class="field">
-          <label class="chk"><input type="checkbox" id="chkPrivate" checked><span class="box"><svg viewBox="0 0 12 10" fill="none"><path d="M1 5.2 4.2 8.4 11 1.6" stroke="#221503" stroke-width="2" stroke-linecap="round"/></svg></span>
-            <span><b data-i18n="private_room">Private room</b><br><span class="dim" style="font-size:12px" data-i18n="private_sub">Chat &amp; board encrypted end-to-end · joining requires the invite link</span></span>
-          </label>
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border:1px solid rgba(56,207,182,.4);border-radius:9px;background:rgba(56,207,182,.07)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2" style="flex:none;margin-top:2px"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span style="font-size:12.5px;color:var(--mut)"><b style="color:var(--teal)" data-i18n="private_room">Private room</b> — <span data-i18n="private_sub">every room is end-to-end encrypted with <b>E2EE</b> (AES-256-GCM). The invitation link is the only way in.</span></span>
+          </div>
         </div>
         <button class="btn btn-primary btn-big" id="btnCreate" style="width:100%"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg><span data-i18n="create_start">Create &amp; enter as Admin</span></button>
       </div>
       <div id="joinPane" class="hidden">
         <div class="field">
-          <label class="lbl" for="codeInput" data-i18n="room_code">Room code</label>
-          <input class="inp code-inp" id="codeInput" maxlength="6" placeholder="······" autocomplete="off" spellcheck="false">
+          <label class="lbl" for="codeInput" data-i18n="invite_link">Invitation link</label>
+          <input class="inp" id="codeInput" dir="ltr" autocomplete="off" spellcheck="false" data-i18n-ph="invite_ph">
         </div>
         <button class="btn btn-teal btn-big" id="btnJoin" style="width:100%"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="join_now">Join room</span></button>
-        <p class="m-note" data-i18n="join_note">Tip: opening an invite link fills this automatically.</p>
+        <p class="m-note" data-i18n="join_note">Every room is private and encrypted — only the full invitation link grants access. A 6-character code alone is not enough.</p>
       </div>
       <div id="lobbyMsg"></div>
       <div class="lb-foot">
@@ -1395,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.60.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.61.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1509,8 +1511,10 @@ M.lang = safeGet(localStorage,'mj.lang') || 'en';
 M.I18N = {
 en:{
  tagline:'A serverless gathering room — <b>realtime chat, files, calls and a shared whiteboard</b>, running peer-to-peer in your browser. No accounts. One link brings everyone in.',
- chip_calls:'Voice & video calls', chip_files:'P2P file transfer', chip_board:'Collaborative board', chip_ar:'Arabic · RTL', chip_admin:'Admin control',
- lobby_title:'Enter a room', create_room:'Create room', join_room:'Join with code', display_name:'Display name',
+ chip_e2ee:'E2EE · AES-256-GCM', chip_calls:'Voice & video calls', chip_files:'P2P file transfer', chip_board:'Collaborative board', chip_ar:'Arabic · RTL', chip_admin:'Admin control',
+ lobby_title:'Enter a room', create_room:'Create room', join_room:'Join with link', display_name:'Display name',
+ invite_link:'Invitation link', invite_ph:'https://…/?room=…&rid=…&k=…#rk=…',
+ join_link_required:'Enter the full invitation link — a 6-character code alone cannot access a private room.',
  private_room:'Private room', private_sub:'Chat & board encrypted end-to-end · joining requires the invite link',
  create_start:'Create & enter as Admin', room_code:'Room code', join_now:'Join room',
  join_note:'Tip: opening an invite link fills this automatically. The code alone gives basic access; Private rooms need the full invitation link for encrypted content.',
@@ -1522,9 +1526,9 @@ en:{
  group_call:'Group call', board_closed:'Whiteboard is closed', board_closed_sub:'The Admin has not opened the board for this room yet.',
  board_viewonly:'The board is open, but you are in view-only mode.',
  share_sub:'Anyone with this link joins instantly as a member. You stay the Admin.', copy_link:'Copy link', more_apps:'More…', close:'Close',
- priv_link_warn:'Private room: anyone who receives this full invitation link can access this room\u2019s encrypted content. Share it only with people you trust.',
+ priv_link_warn:'Anyone with this invitation link can access this room\u2019s encrypted content. Share it only with people you trust.',
  priv_link_tip:'The link contains the room\u2019s decryption key \u2014 never post it publicly.',
- open_link_tip:'anyone with the 6-character code can join manually.',
+
  enc_unknown_title:'Room content locked',
  enc_unknown_body:'Use the room\u2019s invitation link to access this room\u2019s content.',
  decline:'Decline', accept:'Accept', start_group:'Start a group call', group_note:'Group calls use a peer-to-peer mesh — best with up to ~6 participants.',
@@ -1577,11 +1581,11 @@ en:{
  room_locked_join:'This room is locked — the Admin is not admitting new members.', banned_join:'You cannot join this room (removed or banned).',
  rate_limited:'Too many join attempts — wait a moment and try again.',
  unverified:'Unverified', unverified_tip:'Received without this room\u2019s encryption key',
- enc_open:'OPEN', priv_notice:'Private room — you joined with the code only. Use the full invitation link to read and send encrypted content.',
+ priv_notice:'Private room — you joined with the code only. Use the full invitation link to read and send encrypted content.',
  enc_required_title:'Private room',
  enc_required_body:'This is a private encrypted room. Use the full invitation link to access encrypted content.',
  enc_e2ee_tip:'Messages, files and board are encrypted end-to-end with this room\u2019s key',
- enc_open_tip:'This room is intentionally Open \u2014 content travels unencrypted. Use a Private room for sensitive topics.',
+
  wb_save_fail:'Board is too large to save on this device \u2014 recent changes may not survive a refresh',
  join_failed:'Could not connect to the room. Check the code / invite link and your network.',
  creating:'Creating room…', joining:'Joining room…', name_required:'Please enter a display name first.', invalid_code:'Enter the 6-character room code.',
@@ -1708,8 +1712,10 @@ en:{
 },
 ar:{
  tagline:'غرفة اجتماعات بدون خادم — <b>دردشة فورية وملفات ومكالمات وسبورة مشتركة</b> تعمل ندّاً لندّ في متصفحك. بلا حسابات. رابط واحد يجمع الجميع.',
- chip_calls:'مكالمات صوت وصورة', chip_files:'نقل ملفات P2P', chip_board:'سبورة تشاركية', chip_ar:'عربي · RTL', chip_admin:'تحكم المشرف',
- lobby_title:'ادخل إلى غرفة', create_room:'إنشاء غرفة', join_room:'انضمام برمز', display_name:'الاسم الظاهر',
+ chip_e2ee:'تشفير طرفي E2EE · AES-256-GCM', chip_calls:'مكالمات صوت وصورة', chip_files:'نقل ملفات P2P', chip_board:'سبورة تشاركية', chip_ar:'عربي · RTL', chip_admin:'تحكم المشرف',
+ lobby_title:'ادخل إلى غرفة', create_room:'إنشاء غرفة', join_room:'انضمام برابط', display_name:'الاسم الظاهر',
+ invite_link:'رابط الدعوة', invite_ph:'https://…/?room=…&rid=…&k=…#rk=…',
+ join_link_required:'أدخل رابط الدعوة الكامل — الرمز المكوّن من 6 أحرف وحده لا يمنح الوصول إلى غرفة خاصة.',
  private_room:'غرفة خاصة', private_sub:'الدردشة والسبورة مشفّرتان تماماً · الانضمام يتطلب رابط الدعوة',
  create_start:'إنشاء ودخول كمشرف', room_code:'رمز الغرفة', join_now:'انضمام',
  join_note:'تلميح: فتح رابط الدعوة يملأ هذا الحقل تلقائياً. الرمز وحده يمنح وصولاً أساسياً؛ الغرف الخاصة تحتاج رابط الدعوة الكامل للمحتوى المشفّر.',
@@ -1771,13 +1777,13 @@ ar:{
  room_locked_join:'الغرفة مقفلة — المشرف لا يقبل أعضاء جدد حالياً.', banned_join:'لا يمكنك الانضمام إلى هذه الغرفة (تمت إزالتك أو حظرك).',
  rate_limited:'محاولات انضمام كثيرة — انتظر لحظة وحاول مجدداً.',
  unverified:'غير موثّقة', unverified_tip:'وصلت بدون مفتاح تشفير هذه الغرفة',
- enc_open:'مفتوحة', priv_notice:'غرفة خاصة — انضممت بالرمز فقط. استخدم رابط الدعوة الكامل لقراءة المحتوى المشفّر وإرساله.',
+ priv_notice:'غرفة خاصة — انضممت بالرمز فقط. استخدم رابط الدعوة الكامل لقراءة المحتوى المشفّر وإرساله.',
  enc_required_title:'غرفة خاصة',
  enc_required_body:'هذه غرفة خاصة مشفّرة. استخدم رابط الدعوة الكامل للوصول إلى المحتوى المشفّر.',
  enc_unknown_title:'محتوى الغرفة مقفل',
- enc_unknown_body:'استخدم رابط دعوة الغرفة للوصول إلى محتوى هذه الغرفة.',
+ enc_unknown_body:'هذه غرفة خاصة مشفّرة. استخدم رابط الدعوة الكامل للوصول إلى محتوى الغرفة.',
  enc_e2ee_tip:'الرسائل والملفات والسبورة مشفّرة طرفاً بطرف بمفتاح هذه الغرفة',
- enc_open_tip:'هذه الغرفة مفتوحة عمداً — المحتوى ينتقل بدون تشفير. استخدم غرفة خاصة للمواضيع الحساسة.',
+
  wb_save_fail:'السبورة أكبر من أن تُحفظ على هذا الجهاز — قد لا تبقى التغييرات الأخيرة بعد التحديث',
  join_failed:'تعذّر الاتصال بالغرفة. تحقق من الرمز / رابط الدعوة ومن الشبكة.',
  creating:'جارٍ إنشاء الغرفة…', joining:'جارٍ الانضمام…', name_required:'أدخل اسماً ظاهراً أولاً.', invalid_code:'أدخل رمز الغرفة المكوّن من 6 أحرف.',
@@ -1987,7 +1993,6 @@ M.State = {
   perms: null,           // authoritative permissions object
   bans: [],
   wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{} },
-  roomEnc:null,   /* null until known: true=E2EE room, false=intentionally Open/plaintext */
   chatTarget: null,      // null = room, else peerId
   selfInCallCount: 0
 };
@@ -2337,7 +2342,7 @@ M.Net = {
       /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
       if(M.Perms.isAdmin() && M.State.room && (M.State.wb.open || M.State.timerUntil)){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,enc:M.Crypto.has(),timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -2377,16 +2382,7 @@ M.Net = {
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
-      if(verifiedAt!=null){
-        patch.adminVerifiedAt=verifiedAt;
-        /* ONLY an authenticated Admin heartbeat may declare the room Open. The enc value
-           is trusted solely because this heartbeat already passed signature + rid + sender
-           + freshness verification. Unauthenticated/fake/wrong-rid/expired enc is ignored. */
-        if(d.enc===false && M.State.roomEnc==null){
-          M.State.roomEnc=false; M.UI.encBadge(); M.UI.privNotice();
-          M.log('info','room declared Open by AUTHENTICATED Admin heartbeat');
-        }
-      }
+      if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
       M.Members.upsert(peerId,patch);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
          only through signed Admin commands / snapshots, never through heartbeats */
@@ -2480,18 +2476,12 @@ M.Net = {
       try{ const e=await M.Crypto.enc(obj); M.Net.send(action,e,target); return true; }
       catch(err){ M.log('err','enc send failed '+err.message); return false; }
     }
-    /* NEUTRAL/UNKNOWN state: a code-only joiner has not established whether the room is
-       Open or Private, so protected sends stay blocked and the user is told to use the
-       invitation link. A Private room is NEVER downgraded by an unauthenticated peer.
-       Only an authenticated Admin declaration (verified hb/snapshot) sets roomEnc=false. */
-    if(M.State.roomEnc!==false){
-      const unknown=(M.State.roomEnc==null);
-      if(!M.Net._encBlocked){ M.Net._encBlocked=true;
-        M.toast('warn', unknown?M.t('enc_unknown_title'):M.t('enc_required_title'), unknown?M.t('enc_unknown_body'):M.t('enc_required_body'), {ms:7000}); }
-      M.log('warn','blocked '+action+' — room encryption state '+(unknown?'unknown':'private')+'; no key');
-      return false;
-    }
-    M.Net.send(action,obj,target); return true;
+    /* Private-only model: there is NO plaintext path. Without the room key the
+       protected payload is blocked and the user is told to use the invitation link. */
+    if(!M.Net._encBlocked){ M.Net._encBlocked=true;
+      M.toast('warn',M.t('enc_unknown_title'),M.t('enc_unknown_body'),{ms:7000}); }
+    M.log('warn','blocked '+action+' — no room key; invitation link required');
+    return false;
   },
   async hbTick(){
     if(!M.Net.connected) return;
@@ -2503,7 +2493,6 @@ M.Net = {
     /* bind the signature to the sender's session identity so a captured heartbeat
        cannot be replayed by another peer */
     if(amAdmin){
-      hb.enc=M.Crypto.has();   /* the room's encryption state, carried by the authenticated Admin */
       /* fail closed: if signing fails, send NO heartbeat this cycle — never transmit an
          unsigned/incomplete Admin heartbeat. The next 12s cycle retries naturally. */
       try{ hb.hbFrom=M.State.self.id; hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts,from:hb.hbFrom}); }
@@ -3517,15 +3506,15 @@ M.UI = {
     }
   },
   privNotice(){
+    /* code-only joiner in a Private room: no rk → no content, clear guidance */
     const el=M.$('#privNotice'); if(!el) return;
-    el.classList.toggle('hidden', !(M.State.roomEnc===true && !M.Crypto.has()));
+    el.classList.toggle('hidden', M.Crypto.has());
   },
   encBadge(){
+    /* every room is Private/E2EE; show the badge only when the key is present */
     const b=M.$('#roomEncBadge'); if(!b) return;
-    if(M.State.roomEnc==null){ b.classList.add('hidden'); return; }
-    b.classList.remove('hidden','e2ee','open');
-    if(M.State.roomEnc){ b.classList.add('e2ee'); b.textContent='E2EE'; b.title=M.t('enc_e2ee_tip'); }
-    else { b.classList.add('open'); b.textContent=M.t('enc_open'); b.title=M.t('enc_open_tip'); }
+    if(M.Crypto.has()){ b.classList.remove('hidden'); b.classList.add('e2ee'); b.classList.remove('open'); b.textContent='E2EE'; b.title=M.t('enc_e2ee_tip'); }
+    else { b.classList.add('hidden'); }
   },
   roomName(){
     const n=(M.State.room?.name||'').trim();
@@ -3728,8 +3717,7 @@ M.UI = {
     M.$('#roomCodeLbl').textContent=M.State.room.code;
     M.$('#chatSub').onclick=()=>M.UI.editTopic();   /* admin-only inline topic editor; members see a static caption */
     M.$('#roomLockIco').classList.toggle('hidden',!M.State.perms?.roomLocked);
-    if(M.Perms.isAdmin()) M.State.roomEnc=M.Crypto.has();   /* the authenticated creator knows the room's encryption state */
-    M.UI.encBadge();
+    M.UI.encBadge(); M.UI.privNotice();
     M.$('#selfName').textContent=M.State.self.name;
     if(M.Perms.isAdmin()) M.$('#selfName').insertAdjacentHTML('beforeend',M.Icons.crown);
     M.$('#selfIdLbl').textContent=M.fmt.idShort(M.State.self.id)+' · '+M.Platform.os+' '+M.Platform.br;
@@ -6673,7 +6661,8 @@ M.WB = {
         }
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
-        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* snapshot is a verified signed Admin command — enc is trusted */
+        /* every room is Private/E2EE; encryption availability is local (rk present) */
+        M.UI.encBadge(); M.UI.privNotice();
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
@@ -7155,10 +7144,11 @@ M.App = {
       M.State.room.rid=(!M.Admin.pending && M.Admin.rid)||null;   /* creator is never pending; rid trusted immediately */
       try{ localStorage.removeItem('mj.dead.'+code); }catch(e){}   /* a fresh instance supersedes any prior tombstone on this device */
       if(M.Admin.pubJwk) M.State.roomPubStr=JSON.stringify(M.Admin.pubJwk);
-      if(M.$('#chkPrivate').checked && crypto.subtle){
-        M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));   /* 256-bit room key */
+      /* every room is Private/E2EE: always generate a fresh 256-bit room key */
+      if(crypto.subtle){
+        M.State.room.roomKeyB64=M.b64url(crypto.getRandomValues(new Uint8Array(32)));
         await M.Crypto.importRoomSecret(M.State.room.roomKeyB64);
-      }
+      } else throw new Error('WebCrypto unavailable — HTTPS required');
       history.replaceState(null,'',M.App.inviteUrl());
       await M.App.enter(code,true);
     }catch(e){ M.lobbyMsg(e.message||String(e),true); }
@@ -7166,8 +7156,13 @@ M.App = {
   },
   async join(){
     if(!M.App.setName()) return;
-    const code=M.$('#codeInput').value.trim().toUpperCase();
-    if(!/^[A-Z2-9]{6}$/.test(code)){ M.lobbyMsg(M.t('invalid_code'),true); return; }
+    /* the full invitation link is the only valid entry: parse room + rid + k + rk from it.
+       A bare 6-character code is rejected — it grants no access to a private room. */
+    let inv;
+    try{ inv=new URL(M.$('#codeInput').value.trim(), location.href); }catch(e){ inv=null; }
+    const qp=inv? new URLSearchParams(inv.search) : null;
+    const code=(qp&&qp.get('room')||'').toUpperCase();
+    if(!inv || !/^[A-Z2-9]{6}$/.test(code) || !inv.hash.includes('rk=')){ M.lobbyMsg(M.t('join_link_required'),true); return; }
     if(!M.Rate.check()){ M.lobbyMsg(M.t('rate_limited'),true); return; }
     if(M.App.tombstoned(code)){ M.lobbyMsg(M.t('room_not_found'),true); return; }
     M.lobbyMsg(M.t('joining')); M.$('#btnJoin').disabled=true;
@@ -7178,10 +7173,9 @@ M.App = {
       /* 2 — the invitation identifies the CURRENT room instance (rid) as well as the
          expected Admin identity (k) and the content key (rk). The instance comes from
          the invitation, never from the untrusted local key alone. */
-      const qp=new URLSearchParams(location.search);
       const k=qp.get('k'), invRid=qp.get('rid');
       if(k){ if(k.length<=24){ M.State.roomPubPin=k; M.State.room.pubPin=k; } else { try{ M.State.roomPubStr=M.td.decode(M.unb64url(k)); }catch(e){} } }
-      const frag=location.hash.match(/rk=([A-Za-z0-9_\-]+)/);
+      const frag=inv.hash.match(/rk=([A-Za-z0-9_\-]+)/);
       if(frag){ await M.Crypto.importRoomSecret(frag[1]); M.State.room.roomKeyB64=frag[1]; }
       /* TRUST RULE: the invitation's rid is a CLAIM, never proof. M.State.room.rid
          stays null until the instance is established by origin-proof (the device that
@@ -7677,10 +7671,8 @@ M.Share = {
     const url=M.App.inviteUrl();
     M.$('#shareUrl').value=url;
     M.$('#shNative').classList.toggle('hidden',!navigator.share);
-    const note=M.$('#shNote'); const priv=M.Crypto.has();
-    note.innerHTML=priv
-      ? '<b style="color:var(--warn)">⚠ '+M.t('priv_link_warn')+'</b><br><span class="dim">'+M.t('priv_link_tip')+'</span>'
-      : '🌐 '+M.t('open')+': '+M.t('open_link_tip');
+    const note=M.$('#shNote');
+    note.innerHTML='<b style="color:var(--warn)">⚠ '+M.t('priv_link_warn')+'</b><br><span class="dim">'+M.t('priv_link_tip')+'</span>';
     M.$('#mShare').classList.remove('hidden');
   },
   _privWarn(){   /* one-time contextual warning for Private invitations, no rk exposed */
@@ -7912,7 +7904,6 @@ document.addEventListener('DOMContentLoaded',()=>{
     M.$('#modeJoin').onclick=()=>{ M.$('#modeJoin').classList.add('on'); M.$('#modeCreate').classList.remove('on'); M.$('#joinPane').classList.remove('hidden'); M.$('#createPane').classList.add('hidden'); M.$('#codeInput').focus(); };
     M.$('#btnCreate').onclick=()=>M.App.create();
     M.$('#btnJoin').onclick=()=>M.App.join();
-    M.$('#codeInput').addEventListener('input',e=>{ e.target.value=e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,6); });
     M.$('#codeInput').addEventListener('keydown',e=>{ if(e.key==='Enter') M.App.join(); });
     M.$('#nameInput').addEventListener('keydown',e=>{ if(e.key==='Enter') (M.$('#joinPane').classList.contains('hidden')?M.App.create():M.App.join()); });
     M.$('#langBtn').onclick=()=>M.toggleLang();
@@ -7926,11 +7917,16 @@ document.addEventListener('DOMContentLoaded',()=>{
     const qp=new URLSearchParams(location.search);
     const rc=qp.get('room');
     if(rc && /^[A-Za-z2-9]{6}$/.test(rc)){
-      M.$('#codeInput').value=rc.toUpperCase();
-      M.$('#modeJoin').click();
-      M.lobbyMsg('✓ '+M.t('room_code')+': '+rc.toUpperCase());
-      M.$('#lobbyMsg').classList.add('ok');
-      if(savedName) setTimeout(()=>M.$('#btnJoin').focus(),100);
+      if(location.hash.includes('rk=')){   /* full invitation → join directly */
+        M.$('#codeInput').value=location.href;
+        M.$('#modeJoin').click();
+        M.lobbyMsg('✓ '+M.t('invite_link'));
+        M.$('#lobbyMsg').classList.add('ok');
+        if(savedName) setTimeout(()=>M.$('#btnJoin').focus(),100);
+      } else {
+        M.$('#modeJoin').click();
+        M.lobbyMsg(M.t('join_link_required'),true);
+      }
     }
     const note=safeGet(sessionStorage,'mj.note');
     if(note){ safeDel(sessionStorage,'mj.note');
