@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.76.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.77.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1970,27 +1970,43 @@ M.Id = {
   /* verify a possession proof against a challenge we issued */
   async verifyProof(proof, chal){
     if(!proof||!proof.sig||!proof.midpub||!proof.mid) return false;
+    /* the proof must authenticate the SAME identity the peer originally claimed */
+    const peer=M.State.peers.get(chal.to===M.State.self.id? chal.from : chal.from);
     if(!M.Id.verifyMid(proof.mid,proof.midpub)) return false;              /* forged mid */
     if(proof.nonce!==chal.nonce) return false;                             /* wrong/replayed nonce */
-    if(M.Id._nonces.has(proof.nonce)) return false;                        /* nonce reuse */
     if(Math.abs(Date.now()-chal.ts)>M.Net.HB_FRESH) return false;          /* stale */
     if(chal.rid && proof.rid!==chal.rid) return false;                     /* cross-room replay */
-    if(proof.to!==M.State.self.id || proof.from!==chal.to) return false;   /* cross-peer replay */
-    let key;
-    try{ key=await M.Admin.importAdminVerifyKey(proof.midpub); }catch(e){ return false; }
+    if(proof.to!==M.State.self.id || proof.from!==chal.from) return false; /* cross-peer replay */
+    /* atomic nonce reservation BEFORE the async verify; a failed verify releases it */
+    M.Id.pruneNonces();
+    if(M.Id._nonces.has(proof.nonce)) return false;                        /* already consumed */
+    M.Id._nonces.set(proof.nonce,Date.now());
+    let ok=false;
     try{
-      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(proof.sig),M.te.encode(M.Id.canonProof(chal)));
-      if(ok) M.Id._nonces.set(proof.nonce,Date.now());
-      return ok;
-    }catch(e){ return false; }
+      const key=await M.Admin.importAdminVerifyKey(proof.midpub);
+      ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(proof.sig),M.te.encode(M.Id.canonProof(chal)));
+    }catch(e){ ok=false; }
+    if(!ok){ M.Id._nonces.delete(proof.nonce); return false; }             /* failed verify must not consume */
+    return true;
   },
   challengePeer(peerId){
     if(!M.Id.priv) return;
     const p=M.State.peers.get(peerId); if(p&&p.midAuth) return;
-    M.Id._chal ??= new Map();
-    const chal={nonce:M.Id.newNonce(), rid:M.State.room?.rid||'', from:M.State.self.id, to:peerId, ts:Date.now()};
+    M.Id._chal ??= new Map(); M.Id._rate ??= new Map(); M.Id._fails ??= new Map();
+    if(M.Id._chal.has(peerId)) return;                 /* one active challenge per peer */
+    const now=Date.now();
+    if(now-(M.Id._rate.get(peerId)||0)<2000) return;   /* minimum interval between challenges */
+    const f=M.Id._fails.get(peerId);
+    if(f && now-f.t<30000 && f.n>=5) return;           /* temporary suppression after repeated failures */
+    M.Id._rate.set(peerId,now);
+    const chal={nonce:M.Id.newNonce(), rid:M.State.room?.rid||'', from:M.State.self.id, to:peerId, ts:now};
     M.Id._chal.set(peerId,chal);
     try{ M.Net.A.idc.send(chal,peerId); }catch(e){}
+  },
+  /* centralized nonce cleanup so the consumed-nonce map stays bounded over long sessions */
+  pruneNonces(){
+    const cut=Date.now()-2*M.Net.HB_FRESH;
+    for(const [k,t] of M.Id._nonces){ if(t<cut) M.Id._nonces.delete(k); }
   },
   async init(){
     M.Id.ready=(async()=>{
@@ -2515,15 +2531,29 @@ M.Net = {
     /* member identity challenge/response: proves possession of the private key bound to mid */
     M.Net.A.idc.onMessage=async (chal,{peerId})=>{
       if(!chal||!chal.nonce||!M.Id.priv) return;
-      if(chal.to && chal.to!==M.State.self.id) return;
+      /* never sign an attacker-shaped challenge: validate against the real sender */
+      if(chal.from!==peerId) return;
+      if(chal.to!==M.State.self.id) return;
+      if(chal.rid && chal.rid!==(M.State.room?.rid||'')) return;
+      if(!/^[0-9a-f]{32}$/.test(chal.nonce)) return;
+      if(typeof chal.ts!=='number'||Math.abs(Date.now()-chal.ts)>M.Net.HB_FRESH) return;
       try{ const proof=await M.Id.prove(chal); M.Net.A.idp.send(proof,peerId); }catch(e){}
     };
     M.Net.A.idp.onMessage=async (proof,{peerId})=>{
       const chal=M.Id._chal?.get(peerId); if(!chal) return;
+      /* the proof must match the identity THIS peer originally claimed */
+      const p=M.State.peers.get(peerId);
+      if(p && p.claimedMid && (proof.mid!==p.claimedMid || JSON.stringify(proof.midpub)!==JSON.stringify(p.claimedMidPub))){
+        M.log('warn','identity proof does not match claimed identity — rejected'); return;
+      }
       if(await M.Id.verifyProof(proof,chal)){
         M.Id._chal.delete(peerId);
-        const p=M.State.peers.get(peerId);
+        M.Id._fails?.delete(peerId);
         if(p){ p.mid=proof.mid; p.midAuth=true; M.bus.emit('members'); M.log('info','member identity authenticated: '+M.Id.short()); }
+      } else {
+        const f=M.Id._fails?.get(peerId)||{n:0,t:Date.now()};
+        if(Date.now()-f.t>30000) f={n:0,t:Date.now()};
+        f.n++; M.Id._fails.set(peerId,f);   /* bounded failures feed challenge suppression */
       }
     };
     M.bus.emit('netReady');
@@ -2624,14 +2654,15 @@ M.Net = {
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v;
-        /* stable member identity is only accepted when the public key hashes to the
-           claimed mid — a forged mid without the matching key is ignored */
-        if(d.mid && d.midpub && M.Id.verifyMid(d.mid,d.midpub)) patch.mid=d.mid; }
+        /* A claimed identity is stored as UNVERIFIED (claimedMid/claimedMidPub). It only
+           becomes p.mid after proof-of-possession of that exact key. A forged claim can
+           never become an authenticated identity. */
+        if(d.mid && d.midpub && M.Id.verifyMid(d.mid,d.midpub)){ patch.claimedMid=d.mid; patch.claimedMidPub=d.midpub; } }
       if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
       M.Members.upsert(peerId,patch);
       /* a peer claiming a stable identity must prove key possession before it is trusted */
       const pp=M.State.peers.get(peerId);
-      if(pp && pp.mid && !pp.midAuth && M.Id.priv) M.Id.challengePeer(peerId);
+      if(pp && pp.claimedMid && !pp.midAuth && M.Id.priv) M.Id.challengePeer(peerId);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
          only through signed Admin commands / snapshots, never through heartbeats */
     };
@@ -2875,10 +2906,14 @@ M.Dupe = {
   active:false, keeperId:null,
   check(pid,d){
     if(M.Dupe.active || !M.State.room) return;
+    /* A claimed mid in an unauthenticated hello must NOT drive duplicate-session
+        takeover. Only the legacy fp (or an already-authenticated mid on the stored
+        peer) may identify a returning session before proof-of-possession. */
     if(pid===M.State.self.id) return;
-    const sameMid=!!(d.mid && M.Id.mid && d.mid===M.Id.mid);
-    const sameFp=!!(d.fp && M.State.self.fp && d.fp===M.State.self.fp);   /* legacy fallback only */
-    if(!sameMid && !sameFp) return;
+    const stored=M.State.peers.get(pid);
+    const authSameMid=!!(stored && stored.midAuth && stored.mid && d.mid===stored.mid);
+    const sameFp=!!(d.fp && M.State.self.fp && d.fp===M.State.self.fp);
+    if(!authSameMid && !sameFp) return;
     const myJt=M.State.joinedAt||0, theirJt=d.jt||0;
     const iAmOriginal = myJt<theirJt || (myJt===theirJt && M.State.self.id<pid);
     if(iAmOriginal) return;                        /* the newcomer detects this on its own */
@@ -2904,7 +2939,7 @@ M.Members = {
          "guest-…" duplicate. A still-active session with the same fingerprint (e.g. a
          second tab) is kept as its own entry, also with the real name. */
       let old=null, oldId=null;
-      M.State.peers.forEach((om,oid)=>{ if(oid!==peerId && (om.mid&&patch.mid? om.mid===patch.mid : om.fp===patch.fp) && (!old || om.lastSeen>old.lastSeen)){ old=om; oldId=oid; } });
+      M.State.peers.forEach((om,oid)=>{ if(oid!==peerId && (om.midAuth&&om.mid&&patch.claimedMid? om.mid===patch.claimedMid : om.fp===patch.fp) && (!old || om.lastSeen>old.lastSeen)){ old=om; oldId=oid; } });
       const lastHb=M.Net.lastHb.get(oldId);
       const dead = old && ( old.status!=='online' || !lastHb || Date.now()-lastHb>20000 );
       if(old && dead){
@@ -2927,11 +2962,13 @@ M.Members = {
     M.State.peers.set(peerId,m);
     /* reconnect rebinding: a returning device keeps its device fingerprint, so transfers
        bound to that fingerprint follow it to its new peerId */
-    if((patch.mid||patch.fp) && M.FT){
+    /* FT rebinding by cryptographic identity only after proof-of-possession; fp is the
+        legacy compatibility fallback */
+    if((patch.midAuth||patch.fp) && M.FT){
       M.FT.sends.forEach(t=>{ if(t.target==='*'||t.target===peerId) return;
-        if((patch.mid&&t.rmid===patch.mid)||(patch.fp&&t.rfp===patch.fp)) t.target=peerId; });
+        if((patch.midAuth&&patch.mid&&t.rmid===patch.mid)||(patch.fp&&t.rfp===patch.fp)) t.target=peerId; });
       M.FT.recvs.forEach(r=>{ if(r.from===peerId) return;
-        if((patch.mid&&r.smid===patch.mid)||(patch.fp&&r.sfp===patch.fp)) r.from=peerId; });
+        if((patch.midAuth&&patch.mid&&r.smid===patch.mid)||(patch.fp&&r.sfp===patch.fp)) r.from=peerId; });
     }
     if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
     if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
@@ -3136,7 +3173,7 @@ M.Chat = {
     let th=M.Chat.threads.get(key); if(!th){ th=[]; M.Chat.threads.set(key,th); }
     th.push({...msg,me:fromMe}); if(th.length>M.Chat.LIM.mem) th.splice(0,th.length-M.Chat.LIM.mem);
     if(M.Chat.renderKey===key || (key==='room' && M.Chat.renderKey==='room')) M.Chat.renderOne(msg,fromMe,key);
-    if(key!=='room'){ const peer=M.State.peers.get(key); if(peer?.mid) M.Chat._midMap.set(key,peer.mid); else if(peer?.fp) M.Chat._fpMap.set(key,peer.fp); }
+    if(key!=='room'){ const peer=M.State.peers.get(key); if(peer?.midAuth&&peer.mid) M.Chat._midMap.set(key,peer.mid); else if(peer?.fp) M.Chat._fpMap.set(key,peer.fp); }
     M.Chat.persist();
     M.bus.emit('chatUpdated',key);
   },
@@ -3191,12 +3228,13 @@ M.Chat = {
   _tryRestoreDms(){
     if(!M.Chat._pendingDms || M.Chat._pendingDms.size===0) return;
     M.State.peers.forEach((p,pid)=>{
-      const pkey=p.mid||('fp:'+p.fp);
-      if((p.mid||p.fp) && M.Chat._pendingDms.has(pkey)){
+      const authMid=p.midAuth&&p.mid;
+      const pkey=authMid||('fp:'+p.fp);
+      if((authMid||p.fp) && M.Chat._pendingDms.has(pkey)){
         const msgs=M.Chat._pendingDms.get(pkey);
         M.Chat._pendingDms.delete(pkey);
         if(!M.Chat.threads.has(pid)) M.Chat.threads.set(pid,msgs.map(m=>({...m,me:m.from===M.State.self.id})));
-        if(p.mid) M.Chat._midMap.set(pid,p.mid); else M.Chat._fpMap.set(pid,p.fp);
+        if(authMid) M.Chat._midMap.set(pid,p.mid); else M.Chat._fpMap.set(pid,p.fp);
         if(M.Chat.renderKey===pid) M.Chat.renderAll();
       }
     });
@@ -3415,12 +3453,13 @@ M.FT = {
     if(t.target==='*') return !!M.State.peers.get(from);
     if(from===t.target) return true;
     const p=M.State.peers.get(from);
-    return !!((t.rmid&&p?.mid&&p.mid===t.rmid)||(t.rfp&&p?.fp&&p.fp===t.rfp));
+    /* mid-based authorization requires proof-of-possession; fp remains legacy fallback */
+    return !!((t.rmid&&p?.midAuth&&p.mid===t.rmid)||(t.rfp&&p?.fp&&p.fp===t.rfp));
   },
   recvAuth(r,from){
     if(from===r.from) return true;
     const p=M.State.peers.get(from);
-    return !!((r.smid&&p?.mid&&p.mid===r.smid)||(r.sfp&&p?.fp&&p.fp===r.sfp));
+    return !!((r.smid&&p?.midAuth&&p.mid===r.smid)||(r.sfp&&p?.fp&&p.fp===r.sfp));
   },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
@@ -3951,7 +3990,7 @@ M.UI = {
   renderMembers(){
     const list=M.$('#memberList'); list.innerHTML='';
     const peers=[...M.State.peers.values()]
-      .filter(p=>!((M.Id.mid&&p.mid===M.Id.mid)||(p.fp&&p.fp===M.State.self.fp)))   /* my own tabs/devices never crowd the roster */
+      .filter(p=>!((M.Id.mid&&p.midAuth&&p.mid===M.Id.mid)||(p.fp&&p.fp===M.State.self.fp)))   /* my own authenticated tabs/devices never crowd the roster */
       .sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
     const onCount=peers.filter(p=>p.status!=='offline').length;
     const cnt=M.$('#memberCount'); if(cnt){ cnt.textContent=peers.length? onCount+' / '+peers.length : '0'; cnt.title=onCount+' '+M.t('online')+' / '+peers.length+' '+M.t('members_s'); }
@@ -3961,7 +4000,7 @@ M.UI = {
       if(!sepDone && p.status==='offline' && onCount>0){ list.appendChild(M.el('div','member-sep',M.t('offline'))); sepDone=true; }
       /* last-resort heal: handshake data always carried the real name */
       const early=M.Net._early?.get(p.id);
-      if(p.name.indexOf('guest-')===0 && early && early.n){ p.name=early.n; if(early.fp)p.fp=early.fp; if(early.v)p.v=early.v; if(early.mid&&early.midpub&&M.Id.verifyMid(early.mid,early.midpub)) p.mid=early.mid; }
+      if(p.name.indexOf('guest-')===0 && early && early.n){ p.name=early.n; if(early.fp)p.fp=early.fp; if(early.v)p.v=early.v; if(early.mid&&early.midpub&&M.Id.verifyMid(early.mid,early.midpub)){ p.claimedMid=early.mid; p.claimedMidPub=early.midpub; } }
       const row=M.el('div','member');
       const stColor=p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)';
       const unidN=p.name.indexOf('guest-')===0;
