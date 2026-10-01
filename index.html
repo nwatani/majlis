@@ -1029,6 +1029,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <div id="wbPeers"></div>
           <button class="btool" id="wbExport" title="Export PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="btool" id="wbPdf" title="Save PDF (all pages)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5h1.2a1.3 1.3 0 0 0 0-2.6H8.5v4M13 17v-4h1.4a1.5 1.5 0 0 1 0 3H13M17.5 17v-4h2M17.5 15h1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="btool" id="wbDbg" title="Whiteboard diagnostics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2-7 4 14 2-7h6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
 
           <button class="btool hidden" id="wbClear" title="Clear board (Admin)" style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
@@ -1079,6 +1080,17 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
   </div>
   <p class="m-note" data-i18n="rd_card_note">The ID was copied to your clipboard. In any RustDesk client: paste it under “Control Remote Desktop”, enter the password — you now have full OS-level control.</p>
   <div class="m-row"><button class="btn btn-ghost" data-close data-i18n="close">Close</button></div>
+</div></div>
+
+<!-- temporary member-visible whiteboard diagnostics -->
+<div class="modal hidden" id="mWbDbg"><div class="m-card">
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2"><path d="M3 12h4l2-7 4 14 2-7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Whiteboard diagnostics</span></h3>
+  <div id="wbDbgState" class="mono" style="font-size:11.5px;line-height:1.9;margin:6px 0 10px"></div>
+  <pre id="wbDbgBody" class="mono" style="font-size:10.5px;line-height:1.6;max-height:280px;overflow:auto;background:var(--tile-bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;white-space:pre-wrap;word-break:break-word"></pre>
+  <div class="m-row" style="margin-top:12px">
+    <button class="btn btn-ghost" data-close data-i18n="close">Close</button>
+    <button class="btn" id="wbDbgCopy">Copy log</button>
+  </div>
 </div></div>
 
 <!-- board export dialog -->
@@ -1397,7 +1409,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.71.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.72.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2158,24 +2170,25 @@ M.Admin = {
     return ok;
   },
   async verifyHeartbeat(d){
-    if(!d||!d.sig||!d.pub||!d.from||!d.rid) return null;
+    if(!d||!d.sig||!d.pub||!d.from||!d.rid){ M.WBDbg.lastHbReject='missing signature/pub/sender/rid fields'; return null; }
     let key=M.State.roomPub;
     if(!key){
-      if(!M.State.roomPubPin) return null;   /* no anchor at all → cannot authenticate */
+      if(!M.State.roomPubPin){ M.WBDbg.lastHbReject='no authenticated Admin anchor (invitation pin missing)'; return null; }
       const fp=M.SHA.create().update(M.te.encode(JSON.stringify(d.pub))).hex().slice(0,16);
-      if(fp!==M.State.roomPubPin) return null;
+      if(fp!==M.State.roomPubPin){ M.WBDbg.lastHbReject='Admin key fingerprint does not match invitation pin'; return null; }
       try{ key=await crypto.subtle.importKey('jwk',d.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
-        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }catch(e){ return null; }
-    } else if(JSON.stringify(d.pub)!==M.State.roomPubStr) return null;
-    if(M.State.room?.rid && d.rid!==M.State.room.rid) return null;   /* known instance must match */
+        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }catch(e){ M.WBDbg.lastHbReject='Admin key import failed'; return null; }
+    } else if(JSON.stringify(d.pub)!==M.State.roomPubStr){ M.WBDbg.lastHbReject='Admin key differs from cached authenticated key'; return null; }
+    if(M.State.room?.rid && d.rid!==M.State.room.rid){ M.WBDbg.lastHbReject='heartbeat rid does not match current instance'; return null; }
     /* reconstruct the EXACT canonical payload the Admin signed: {rid, ts, from, wbo}.
        wbo is included only when present (Admin heartbeats carry it; members' don't). */
     const payload={rid:d.rid, ts:d.ts, from:d.from};
     if(d.wbo!==undefined) payload.wbo=d.wbo;
     try{
       const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(d.sig),M.te.encode(JSON.stringify(payload)));
+      if(!ok) M.WBDbg.lastHbReject='ECDSA signature verification failed';
       return ok? d.rid : null;
-    }catch(e){ return null; }
+    }catch(e){ M.WBDbg.lastHbReject='verification threw: '+(e.message||e); return null; }
   },
   async verifyObj(obj){
     if(!obj||!obj.sig||!M.State.roomPub) return false;
@@ -2454,21 +2467,29 @@ M.Net = {
       /* verifyHeartbeat bootstraps the Admin key from the pin, verifies the canonical
          signed payload {rid,ts,from,wbo}, and adopts the signed rid when the member
          doesn't hold one yet. A stale/mismatched key/rid is rejected; adm:true is ignored. */
-      if(d && d.hbs && d.hbFrom && d.rid && d.hbFrom===peerId && Math.abs(Date.now()-d.ts)<=M.Net.HB_FRESH){
-        const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub,wbo:d.wbo});
-        if(vrid){
-          M.log('info','WB: authenticated Admin heartbeat received');
-          if(!M.State.room?.rid){ M.State.room.rid=vrid; M.log('info','WB: current rid established'); try{ M.Chat.restoreLocal(); }catch(e){} }
-          verifiedAt=Date.now();
-          if(typeof d.wbo==='boolean' && d.wbo!==M.State.wb.open){
-            M.State.wb.open=d.wbo; M.WB.refreshUI();
-            if(d.wbo){
-              M.log('info','WB: authenticated Admin reports board OPEN');
-              if(!M.Perms.isAdmin()) M.UI.setTab('board');
-              M.log('info','WB: board opened');
-            } else M.log('info','WB: authenticated Admin reports board CLOSED');
+      if(d && d.hbs){
+        M.WBDbg.log('WB: heartbeat received');
+        if(!d.hbFrom || !d.rid || d.hbFrom!==peerId) M.WBDbg.reject('WB: heartbeat rejected — sender/rid fields invalid');
+        else if(Math.abs(Date.now()-d.ts)>M.Net.HB_FRESH) M.WBDbg.reject('WB: heartbeat rejected — stale timestamp');
+        else {
+          const vrid=await M.Admin.verifyHeartbeat({rid:d.rid,ts:d.ts,from:d.hbFrom,sig:d.hbs,pub:d.pub,wbo:d.wbo});
+          if(vrid){
+            M.WBDbg.log('WB: heartbeat signature verified');
+            if(!M.State.room?.rid){ M.State.room.rid=vrid; M.WBDbg.log('WB: current rid established'); try{ M.Chat.restoreLocal(); }catch(e){} }
+            verifiedAt=Date.now();
+            M.WBDbg.log('WB: Admin presence verified');
+            if(typeof d.wbo==='boolean'){
+              M.WBDbg.log('WB: Admin heartbeat reports board '+(d.wbo?'OPEN':'CLOSED'));
+              if(d.wbo!==M.State.wb.open){
+                M.WBDbg.log('WB: applying board-open state ('+d.wbo+')');
+                M.State.wb.open=d.wbo; M.WB.refreshUI();
+                if(d.wbo && !M.Perms.isAdmin()) M.UI.setTab('board');
+              }
+            }
+            M.WB.maybeReqState();   /* Admin proved present — pull the signed object state now */
+          } else {
+            M.WBDbg.reject('WB: heartbeat rejected — '+(M.WBDbg.lastHbReject||'signature/key/rid verification failed'));
           }
-          M.WB.maybeReqState();   /* Admin proved present — pull the signed object state now */
         }
       }
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
@@ -3710,7 +3731,7 @@ M.UI = {
     if(tab==='chat'){ M.Chat.unread.delete(M.Chat.renderKey); M.Chat.renderAll(); M.Chat.refreshComposerState(); }
     if(tab==='files') M.FT.render();
     if(tab==='calls') M.bus.emit('renderCalls');
-    if(tab==='board') M.bus.emit('boardShown');
+    if(tab==='board'){ M.bus.emit('boardShown'); M.WBDbg.log('WB: member switched to Board tab'); }
     M.UI.badges();
     M.$('#sidebar').classList.remove('open'); M.$('#sideScrim')?.classList.add('hidden');
   },
@@ -5632,6 +5653,35 @@ M.Rec = {
    Arabic text: native textarea editing (correct shaping) + ctx.direction
    rendering — never manual character reversal.
    ===================================================================== */
+/* ---- temporary member-visible Whiteboard diagnostics (read-only, no secrets) ---- */
+M.WBDbg = {
+  ring:[], reqN:0, lastReject:'', lastHbReject:'',
+  log(msg){
+    this.ring.push({t:new Date().toLocaleTimeString(),msg});
+    if(this.ring.length>250) this.ring.shift();
+    M.log('info',msg);
+    const m=M.$('#mWbDbg'); if(m && !m.classList.contains('hidden')) this.render();
+  },
+  reject(msg){ this.lastReject=msg; this.log(msg); },
+  text(){
+    const rid=M.State.room?.rid;
+    return 'rid: '+(rid?('known '+M.fmt.idShort(rid)):'unknown')+'\n'
+      +'adminVerified: '+(M.WB.adminOnline()?'yes':'no')+'   wb.open: '+M.State.wb.open+'\n'
+      +'board objects: '+M.WB.objs.size+'   state requests: '+this.reqN+'\n'
+      +'last rejection: '+(this.lastReject||'—')+'\n\n'
+      +this.ring.map(i=>i.t+'  '+i.msg).join('\n');
+  },
+  render(){
+    const st=M.$('#wbDbgState'); if(!st) return;
+    const rid=M.State.room?.rid;
+    st.innerHTML='rid: <b>'+(rid?('known ('+M.fmt.idShort(rid)+')'):'unknown')+'</b>'
+      +' &nbsp;·&nbsp; adminVerified: <b>'+(M.WB.adminOnline()?'yes':'no')+'</b>'
+      +' &nbsp;·&nbsp; wb.open: <b>'+M.State.wb.open+'</b><br>'
+      +'board objects: <b>'+M.WB.objs.size+'</b> &nbsp;·&nbsp; state requests: <b>'+this.reqN+'</b><br>'
+      +'last rejection: <b>'+(this.lastReject||'—')+'</b>';
+    const b=M.$('#wbDbgBody'); if(b){ b.textContent=this.ring.map(i=>i.t+'  '+i.msg).join('\n'); b.scrollTop=b.scrollHeight; }
+  }
+};
 M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
@@ -5764,6 +5814,10 @@ M.WB = {
     M.$('#wbFit').onclick=()=>M.WB.fitAll();   /* fits every object on screen — your safety net for "where did it go?" */
     M.$('#wbExport').onclick=()=>M.WB.exportPNG();
     M.$('#wbPdf').onclick=()=>M.WB.exportPDF();
+    /* temporary member-visible Whiteboard diagnostics */
+    M.$('#wbDbg').onclick=()=>{ M.$('#mWbDbg').classList.remove('hidden'); M.WBDbg.render(); };
+    M.$$('#mWbDbg [data-close]').forEach(b=>b.onclick=()=>M.$('#mWbDbg').classList.add('hidden'));
+    M.$('#wbDbgCopy').onclick=()=>{ M.RC.copyText(M.WBDbg.text()); };
     M.$('#wbClear').onclick=async ()=>{ if(await M.confirm(M.t('clear_q'),M.t('clear_q_body'))) M.Admin.cmd('wbCtrl',{sub:'clear'}); };
     /* canvas pointer events */
     cv.addEventListener('pointerdown', e=>M.WB.pDown(e));
@@ -6797,6 +6851,7 @@ M.WB = {
       return;
     }
     if(d.t==='state'){
+      M.WBDbg.log('WB: authoritative board state received');
       /* Board authority rides on the authenticated Admin pin, NOT on decryption:
          a sender counts as Admin only if its pin matches the one we accepted for
          this instance (from the invite link, or the first verified Admin command).
@@ -6809,11 +6864,10 @@ M.WB = {
       /* verifyObj for members who already hold the key; verifyState bootstraps the key
          from the pin and adopts the rid for a fresh member so the board opens */
       const fromAdmin=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
-      if(!fromAdmin){ M.log('warn','WB: state request rejected — unauthenticated state from '+M.fmt.idShort(from)); return; }
+      if(!fromAdmin){ M.WBDbg.reject('WB: state request rejected — unauthenticated (no valid Admin signature/pin/rid)'); return; }
       { const ap=M.State.peers.get(from); if(ap) ap.adminVerifiedAt=Date.now(); }  /* verified Admin presence for Grace */
-      M.log('info','WB: authoritative state accepted');
+      M.WBDbg.log('WB: authoritative board state accepted');
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
-      M.log('info','authoritative board state received from verified Admin signature');
       M.WB.objs.clear(); M.WB.order=[];
       (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
       if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
@@ -6849,7 +6903,8 @@ M.WB = {
        to make it open). Bounded by tickReq's retry counter. */
     if(M.Perms.isAdmin() || !M.State.room) return;
     if(M.WB.adminOnline() && (M.WB.objs.size===0 || !M.State.wb.open)){
-      M.log('info','WB: requesting authoritative state');
+      M.WBDbg.reqN++;
+      M.WBDbg.log('WB: requesting authoritative board state');
       M.Net.sendEnc('wb',{t:'req'});
     }
   },
@@ -6859,8 +6914,8 @@ M.WB = {
   tickReq(){
     if(M.Perms.isAdmin() || !M.State.room) return;
       if(!M.State.wb.open && M.WB.adminOnline() && (M.WB._reqN||0)<6){
-      M.WB._reqN=(M.WB._reqN||0)+1;
-      M.log('info','WB: requesting authoritative state (retry '+M.WB._reqN+')');
+      M.WB._reqN=(M.WB._reqN||0)+1; M.WBDbg.reqN=M.WB._reqN;
+      M.WBDbg.log('WB: requesting authoritative board state (retry '+M.WB._reqN+')');
       try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}
     }
     if(M.State.wb.open && M.WB.objs.size>0) M.WB._reqN=0;
@@ -6871,6 +6926,7 @@ M.WB = {
     const W=M.State.wb;
     switch(b.sub){
       case 'snapshot':   /* authoritative board+timer+name state pushed to joiners / re-announced by admin */
+        M.WBDbg.log('WB: authoritative board state received (snapshot)');
         if(b.wb) Object.assign(W,b.wb);
         if(Array.isArray(b.pages)&&b.pages.length){
           M.WB.pages=b.pages;
