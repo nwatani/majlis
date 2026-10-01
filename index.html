@@ -1416,7 +1416,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.75.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.76.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1953,17 +1953,65 @@ M.Store = { get(k,d){ try{ const v=localStorage.getItem('mj.'+k); return v==null
    Transport peerId (Trystero) stays separate and temporary. Legacy fp remains as
    non-authoritative device metadata for migration only. */
 M.Id = {
-  priv:null, pub:null, mid:null,
+  priv:null, pub:null, mid:null, ready:null, _nonces:new Map(),
+  DOMAIN:'majlis-id-v1',
   canon(pub){ return JSON.stringify({kty:pub.kty,crv:pub.crv,x:pub.x,y:pub.y}); },
   deriveMid(pub){ return M.SHA.create().update(M.Id.canon(pub)).hex(); },
   verifyMid(mid,pub){ try{ return !!pub && M.Id.deriveMid(pub)===mid; }catch(e){ return false; } },
   short(){ return M.Id.mid? M.Id.mid.slice(0,8):'--------'; },
-  async init(){
+  newNonce(){ const b=crypto.getRandomValues(new Uint8Array(16)); return [...b].map(x=>x.toString(16).padStart(2,'0')).join(''); },
+  /* canonical signed payload: domain | nonce | room rid | challenger | responder | ts */
+  canonProof(chal){ return [M.Id.DOMAIN, chal.nonce, chal.rid||'', chal.from||'', chal.to||'', chal.ts].join('|'); },
+  /* prove possession: sign the challenger's exact challenge with our private key */
+  async prove(chal){
+    const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Id.priv,M.te.encode(M.Id.canonProof(chal)));
+    return {mid:M.Id.mid, midpub:M.Id.pub, sig:M.b64(raw), nonce:chal.nonce, rid:chal.rid||'', from:chal.to, to:chal.from, ts:Date.now()};
+  },
+  /* verify a possession proof against a challenge we issued */
+  async verifyProof(proof, chal){
+    if(!proof||!proof.sig||!proof.midpub||!proof.mid) return false;
+    if(!M.Id.verifyMid(proof.mid,proof.midpub)) return false;              /* forged mid */
+    if(proof.nonce!==chal.nonce) return false;                             /* wrong/replayed nonce */
+    if(M.Id._nonces.has(proof.nonce)) return false;                        /* nonce reuse */
+    if(Math.abs(Date.now()-chal.ts)>M.Net.HB_FRESH) return false;          /* stale */
+    if(chal.rid && proof.rid!==chal.rid) return false;                     /* cross-room replay */
+    if(proof.to!==M.State.self.id || proof.from!==chal.to) return false;   /* cross-peer replay */
+    let key;
+    try{ key=await M.Admin.importAdminVerifyKey(proof.midpub); }catch(e){ return false; }
     try{
+      const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(proof.sig),M.te.encode(M.Id.canonProof(chal)));
+      if(ok) M.Id._nonces.set(proof.nonce,Date.now());
+      return ok;
+    }catch(e){ return false; }
+  },
+  challengePeer(peerId){
+    if(!M.Id.priv) return;
+    const p=M.State.peers.get(peerId); if(p&&p.midAuth) return;
+    M.Id._chal ??= new Map();
+    const chal={nonce:M.Id.newNonce(), rid:M.State.room?.rid||'', from:M.State.self.id, to:peerId, ts:Date.now()};
+    M.Id._chal.set(peerId,chal);
+    try{ M.Net.A.idc.send(chal,peerId); }catch(e){}
+  },
+  async init(){
+    M.Id.ready=(async()=>{
+      if(typeof crypto==='undefined'||!crypto.subtle) throw new Error('WebCrypto unavailable');
       const stored=await M.KeyDB.get('member.key').catch(()=>null);
       if(stored && stored.priv && stored.priv.type==='private' && stored.pub){
-        M.Id.priv=stored.priv; M.Id.pub=stored.pub;
-      } else {
+        /* self-test the restored pair before trusting it */
+        try{
+          const data=M.te.encode('majlis-selftest');
+          const sig=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},stored.priv,data);
+          const key=await M.Admin.importAdminVerifyKey(stored.pub);
+          const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,sig,data);
+          if(!ok) throw new Error('stored key pair failed self-test');
+          M.Id.priv=stored.priv; M.Id.pub=stored.pub;
+          M.log('info','restored member identity passed self-test');
+        }catch(e){
+          M.log('warn','stored member identity invalid ('+e.message+') — generating fresh identity');
+          M.Id.priv=null; M.Id.pub=null;
+        }
+      }
+      if(!M.Id.priv){
         const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
         M.Id.priv=kp.privateKey;
         M.Id.pub=await crypto.subtle.exportKey('jwk',kp.publicKey);
@@ -1972,7 +2020,8 @@ M.Id = {
       }
       M.Id.mid=M.Id.deriveMid(M.Id.pub);
       M.State.self.mid=M.Id.mid;
-    }catch(e){ M.log('warn','member identity init failed: '+e.message); }
+    })();
+    return M.Id.ready;
   }
 };
 M.deviceId = function(){
@@ -2462,7 +2511,21 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe']) M.Net.A[n]=R.makeAction(n);
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe','idc','idp']) M.Net.A[n]=R.makeAction(n);
+    /* member identity challenge/response: proves possession of the private key bound to mid */
+    M.Net.A.idc.onMessage=async (chal,{peerId})=>{
+      if(!chal||!chal.nonce||!M.Id.priv) return;
+      if(chal.to && chal.to!==M.State.self.id) return;
+      try{ const proof=await M.Id.prove(chal); M.Net.A.idp.send(proof,peerId); }catch(e){}
+    };
+    M.Net.A.idp.onMessage=async (proof,{peerId})=>{
+      const chal=M.Id._chal?.get(peerId); if(!chal) return;
+      if(await M.Id.verifyProof(proof,chal)){
+        M.Id._chal.delete(peerId);
+        const p=M.State.peers.get(peerId);
+        if(p){ p.mid=proof.mid; p.midAuth=true; M.bus.emit('members'); M.log('info','member identity authenticated: '+M.Id.short()); }
+      }
+    };
     M.bus.emit('netReady');
 
     /* presence */
@@ -2566,6 +2629,9 @@ M.Net = {
         if(d.mid && d.midpub && M.Id.verifyMid(d.mid,d.midpub)) patch.mid=d.mid; }
       if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
       M.Members.upsert(peerId,patch);
+      /* a peer claiming a stable identity must prove key possession before it is trusted */
+      const pp=M.State.peers.get(peerId);
+      if(pp && pp.mid && !pp.midAuth && M.Id.priv) M.Id.challengePeer(peerId);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
          only through signed Admin commands / snapshots, never through heartbeats */
     };
@@ -7543,6 +7609,7 @@ M.App = {
   },
   async create(){
     if(!M.App.setName()) return;
+    try{ await M.Id.ready; }catch(e){ M.lobbyMsg('Identity initialization failed: '+(e.message||e),true); return; }
     M.lobbyMsg(M.t('creating')); M.$('#btnCreate').disabled=true;
     try{
       /* The signaling namespace is the random rid, NOT the visible code. Mint the rid
@@ -7576,6 +7643,7 @@ M.App = {
   },
   async join(){
     if(!M.App.setName()) return;
+    try{ await M.Id.ready; }catch(e){ M.lobbyMsg('Identity initialization failed: '+(e.message||e),true); return; }
     /* Two entry modes:
        (a) full invitation URL (room + rid + k + rk) → join the rid namespace directly;
        (b) bare 6-char code → learn the live rid from the code-discovery namespace.
