@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.65.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.65.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2124,7 +2124,13 @@ M.Admin = {
       try{ key=await crypto.subtle.importKey('jwk',obj.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
         M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(obj.pub); }catch(e){ return false; }
     } else if(obj.pub && M.State.roomPubStr && JSON.stringify(obj.pub)!==M.State.roomPubStr) return false;
-    try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(obj.sig),M.te.encode(JSON.stringify({rid:obj.rid,ts:obj.ts,from:obj.from}))); }
+    /* Verify against the EXACT canonical payload the sender signed. reqId is part of
+       the binding when present (RustDesk/native path) and absent on the WebRTC RC
+       path, so including it only when present keeps both signatures valid. JSON key
+       insertion order (rid, ts, from[, reqId]) matches the sender's signObj input. */
+    const payload={rid:obj.rid, ts:obj.ts, from:obj.from};
+    if(obj.reqId!==undefined) payload.reqId=obj.reqId;
+    try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(obj.sig),M.te.encode(JSON.stringify(payload))); }
     catch(e){ return false; }
   },
   async verifyObj(obj){
