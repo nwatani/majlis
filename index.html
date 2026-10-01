@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.55.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.56.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2359,14 +2359,18 @@ M.Net = {
     /* remote-assistance control channel (consent, input mirroring, teardown) */
     M.Net.A.rc.onMessage = (d,{peerId}) => M.RC.onMsg(d,peerId);
     M.Net.A.bye.onMessage = (d,{peerId}) => { M.Members.offline(peerId,true); };
-    M.Net.A.hb.onMessage = (d,{peerId}) => {
+    M.Net.A.hb.onMessage = async (d,{peerId}) => {
       M.Net.lastHb.set(peerId,Date.now());
       /* identity check: another live Admin with a different rid means our stored
          identity belongs to an older instance of a reused code → discard it */
       /* heartbeats are presence/diagnostics only: adm/rid/rn/tp from a peer are untrusted
-         hints for UI, never authority. Authority comes solely from signed Admin commands. */
+         hints for UI, never authority. Admin presence is proven by the attached signature
+         over {rid,ts}, verified against the authenticated Admin key for THIS instance. */
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
+      if(d && d.hbs && d.rid && M.State.roomPub && d.rid===M.State.room.rid){
+        if(await M.Admin.verifyObj({rid:d.rid,ts:d.ts,sig:d.hbs})) patch.adminVerified=true;
+      }
       M.Members.upsert(peerId,patch);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
          only through signed Admin commands / snapshots, never through heartbeats */
@@ -2464,11 +2468,15 @@ M.Net = {
     }
     M.Net.send(action,obj,target);
   },
-  hbTick(){
+  async hbTick(){
     if(!M.Net.connected) return;
-    /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay */
+    /* heartbeat carries the profile → rosters self-heal even if a 'hello' was lost on a flaky relay.
+       Authenticated Admins attach a lightweight signature over {rid,ts} so members can verify
+       admin presence without ever trusting the plain adm flag. */
     const amAdmin=M.Perms.isAdmin();   /* a pending identity never advertises itself as Admin */
-    M.Net.send('hb',{ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.State.room?.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''});   /* rn/tp keep late joiners on the current room name & topic */
+    const hb={ts:Date.now(), n:M.State.self.name, os:M.Platform.os, br:M.Platform.br, mob:M.Platform.mobile, adm:amAdmin, rid:amAdmin?M.State.room?.rid:undefined, fp:M.State.self.fp, v:M.Version, wb:M.State.wb.open?1:0, gu:M.Grace.until||0, rn:M.State.room?.name||'', tp:M.State.room?.topic||''};
+    if(amAdmin){ try{ hb.hbs=await M.Admin.signObj({rid:hb.rid,ts:hb.ts}); }catch(e){} }
+    M.Net.send('hb',hb);   /* rn/tp keep late joiners on the current room name & topic */
   },
   async ping(peerId){ try{ const ms=await M.Net.room.ping(peerId); M.Net.rtt.set(peerId,ms); return ms; }catch(e){ return -1; } },
   monitorRelays(){
@@ -3133,7 +3141,15 @@ M.FT = {
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
     const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
-    const t={ id, file, name:file.name, size:file.size, type:file.type||'file', target, dir:'up', room:M.State.room?.code,
+    /* sender-side validation mirrors the receiver's hostile-offer checks */
+    if(!M.FT.L.idRe.test(id) || !(file.size>0) || file.size>M.FT.L.maxFile || String(file.name).length>M.FT.L.maxName){
+      M.toast('warn',M.t('tab_files'),M.t('file_bad')); return null;
+    }
+    /* enforce the simultaneous outbound cap on ACTIVE transfers only — completed or
+       failed transfers stay in the map for the UI but never count against the limit */
+    let active=0; M.FT.sends.forEach(t=>{ if(['queued','sending','paused','verify'].includes(t.status)) active++; });
+    if(active>=M.FT.L.maxSends){ M.toast('warn',M.t('tab_files'),M.t('file_too_many')); return null; }
+    const t={ id, file, name:file.name, size:file.size, type:String(file.type||'file').slice(0,M.FT.L.maxType), target, dir:'up', room:M.State.room?.code,
       voice:!!(opts&&opts.voice), dur:(opts&&opts.dur)||0, shot:!!(opts&&opts.shot), clip:!!(opts&&opts.clip),
       preview:(opts&&opts.preview)||((opts&&opts.voice)?URL.createObjectURL(file):null),   /* sender can play their own voice note right away */
       status:'queued', seq:0, ack:0, sent:0, hash:M.SHA.create(), startedAt:0, speed:0, _lastT:0, _lastB:0, _timer:null };
@@ -7645,7 +7661,7 @@ M.Share = {
     M.$('#shCopy').onclick=()=>M.Share.copy();
     M.$('#shWa').onclick=()=>{ M.Share._privWarn(); const t=M.t('share_room')+' — Majlis مجلس'; open('https://wa.me/?text='+encodeURIComponent(t+'\n'+M.App.inviteUrl()),'_blank'); };
     M.$('#shMail').onclick=()=>{ M.Share._privWarn(); location.href='mailto:?subject='+encodeURIComponent('Majlis مجلس — '+M.t('room')+' '+M.State.room.code)+'&body='+encodeURIComponent(M.App.inviteUrl()); };
-    M.$('#shNative').onclick=async ()=>{ try{ await navigator.share({title:'Majlis مجلس',url:M.App.inviteUrl()}); }catch(e){} };
+    M.$('#shNative').onclick=async ()=>{ M.Share._privWarn(); try{ await navigator.share({title:'Majlis مجلس',url:M.App.inviteUrl()}); }catch(e){} };
   }
 };
 
@@ -7674,8 +7690,10 @@ M.Grace = {
     if(Date.now()-M.Grace.settle<8000) return;                           /* let the Admin's hello land on fresh joins */
     const now=Date.now();
     const pcs=M.Net.room?.getPeers?.()||{};
+    /* admin presence is proven only by a verified heartbeat signature (adminVerified);
+       a malicious peer's adm:true can never cancel or alter the grace timer */
     const adminOn=[...M.State.peers.values()].some(p=>{
-      if(!p.adm||p.status==='offline') return false;
+      if(!p.adminVerified||p.status==='offline') return false;
       const lb=M.Net.lastHb.get(p.id);
       if(lb && (now-lb)>=20000) return false;                 /* silent for 20s → gone, even if presence lingers */
       const pc=pcs[p.id];                                    /* the transport knows a closed tab sooner than the relay does */
