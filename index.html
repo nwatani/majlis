@@ -2184,7 +2184,19 @@ M.Admin = {
       const fp=M.SHA.create().update(M.te.encode(JSON.stringify(d.pub))).hex().slice(0,16);
       if(fp!==M.State.roomPubPin){ M.WBDbg.lastHbReject='Admin key fingerprint does not match invitation pin'; return null; }
       try{ key=await crypto.subtle.importKey('jwk',d.pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
-        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }catch(e){ M.WBDbg.lastHbReject='Admin key import failed'; return null; }
+        M.State.roomPub=key; M.State.roomPubStr=JSON.stringify(d.pub); }
+      catch(e){
+        /* diagnostic only: record the exact WebCrypto exception plus safe public-key
+           metadata. Never log coordinates, signatures, d, k, rk, or private material. */
+        const p=(d&&d.pub&&typeof d.pub==='object')?d.pub:{};
+        const meta='kty='+(p.kty||'?')+' crv='+(p.crv||'?')
+          +' x='+(p.x?'yes':'no')+' y='+(p.y?'yes':'no')
+          +' key_ops='+(Array.isArray(p.key_ops)?'['+p.key_ops.join(',')+']':(p.key_ops||'none'))
+          +' alg='+(p.alg||'none')+' use='+(p.use||'none')+' ext='+(p.ext===undefined?'none':String(p.ext))
+          +' pubType='+typeof d.pub;
+        M.WBDbg.lastHbReject='Admin key import failed: '+(e.name||'Error')+': '+(e.message||'')+' | '+meta;
+        return null;
+      }
     } else if(JSON.stringify(d.pub)!==M.State.roomPubStr){ M.WBDbg.lastHbReject='Admin key differs from cached authenticated key'; return null; }
     if(M.State.room?.rid && d.rid!==M.State.room.rid){ M.WBDbg.lastHbReject='heartbeat rid does not match current instance'; return null; }
     /* reconstruct the EXACT canonical payload the Admin signed: {rid, ts, from, wbo}.
