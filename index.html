@@ -1395,7 +1395,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.58.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.59.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2373,13 +2373,15 @@ M.Net = {
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
       const patch={status:'online'};
       if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v; }
-      if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
-      /* A KEYLESS joiner (no k, no rk) holds zero Private material, so accepting the
-         Admin's enc:false cannot expose any Private content to them; it simply lets
-         code-only Open rooms function. A Private-invited member holds rk and never
-         takes this path, so Private rooms never downgrade. */
-      if(d.enc===false && !M.State.roomPubPin && !M.Crypto.has() && M.State.roomEnc==null){
-        M.State.roomEnc=false; M.UI.encBadge(); M.log('info','keyless joiner: room is Open per admin heartbeat');
+      if(verifiedAt!=null){
+        patch.adminVerifiedAt=verifiedAt;
+        /* ONLY an authenticated Admin heartbeat may declare the room Open. The enc value
+           is trusted solely because this heartbeat already passed signature + rid + sender
+           + freshness verification. Unauthenticated/fake/wrong-rid/expired enc is ignored. */
+        if(d.enc===false && M.State.roomEnc==null){
+          M.State.roomEnc=false; M.UI.encBadge(); M.UI.privNotice();
+          M.log('info','room declared Open by AUTHENTICATED Admin heartbeat');
+        }
       }
       M.Members.upsert(peerId,patch);
       /* room name/topic, whiteboard state and grace timing are authoritative: they change
@@ -6663,14 +6665,7 @@ M.WB = {
         }
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
-        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* members learn the room's encryption state from the Admin */
-        /* A KEYLESS joiner (no k, no rk) holds zero Private material, so an unverified
-           admin snapshot declaring the room Open cannot expose any Private content to
-           them; accepting it lets code-only Open rooms function. A Private-invited
-           member holds rk and never takes this path, so Private never downgrades. */
-        else if(b.enc===false && !M.State.roomPubPin && !M.Crypto.has() && M.State.roomEnc==null){
-          M.State.roomEnc=false; M.UI.encBadge(); M.log('info','keyless joiner: room is Open per admin snapshot');
-        }
+        if(b.enc!=null){ M.State.roomEnc=!!b.enc; M.UI.encBadge(); M.UI.privNotice(); }   /* snapshot is a verified signed Admin command — enc is trusted */
         if(b.timer) M.State.timerUntil=b.timer;
         if(b.rn!=null){ M.State.room.name=b.rn; }
         if(b.tp!=null){ M.State.room.topic=b.tp; }
