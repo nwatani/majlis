@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.65.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.66.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2386,8 +2386,10 @@ M.Net = {
       M.Net.lastHb.set(peerId,Date.now());
       M.Dupe.check(peerId,d);
       if(d&&d.n) M.Members.upsert(peerId,{...d,status:'online'});
-      /* admin → every joiner receives the current board + timer state, so a late or reconnected member is never left with a closed board */
-      if(M.Perms.isAdmin() && M.State.room && (M.State.wb.open || M.State.timerUntil)){
+      /* admin → EVERY joiner receives the current board/timer/policy state unconditionally,
+         so a member is never left with a closed board or an unverified Admin regardless of
+         whether the board happens to be open */
+      if(M.Perms.isAdmin() && M.State.room){
         const W=M.State.wb;
         M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
       }
@@ -2444,6 +2446,10 @@ M.Net = {
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => {
       if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
+      /* ANY verified Admin command proves the Admin is present and authenticates the
+         instance: adopt the rid if missing and record verified presence for Grace. */
+      if(m.rid && M.State.room && !M.State.room.rid) M.State.room.rid=m.rid;
+      const ap=M.State.peers.get(peerId); if(ap) ap.adminVerifiedAt=Date.now();
       if(m.cmd==='end') M.log('warn','TERMINATE received & verified from admin '+M.fmt.idShort(peerId));
       const key=m.from+':'+m.seq;                                  /* retransmissions are safe: duplicates are dropped */
       if(M.Admin._seen.has(key)) return;
