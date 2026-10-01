@@ -1040,7 +1040,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
 
 <!-- native access bridge (RustDesk) -->
 <div class="modal hidden" id="mRdReq"><div class="m-card sm">
-  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_req_title">Remote control (RustDesk)</span></h3>
+  <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3M11.4 11.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="rd_req_title">Remote control (RustDesk)</span> <span id="rdReqAuth" class="hidden" style="font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:5px;border:1px solid rgba(56,207,182,.5);color:var(--teal);background:rgba(56,207,182,.1);vertical-align:1px">✓ Admin</span></h3>
   <p style="font-size:13.5px;line-height:1.65;color:var(--mut)" data-i18n="rd_req_body">The Admin requests full OS-level remote control of this device. Browsers cannot do that themselves, so it runs through the free open-source RustDesk agent: install or open it, then share your ID (and one-time password) below. Nothing is sent unless you press Send.</p>
   <div class="field" style="margin-top:13px"><label class="lbl" data-i18n="rd_id_lbl">Your RustDesk ID</label><input class="inp mono" id="rdIdInp" inputmode="numeric" placeholder="123 456 789" dir="ltr"></div>
   <div class="field"><label class="lbl" data-i18n="rd_pw_lbl">One-time password (optional)</label><input class="inp mono" id="rdPwInp" dir="ltr" placeholder="······"></div>
@@ -1397,7 +1397,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.64.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.65.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4716,9 +4716,11 @@ M.RC = {
     M.$('#rdReqSend').onclick=()=>{
       const id=M.$('#rdIdInp').value.replace(/\D/g,'');
       if(id.length<3){ M.toast('warn',M.t('rd_btn'),M.t('rd_need_id')); return; }
-      const f=M.RC._rdFrom; M.RC._rdFrom=null;
+      const f=M.RC._rdFrom, reqId=M.RC._rdReqId; M.RC._rdFrom=null; M.RC._rdReqId=null;
       M.$('#mRdReq').classList.add('hidden');
-      if(f) try{ M.Net.send('rc',{t:'rd',to:f,id,pw:M.$('#rdPwInp').value.trim(),fromName:M.State.self.name},f); }catch(e){}
+      /* the credential reply is bound to the authenticated request: specific peer + reqId + rid,
+         over the E2EE channel, so an unrelated peer cannot inject fake credentials */
+      if(f) try{ M.Net.send('rc',{t:'rd',to:f,id,pw:M.$('#rdPwInp').value.trim(),fromName:M.State.self.name,reqId,rid:M.State.room?.rid,from:M.State.self.id},f); }catch(e){}
       M.toast('ok',M.t('rd_btn'),M.t('rd_sent'));
     };
     M.$('#rdCopyId').onclick=()=>{ if(M.RC._rd) M.RC.copyText(M.RC._rd.id); };
@@ -5004,16 +5006,44 @@ M.RC = {
       case 'rd-req': {
         if(d.to && d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(from,d.fromName);
-        M.RC._rdFrom=from;
+        /* AUTHORIZATION GATE — the RustDesk dialog is shown ONLY for a fully
+           authenticated Admin request. Every check is mandatory; any failure rejects
+           silently with a diagnostic and never surfaces a dialog or Admin badge. */
+        if(!d.sig||!d.pub||!d.rid||!d.from||d.from!==from||!d.reqId){
+          M.log('warn','rd-req rejected — missing signature/identity from '+M.fmt.idShort(from)); return;
+        }
+        if(!M.State.room?.rid || d.rid!==M.State.room.rid){
+          M.log('warn','rd-req rejected — rid '+(d.rid||'none')+' != current '+(M.State.room?.rid||'none')); return;
+        }
+        if(typeof d.ts!=='number' || Math.abs(Date.now()-d.ts)>M.Net.HB_FRESH){
+          M.log('warn','rd-req rejected — stale/replayed timestamp from '+M.fmt.idShort(from)); return;
+        }
+        if(M.RC._seenRd?.has(d.reqId)){
+          M.log('warn','rd-req rejected — replay of request '+d.reqId); return;
+        }
+        if(!(await M.Admin.authVerify(d))){
+          M.log('warn','rd-req rejected — signature verification failed from '+M.fmt.idShort(from)); return;
+        }
+        (M.RC._seenRd ??= new Set()).add(d.reqId);
+        M.RC._rdFrom=from; M.RC._rdReqId=d.reqId;   /* bind the coming credential exchange to this authenticated request */
         M.$('#rdIdInp').value=''; M.$('#rdPwInp').value='';
+        M.$('#rdReqAuth').classList.remove('hidden');   /* reached only after full Admin authentication */
         M.$('#mRdReq').classList.remove('hidden');
         M.Notify.push('Majlis',M.t('rd_req_title')); M.Notify.beep('dm');
-        M.log('warn','native access requested by '+M.Members.name(from));
+        M.log('warn','authenticated native-access request from '+M.Members.name(from));
         break;
       }
       case 'rd': {
         if(d.to && d.to!==M.State.self.id) return;
         if(d.fromName) M.Members.adopt(from,d.fromName);
+        /* accept credentials ONLY from the peer whose authenticated request we approved,
+           with the matching request id and current rid — blocks credential injection */
+        if(!M.RC._rdTarget || from!==M.RC._rdTarget || !d.reqId || d.reqId!==M.RC._rdReqId
+           || !M.State.room?.rid || d.rid!==M.State.room.rid){
+          M.log('warn','rd credentials rejected — not bound to our authenticated request (from '+M.fmt.idShort(from)+')');
+          return;
+        }
+        M.RC._rdTarget=null; M.RC._rdReqId=null;   /* one credential exchange per request */
         M.RC.showRdCard(M.Members.name(from),d.id,d.pw);
         M.Notify.beep('dm'); M.Notify.push('Majlis',M.t('rd_got',{n:M.Members.name(from)}));
         M.log('info','native-access credentials received from '+M.Members.name(from));
@@ -5093,13 +5123,21 @@ M.RC = {
      True OS-level control needs the free RustDesk agent on the supported
      machine; Majlis orchestrates consent + credential exchange + one-click
      connect (web client or rustdesk:// deep link). */
-  requestNative(peerId){
+  async requestNative(peerId){
     const m=M.State.peers.get(peerId);
     if(!m||m.status!=='online'){ M.toast('warn',M.t('rd_btn'),M.t('offline')); return; }
-    M.RC._rdTarget=peerId;
-    const msg={t:'rd-req',to:peerId,fromName:M.State.self.name};
-    try{ M.Net.send('rc',msg,peerId); }catch(e){}
-    setTimeout(()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} },1200);
+    /* RustDesk/native access is an Admin capability; an unauthenticated identity never requests it */
+    if(!M.Perms.isAdmin()){ M.toast('warn',M.t('rd_btn'),M.t('perm_denied')); return; }
+    /* fail closed: sign BEFORE anything is transmitted. An unsigned rd-req is never sent. */
+    const reqId=M.uid(12);
+    const base={t:'rd-req',to:peerId,fromName:M.State.self.name,rid:M.State.room?.rid,ts:Date.now(),from:M.State.self.id,reqId};
+    let sig;
+    try{ sig=await M.Admin.signObj({rid:base.rid,ts:base.ts,from:base.from,reqId}); }
+    catch(e){ M.log('err','RustDesk request aborted: signing failed ('+(e.message||e)+')'); M.toast('warn',M.t('rd_btn'),M.t('rc_sign_fail')); return; }
+    const msg={...base, sig, pub:M.Admin.pubJwk};
+    M.RC._rdTarget=peerId; M.RC._rdReqId=reqId;
+    const fire=()=>{ try{ M.Net.send('rc',msg,peerId); }catch(e){} };
+    fire(); setTimeout(fire,1200);   /* one retransmit, same valid signature */
     M.toast('info',M.t('rd_btn'),M.t('rd_wait'));
     M.log('info','native access (RustDesk) requested from '+m.name);
   },
