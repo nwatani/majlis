@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2216,8 +2216,43 @@ M.Perms = {
   },
   _saveDeny(){
     if(!M.App||!M.App.putRoom) return;
-    const obj={}; M.Perms._denyByMid.forEach((rec,mid)=>{ obj[mid]={...rec}; });
-    M.App.putRoom('denyByMid',obj);                        /* rid-scoped; no-op until rid known */
+    M.App.putRoom('denyByMid',M.Perms._denyObj());         /* rid-scoped; no-op until rid known */
+  },
+  /* serialize the index (for persistence and for the signed Admin snapshot) */
+  _denyObj(){
+    const obj={}; M.Perms._denyByMid.forEach((rec,mid)=>{ obj[mid]={...rec}; }); return obj;
+  },
+  /* resulting deny flags for <peerId> once <ov> is applied on top of its current
+     override — used to attach the stable deny delta to the signed override command.
+     Produces DENY flags only; allows never enter the stable index. */
+  _denyRecFor(peerId,ov){
+    const P=M.Perms.p(); const cur=(P.overrides&&P.overrides[peerId])||{};
+    const rec={};
+    if((ov.chat!=null?ov.chat:cur.chat)===false) rec.chat=true;
+    if((ov.dm!=null?ov.dm:cur.dm)===false) rec.dm=true;
+    return rec;
+  },
+  /* rebuild the index from an AUTHENTICATED source — the Admin-signed wbCtrl
+     snapshot. Validates structure (64-hex mids, deny-only boolean flags) before
+     accepting anything, replaces the map (the signed snapshot is the room's
+     current authoritative view for this rid), and persists it locally so the
+     cache and the authoritative state agree. Called ONLY from the verified
+     Admin command path — an unsigned/normal member packet can never reach it. */
+  _hydrateDeny(obj){
+    const map=new Map();
+    if(obj&&typeof obj==='object'){
+      for(const mid in obj){
+        if(!/^[0-9a-f]{64}$/.test(mid)) continue;          /* reject malformed mids */
+        const v=obj[mid]; if(!v||typeof v!=='object') continue;
+        const rec={};
+        if(v.chat===true) rec.chat=true;                   /* deny flags only — never materialize an allow */
+        if(v.dm===true) rec.dm=true;
+        if(rec.chat||rec.dm) map.set(mid,rec);
+      }
+    }
+    M.Perms._denyByMid=map;
+    M.Perms._denyLoadedRid=M.State.room?.rid||null;        /* cache is now consistent with this rid */
+    M.Perms._saveDeny();
   },
   /* RECEIVE-side resolver: is MEMBER <peerId> allowed this feature under the
      current authoritative room policy? Unlike can(), this NEVER short-circuits
@@ -2539,6 +2574,20 @@ M.Admin = {
             if(body.ov.dm===false) rec.dm=true; else if(body.ov.dm===true) delete rec.dm;
             if(rec.chat||rec.dm) M.Perms._denyByMid.set(tm.mid,rec); else M.Perms._denyByMid.delete(tm.mid);
             M.Perms._saveDeny();   /* persist the rid-scoped deny index → survives refresh/restart/re-entry */
+          }
+          /* SIGNED STABLE DENY DELTA — the command carries the target's stable mid and
+             resulting deny flags, so EVERY peer that verifies it updates its index, not
+             just the Admin. This is what keeps the deny authoritative for members who
+             were offline at the moment of the change (they get the full map from the
+             next signed snapshot). Only deny flags are applied; validation mirrors
+             _hydrateDeny. */
+          if(typeof body.dmid==='string'&&/^[0-9a-f]{64}$/.test(body.dmid)){
+            const dd=(body.ddeny&&typeof body.ddeny==='object')?body.ddeny:null;
+            const rec2={};
+            if(dd&&dd.chat===true) rec2.chat=true;
+            if(dd&&dd.dm===true) rec2.dm=true;
+            if(rec2.chat||rec2.dm) M.Perms._denyByMid.set(body.dmid,rec2); else M.Perms._denyByMid.delete(body.dmid);
+            M.Perms._saveDeny();
           }
         }catch(e){}
         B.emit('perms'); break; }
@@ -3179,7 +3228,9 @@ M.Net = {
          whether the board happens to be open */
       if(M.Perms.isAdmin() && M.State.room){
         const W=M.State.wb;
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans},peerId);
+        /* denyByMid rides the SIGNED snapshot: a member who was offline when a deny was
+           applied reconstructs the authoritative stable-deny state from here on (re)join */
+        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj()},peerId);
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -8288,6 +8339,10 @@ M.WB = {
         }
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
+        /* authoritative stable deny map from the SIGNED snapshot — reconstructed before
+           the member is evaluated, and before any reconnecting member could slip through
+           the proof window. _hydrateDeny validates structure and denies-only. */
+        if(b.denyByMid&&typeof b.denyByMid==='object') M.Perms._hydrateDeny(b.denyByMid);
         /* every room is Private/E2EE; encryption availability is local (rk present) */
         M.UI.encBadge(); M.UI.privNotice();
         if(b.timer) M.State.timerUntil=b.timer;
@@ -9163,7 +9218,15 @@ M.CC = {
       const mini=(label,key,def)=>{
         const val=ov[key]==null?def:ov[key];
         const b=M.el('button','cc-mini'+(val?' on':''),label);
-        b.onclick=()=>M.Admin.cmd('override',{peerId:p.id,ov:{[key]:!val}});
+        b.onclick=()=>{
+          const ov2={[key]:!val};
+          /* attach the stable deny delta when the target has an authenticated mid, so
+             every peer (and the signed snapshot) can keep the stable index in sync */
+          const tp=M.State.peers.get(p.id);
+          const extra=(tp&&tp.midAuth===true&&typeof tp.mid==='string'&&/^[0-9a-f]{64}$/.test(tp.mid))
+            ? {dmid:tp.mid, ddeny:M.Perms._denyRecFor(p.id,ov2)} : {};
+          M.Admin.cmd('override',{peerId:p.id,ov:ov2,...extra});
+        };
         return b;
       };
       acts.appendChild(mini(M.t('tab_chat'),'chat',P0.chat));
