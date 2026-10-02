@@ -2462,6 +2462,18 @@ M.Crypto = {
        → authenticated-sender policy where required (midAuth === true)
        → only then the application handler
 
+   Channel confidentiality policy — MANDATORY E2EE on the protected
+   application channels chat / wb / ft / hist (enforced by wrap()):
+     • encrypted envelope + local key   → decrypt → Guard → handler
+     • encrypted envelope + no key      → keyless: chat keeps its locked
+       indicator, wb/ft/hist are dropped
+     • plaintext packet + local key     → REJECTED (never processed/rendered)
+     • plaintext packet + no key        → REJECTED (no legitimate plaintext
+       bootstrap exists on these channels)
+   Intentionally plaintext (transport-protected) channels, NOT in wrap():
+   hello · hb · sig · rc · adm · idc · idp · cur · dupe · probe · bye ·
+   who · ftbin · discovery where/here · stream metadata.
+
    Identity model (unchanged from v1.78.0):
      claimedMid               = untrusted identity claim (hello/hb mid)
      mid + midAuth === true   = authenticated stable member identity
@@ -3127,22 +3139,41 @@ M.Net = {
     };
     M.Net.A.type.onMessage = (d,{peerId}) => { if(!M.Guard.check('type',d,peerId)) return; if(d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d.to}); };
 
-    /* encrypted app channels: chat / wb / ft control */
-    const wrap = (action, fn) => async (d,meta)=>{ let p=d;
-      if(d&&typeof d==='object'&&d.e&&M.Crypto.has()){
+    /* PROTECTED application channels: chat / wb / ft / hist — MANDATORY E2EE.
+         1) encrypted envelope + local key    → decrypt → Guard → handler
+         2) encrypted envelope + NO local key → keyless path: chat preserves the
+            existing locked-viewer indicator; wb/ft/hist are dropped
+         3) NO envelope + local key           → REJECT — a room that holds the
+            application key must never process or render plaintext chat/board/
+            file-control/history packets (injection surface)
+         4) NO envelope + NO local key        → REJECT — these channels have no
+            legitimate plaintext bootstrap message (send blocks plaintext sends,
+            so nothing real ever arrives this way)
+       Intentionally non-E2EE transport/control channels (hello, hb, sig, rc, adm,
+       idc/idp, cur, dupe, probe, bye, who, ftbin, discovery where/here, stream
+       metadata) live OUTSIDE this wrap and stay plaintext/transport-protected. */
+    const wrap = (action, fn) => async (d,meta)=>{
+      const pid=meta&&meta.peerId;
+      const hasEnv=!!(d && typeof d==='object' && typeof d.e==='string');
+      if(!hasEnv){ M.Guard.log('plaintext packet rejected on protected channel'+(M.Crypto.has()?'':' (no local key)'),action,pid); return; }
+      if(M.Crypto.has()){
         /* size limit BEFORE decrypting — oversized ciphertext is dropped without spending crypto */
-        if(typeof d.e!=='string'||d.e.length>(M.Guard.CIPHER[action]||32768)){ M.Guard.log('oversized ciphertext envelope',action,meta&&meta.peerId); return; }
-        try{ p=await M.Crypto.dec(d.e); }catch(e){ M.log('warn','decrypt failed'); return; } }
-      /* Guard boundary: schema + version + hostile-key validation before ANY business logic */
-      if(!M.Guard.check(action,p,meta&&meta.peerId)) return;
-      /* NOTE: successful decryption only proves membership (possession of the room key).
-         Admin AUTHORITY is never inferred from it — it comes solely from ECDSA-signed
-         commands whose public key matches the accepted Admin pin for this instance. */
-      if(p && M.Crypto.has() && !(d&&d.e) && p.text && !p.sys) p._plain=true;
-      fn(p,meta); };
+        if(d.e.length>(M.Guard.CIPHER[action]||32768)){ M.Guard.log('oversized ciphertext envelope',action,pid); return; }
+        let p; try{ p=await M.Crypto.dec(d.e); }catch(e){ M.log('warn','decrypt failed'); return; }
+        /* Guard boundary: schema + version + hostile-key validation before ANY business logic */
+        if(!M.Guard.check(action,p,pid)) return;
+        /* NOTE: successful decryption only proves membership (possession of the room key).
+           Admin AUTHORITY is never inferred from it — it comes solely from ECDSA-signed
+           commands whose public key matches the accepted Admin pin for this instance. */
+        fn(p,meta); return;
+      }
+      /* keyless viewer: chat keeps its locked/encrypted indicator; wb/ft/hist have
+         no meaningful keyless rendering and are dropped */
+      if(action==='chat' && M.Guard.check('chat',d,pid)) fn(d,meta);
+    };
     M.Net.A.chat.onMessage = wrap('chat',(d,{peerId})=>{
       if(typeof d.e==='string'){ M.bus.emit('chatIn',{e:true,to:d.to,name:d.name,peerId}); return; }   /* keyless viewer: lock bubble only */
-      const pl=d._plain; const m=M.Guard.pick(d,M.Guard.PICK.chat); if(pl) m._plain=pl;   /* allowlist — arbitrary fields never enter chat state */
+      const m=M.Guard.pick(d,M.Guard.PICK.chat);   /* allowlist — arbitrary fields never enter chat state */
       if(m.name) M.Members.adopt(peerId,m.name); M.bus.emit('chatIn',{...m,peerId}); });
     /* wb: emitted intact — signed ops must reach verifyObj byte-identical;
        WB.onNet allowlists into state only AFTER verification */
@@ -3485,9 +3516,13 @@ M.Members = {
     if(!m || m.name!==name) M.Members.upsert(peerId,{n:name,...(extra||{})});
   },
   /* Visible Admin identity. NEVER derived from the untrusted `adm`/`admHint`
-     claim. Only a cryptographically verified Admin presence (signed heartbeat /
-     verified command / signed board state recorded adminVerifiedAt) counts, and
-     only while fresh. A forged adm:true can never render the Admin crown. */
+     claim, and NEVER from replayable Whiteboard content (Admin-signed board
+     packets prove content authorship only — not transport presence). Admin
+     presence (adminVerifiedAt) is recorded ONLY by the two transport-bound
+     mechanisms:
+       • the sender-bound signed Admin heartbeat (hbFrom === transport peerId)
+       • verified Admin commands (signed from === transport peerId)
+     and only counts while fresh. A forged adm:true can never render the crown. */
   verifiedAdmin(p){ return !!(p && p.adminVerifiedAt && Date.now()-p.adminVerifiedAt <= Math.max(60000, 2*M.Net.HB_FRESH)); },
   remove(peerId){ M.State.peers.delete(peerId); M.bus.emit('members'); },
   onlinePeers(){ return [...M.State.peers.values()].filter(m=>m.status==='online').map(m=>m.id); },
