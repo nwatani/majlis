@@ -486,6 +486,11 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin .cw-ctrl .icon-btn{background:var(--bg3);border-color:var(--line)}
 .callwin .cw-ctrl .icon-btn.off{background:rgba(255,97,87,.18);color:#ff8d85;border-color:rgba(255,97,87,.5)}
 .callwin .cw-ctrl .icon-btn.end{background:var(--red);color:#fff;border-color:var(--red);width:46px}
+/* autoplay blocked → one-click "Enable call audio" (a user gesture satisfies the policy).
+   The call window never silently pretends remote audio is playing. */
+.callwin .cw-audio{position:absolute;inset-inline:8px;bottom:58px;z-index:6;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 12px;border-radius:10px;border:1px solid rgba(245,168,60,.55);background:rgba(20,26,30,.88);color:var(--warn);font-size:12.5px;font-weight:600;cursor:pointer;backdrop-filter:blur(6px);animation:ledPulse 1.6s infinite}
+.callwin .cw-audio:hover{background:rgba(245,168,60,.16)}
+.callwin .cw-audio svg{width:15px;height:15px;flex:none}
 .callwin.ringing .cw-grid{min-height:110px}
 .callwin .ring-note{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--mut);font-family:var(--mono)}
 /* expanded + fullscreen call window */
@@ -1416,7 +1421,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1675,6 +1680,7 @@ en:{
  screen:'Screen', quality:'quality', rtt:'ping',
  screen_share:'Screen share', screen_on:'You are sharing your screen', screen_canceled:'Screen selection was canceled',
  spot_on:'Focus this view', spot_off:'Back to grid', cw_max:'Expand', cw_min:'Restore', cw_fs:'Fullscreen',
+enable_audio:'Call audio is blocked by the browser — click to enable sound',
  screen_blocked:'Screen capture is blocked here — embedded previews often forbid it; open the site directly in its own tab', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
  rc_btn:'Remote view', rc_win_title:'Remote view', rc_request_title:'Remote view request',
  rc_request_body:'wants to view your screen in real time. Your screen is shared with the Admin only, and you can revoke access at any time.',
@@ -1873,6 +1879,7 @@ ar:{
  screen:'شاشة', quality:'الجودة', rtt:'زمن الاستجابة',
  screen_share:'مشاركة الشاشة', screen_on:'أنت تشارك شاشتك', screen_canceled:'أُلغي اختيار الشاشة',
  spot_on:'تركيز على هذا العرض', spot_off:'العودة إلى الشبكة', cw_max:'توسيع', cw_min:'استعادة', cw_fs:'ملء الشاشة',
+enable_audio:'صوت المكالمة محظور من المتصفح — اضغط هنا لتفعيل الصوت',
  screen_blocked:'التقاط الشاشة محظور هنا — المعاينات المضمّنة غالباً تمنعه؛ افتح الموقع مباشرة في تبويب مستقل', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
  rc_btn:'عرض عن بُعد', rc_win_title:'عرض عن بُعد', rc_request_title:'طلب عرض عن بُعد',
  rc_request_body:'يرغب في مشاهدة شاشتك مباشرة. تُشارَك شاشتك مع المشرف فقط، ويمكنك إلغاء الوصول في أي لحظة.',
@@ -5220,9 +5227,19 @@ M.Call = {
     let s= callId ? M.Call.sessions.get(callId) : M.Call.all().find(x=>x.peers.has(peerId));
     if(!s){ M.log('warn','stream from '+M.fmt.idShort(peerId)+' with no matching session — ignored (isolation)'); return; }
     if(!s.peers.has(peerId)) { M.log('warn','stream from non-participant ignored'); return; }
+    /* receiving a stream is NOT proof of audible playback — log exactly what
+       arrived so the attach/play diagnostics can be correlated with it */
+    const at=stream.getAudioTracks(), vt=stream.getVideoTracks();
+    M.log('info','remote stream received: peer '+M.fmt.idShort(peerId)+' call='+(callId||'?')+' (metadata kind='+(metadata?.kind||'cam')+')'
+      +' audioTracks='+at.length+at.map(t=>'['+t.readyState+(t.enabled?'/enabled':'/disabled')+(t.muted?'/muted':'')+']').join('')
+      +' videoTracks='+vt.length);
     let r=s.remotes.get(peerId); if(!r){ r={}; s.remotes.set(peerId,r); }
     if(metadata?.kind==='screen'){ r.screen=stream; M.log('info','screen stream from '+M.fmt.idShort(peerId)); }
     else { r.stream=stream; }
+    /* a track added later (e.g. audio → video upgrade on renegotiation) must
+       re-layout so the tile promotes its <audio> sink to <video> */
+    if(!stream._mjHooked){ stream._mjHooked=true;
+      try{ stream.addEventListener('addtrack',()=>{ if(M.Call.sessions.has(s.id)) M.Call.renderWin(s); }); }catch(e){} }
     M.Call.renderWin(s);
   },
 
@@ -5271,7 +5288,14 @@ M.Call = {
     try{ if(s.localStream) s.sentTo.forEach(pid=>M.Net.room.removeStream(s.localStream,{target:pid})); }catch(e){}
     try{ if(s.screenStream){ M.Net.room.removeStream(s.screenStream); s.screenStream.getTracks().forEach(t=>t.stop()); } }catch(e){}
     if(s.localKind) M.Media.release(s.localKind);
-    s.remotes.forEach(r=>{ r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop()); });
+    s.remotes.forEach(r=>{
+      /* release cached media elements alongside their streams */
+      try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; }catch(e){}
+      r._cam=null; r._scr=null;
+      r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop());
+    });
+    try{ if(s._self?.el) s._self.el.srcObject=null; if(s._ss?.el) s._ss.el.srcObject=null; }catch(e){}
+    s._self=null; s._ss=null; s._blocked=null; s._audioBanner=null;
     s.status='ended';
     M.Call.sessions.delete(callId);
     s.win?.remove();
@@ -5283,11 +5307,64 @@ M.Call = {
   onPeerGone(pid){
     M.Call.sessions.forEach(s=>{
       if(!s.peers.has(pid)) return;
-      const r=s.remotes.get(pid); if(r){ r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop()); s.remotes.delete(pid); }
+      const r=s.remotes.get(pid); if(r){
+        try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; }catch(e){}
+        r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop()); s.remotes.delete(pid); }
       s.peers.delete(pid); s.sentTo.delete(pid);
       if(s.peers.size===0){ M.Call.teardown(s.id, M.t('sys_left',{n:M.Members.name(pid)}), true); }
       else { M.Call.renderWin(s); M.bus.emit('callState'); }
     });
+  },
+
+  /* ---------- media element lifecycle (playback-safe) ----------------
+     renderWin() re-lays-out tiles often (stream arrival, accept, mute/rec
+     banner, name updates, spotlight, speaker-focus). v1.79.0 rebuilt EVERY
+     media node there and relied on autoplay alone — browsers that deny
+     unmuted autoplay (Firefox default policy; Chrome w/o sticky activation)
+     failed silently, and re-renders detached already-playing elements.
+     These helpers keep ONE element per (slot, stream, tag), move it between
+     tiles without interrupting playback, always call play() explicitly,
+     log the exact outcome, and surface an "Enable call audio" action when
+     autoplay policy blocks us. */
+  _slot(host,key,stream,tag){
+    const slot=host[key];
+    /* reuse: a playing element keeps playing when moved within the DOM */
+    if(slot && slot.el && slot.stream===stream && slot.tag===tag) return slot.el;
+    if(slot && slot.el){ try{ slot.el.srcObject=null; }catch(e){} }   /* release replaced decoder */
+    const el=document.createElement(tag);
+    el.autoplay=true; el.playsInline=true; el.srcObject=stream;
+    if(tag==='audio') el.style.display='none';   /* voice-only: invisible sink, audible output */
+    host[key]={el,stream,tag};
+    return el;
+  },
+  _sink(el){
+    /* output-device selection must never break playback: on failure the
+       element simply keeps playing through the default output */
+    try{ const out=M.Store.get('output'); if(out&&el.setSinkId) el.setSinkId(out).catch(e=>M.log('warn','setSinkId failed — continuing on default output: '+(e.message||e))); }catch(e){}
+  },
+  _play(s,el,label){
+    if(!el||!el.play) return;
+    let p; try{ p=el.play(); }catch(e){ M.log('warn','play() threw ('+label+'): '+(e.message||e)); return; }
+    if(!p||!p.then) return;
+    p.then(()=>{ if(!el._ok) M.log('info','media playback started ('+label+')'); el._ok=true;
+        if(s._blocked){ s._blocked.delete(el); M.Call._syncAudioBanner(s); } })
+     .catch(err=>{ M.log('warn','media play() REJECTED ('+label+'): '+(err&&err.name||'?')+' — '+(err&&err.message||'')+' — user interaction required');
+        s._blocked ??= new Set(); s._blocked.add(el); M.Call._syncAudioBanner(s); });
+  },
+  /* never silently show an "active" call with no audible remote audio:
+     while any media element is autoplay-blocked, the window carries a
+     one-click action (a real user gesture satisfies the autoplay policy) */
+  _syncAudioBanner(s){
+    if(!s.win) return;
+    if(s._blocked&&s._blocked.size){
+      if(!s._audioBanner){
+        const b=M.el('button','cw-audio');
+        b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg><span>'+M.t('enable_audio')+'</span>';
+        b.onclick=()=>{ [...(s._blocked||[])].forEach(el=>{ M.Call._sink(el); M.Call._play(s,el,'user-gesture retry'); }); };
+        s._audioBanner=b;
+      }
+      if(s._audioBanner.parentNode!==s.win) s.win.appendChild(s._audioBanner);
+    } else if(s._audioBanner&&s._audioBanner.parentNode){ s._audioBanner.remove(); }
   },
 
   /* ---------- floating call windows ---------- */
@@ -5358,16 +5435,16 @@ M.Call = {
         tile.ondblclick=()=>{ s._spot=(spot===tl)?null:tkey(tl); M.Call.renderWin(s); };
       }
       if(tl.selfScreen){
-        const v=M.el('video'); v.srcObject=s.screenStream; v.muted=true; v.autoplay=true; v.playsInline=true;
-        v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
+        const v=M.Call._slot(s,'_ss',s.screenStream,'video');
+        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v); M.Call._play(s,v,'self screen preview');
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',M.t('you')+' · '+M.t('screen')));
         return tile;
       }
       if(tl.screen){
         const r=s.remotes.get(tl.pid)||{}; const nm=M.Members.name(tl.pid);
-        const v=M.el('video'); v.srcObject=r.screen; v.muted=true; v.autoplay=true; v.playsInline=true;
-        v.style.objectFit='contain'; tile.appendChild(v); v.play?.().catch(()=>{});
+        const v=M.Call._slot(r,'_scr',r.screen,'video');
+        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v); M.Call._play(s,v,'remote screen '+M.fmt.idShort(tl.pid));
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',nm.replace(/</g,'&lt;')+' · '+M.t('screen')));
         return tile;
@@ -5376,8 +5453,9 @@ M.Call = {
         const name=M.t('you');
         const hasVid=s.kind==='video' && s.localStream?.getVideoTracks().some(t=>t.enabled&&t.readyState==='live');
         if(s.kind==='video'&&s.localStream){
-          const v=M.el('video'); v.srcObject=s.localStream; v.muted=true; v.autoplay=true; v.playsInline=true; v.style.transform='scaleX(-1)';
-          tile.appendChild(v);
+          /* muted local preview — reuse across renders, never replaced needlessly */
+          const v=M.Call._slot(s,'_self',s.localStream,'video');
+          v.muted=true; v.style.transform='scaleX(-1)'; tile.appendChild(v); M.Call._play(s,v,'self preview');
         }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(M.State.self.name)}">${M.initials(M.State.self.name)}</div><span>${s.camOff?M.t('cam_off'):name}</span>`)); }
         const tag=M.el('div','t-name'); tag.innerHTML=(s.muted?M.Icons.micOff:M.Icons.mic)+name+(s.sharing?' · '+M.t('screen'):'');
@@ -5386,9 +5464,26 @@ M.Call = {
       } else {
         const pid=tl.pid; const r=s.remotes.get(pid)||{}; const nm=M.Members.name(pid);
         const hasVid=s.kind==='video' && r.stream?.getVideoTracks().some(t=>t.readyState==='live') && !r.camOff;
-        if(r.stream){ const v=M.el('video'); v.srcObject=r.stream; v.autoplay=true; v.playsInline=true; tile.appendChild(v);
-          const out=M.Store.get('output'); if(out&&v.setSinkId) v.setSinkId(out).catch(()=>{}); }
-        else { const a=M.el('audio'); a.autoplay=true; if(r.stream) a.srcObject=r.stream; tile.appendChild(a); }
+        if(r.stream){
+          /* voice-only streams get a dedicated <audio> element; streams with live
+             video render through <video>. The element is REUSED across renders as
+             long as the underlying stream is unchanged — re-layout never interrupts
+             an already-playing remote track. */
+          const liveVid=r.stream.getVideoTracks().some(t=>t.readyState==='live');
+          const wantTag=liveVid?'video':'audio';
+          const fresh=!r._cam||r._cam.stream!==r.stream||r._cam.tag!==wantTag;
+          const el=M.Call._slot(r,'_cam',r.stream,wantTag);
+          tile.appendChild(el);
+          M.Call._sink(el);   /* saved output device; failure keeps the default output */
+          if(fresh){
+            const at=r.stream.getAudioTracks(), vt=r.stream.getVideoTracks();
+            M.log('info','remote media attached: peer '+M.fmt.idShort(pid)+' <'+wantTag+'> connected='+el.isConnected
+              +' srcAttached='+(el.srcObject===r.stream)+' audioTracks='+at.length
+              +at.map(t=>'['+t.readyState+(t.enabled?'/enabled':'/disabled')+(t.muted?'/muted':'')+']').join('')
+              +' videoTracks='+vt.length);
+          }
+          M.Call._play(s,el,'remote '+(wantTag==='audio'?'voice':'video')+' '+M.fmt.idShort(pid));
+        }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(nm)}">${M.initials(nm)}</div><span>${r.camOff?M.t('cam_off'):nm.replace(/</g,'&lt;')}</span>`)); }
         const rtt=M.Net.rtt.get(pid);
         const tag=M.el('div','t-name');
