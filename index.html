@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2162,19 +2162,57 @@ M.Perms = {
     }
   },
   denyToast(feature){ const r=M.Perms.can(feature); if(!r.ok) M.toast('warn', M.t('perm_denied'), M.t(r.reason)); return r.ok; },
+  /* stable-identity DENY memory (mid → {chat?,dm?}). Maintained by Admin.dispatch
+     'override' whenever the target member is cryptographically authenticated, so a
+     per-member deny keeps biting through the reconnect/proof window even if the
+     roster entry is recycled. GRANTS never enter this index — an allow override
+     becomes effective only once identity migration binds it to the authenticated
+     peer. */
+  _denyByMid:new Map(),
   /* RECEIVE-side resolver: is MEMBER <peerId> allowed this feature under the
      current authoritative room policy? Unlike can(), this NEVER short-circuits
      on the local observer being Admin — it evaluates the TARGET member, which
-     is what an incoming packet needs. Overrides (the Admin's per-member state,
-     kept in sync with identity migration) win; the base policy is the default.
-     Only chat/dm are resolved here — the only features enforced on receive so far. */
+     is what an incoming packet needs.
+
+     Resolution order:
+       1. a direct override keyed by THIS transport peer is authoritative and
+          full-fidelity (allow or deny) — it exists only because identity
+          migration (post-proof) or the Admin bound it here;
+       2. pending-proof window: the peer claims a stable identity (claimedMid,
+          unauthenticated). Overrides are migrated only AFTER proof, so without
+          this step a denied member would temporarily fall back to the base
+          policy on reconnect. The claim may therefore inherit a KNOWN DENY for
+          that stable identity — from the deny memory, or from an override keyed
+          by a roster entry that previously authenticated the same mid.
+          Inheritance is strictly RESTRICTIVE: a claim can only tighten, never
+          grant. An ALLOW override never applies via an unverified claim
+          (forged claims must not inherit grants).
+       3. otherwise the base policy applies — genuinely new members keep
+          normal behavior.
+     Fail closed on any ambiguity. Only chat/dm are resolved here. */
   memberCan(feature, peerId){
     const P=M.Perms.p();
     const ov=(P.overrides&&P.overrides[peerId])||{};
-    const has=(k,d)=> ov[k]==null ? d : ov[k];
-    switch(feature){
-      case 'chat': return {ok:!!has('chat',P.chat), reason:'chat_disabled'};
-      case 'dm': return {ok:!!has('dm',P.dm), reason:'dm_disabled'};
+    const val=feature==='chat'?ov.chat:ov.dm;
+    if(val!=null) return {ok:!!val, reason:feature+'_disabled'};   /* 1. direct authoritative override */
+    if(feature==='chat'||feature==='dm'){                            /* 2. deny-only inheritance while proof pending */
+      const m=M.State.peers.get(peerId);
+      const claimed=(m&&m.claimedMid&&!m.midAuth)?m.claimedMid:null;
+      if(claimed){
+        let denied=!!(M.Perms._denyByMid.get(claimed)&&M.Perms._denyByMid.get(claimed)[feature]);
+        if(!denied){
+          for(const k in (P.overrides||{})){
+            const o=P.overrides[k]; if(!o||(feature==='chat'?o.chat:o.dm)!==false) continue;   /* denies only */
+            const km=M.State.peers.get(k);
+            if(km&&km.midAuth===true&&km.mid===claimed){ denied=true; break; }
+          }
+        }
+        if(denied) return {ok:false, reason:feature+'_disabled'};
+      }
+    }
+    switch(feature){                                                 /* 3. base policy */
+      case 'chat': return {ok:!!P.chat, reason:'chat_disabled'};
+      case 'dm': return {ok:!!P.dm, reason:'dm_disabled'};
       default: return {ok:true};
     }
   }
@@ -2437,7 +2475,21 @@ M.Admin = {
         if(M.State.room.topic) M.bus.emit('sysmsg',{text:M.t('topic_set',{n:M.State.room.topic})});
         M.log('info','room topic → '+(M.State.room.topic||'(cleared)'));
         break;
-      case 'override': { M.State.perms ??= M.permsDefault(); (M.State.perms.overrides ??= {})[body.peerId]={...(M.State.perms.overrides[body.peerId]||{}),...body.ov}; M.State.perms.version=(P.version||0)+1; B.emit('perms'); break; }
+      case 'override': { M.State.perms ??= M.permsDefault(); (M.State.perms.overrides ??= {})[body.peerId]={...(M.State.perms.overrides[body.peerId]||{}),...body.ov}; M.State.perms.version=(P.version||0)+1;
+        /* stable-identity deny memory: if the override target is cryptographically
+           authenticated, record (or clear) its per-feature deny under its mid so the
+           deny survives the reconnect/proof window. ALLOW values NEVER enter the
+           index — grants require the post-proof override binding. */
+        try{
+          const tm=M.State.peers.get(body.peerId);
+          if(tm&&tm.midAuth===true&&typeof tm.mid==='string'&&tm.mid.length===64){
+            const rec=M.Perms._denyByMid.get(tm.mid)||{};
+            if(body.ov.chat===false) rec.chat=true; else if(body.ov.chat===true) delete rec.chat;
+            if(body.ov.dm===false) rec.dm=true; else if(body.ov.dm===true) delete rec.dm;
+            if(rec.chat||rec.dm) M.Perms._denyByMid.set(tm.mid,rec); else M.Perms._denyByMid.delete(tm.mid);
+          }
+        }catch(e){}
+        B.emit('perms'); break; }
       case 'lock': M.State.perms ??= M.permsDefault(); M.State.perms.roomLocked=!!body.on; M.App.putRoom('perms',M.State.perms); B.emit('perms'); B.emit('sysmsg',{text:M.t(body.on?'sys_lock_on':'sys_lock_off')}); M.log('warn','room lock → '+(body.on?'on':'off')); break;
       case 'kick': B.emit('kick',body); break;
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.App.putRoom('bans',M.State.bans); } B.emit('kick',body); break;
