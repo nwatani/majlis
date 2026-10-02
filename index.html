@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.7';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2317,7 +2317,7 @@ M.Perms = {
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
 M.Admin = {
-  priv:null, pubJwk:null, rid:null, pending:false, seq:0, _seen:new Set(), _maxSeq:{},
+  priv:null, pubJwk:null, rid:null, pending:false, seq:0, _seqReady:null, _seen:new Set(), _maxSeq:{},
   /* a restored identity is untrusted until the room confirms it; a conflicting live
      Admin (different rid) proves it stale for a reused code → drop it entirely */
   demote(code){
@@ -2504,6 +2504,25 @@ M.Admin = {
     try{ return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},M.State.roomPub,M.unb64(sig),M.te.encode(JSON.stringify(rest))); }
     catch(e){ return false; }
   },
+  /* stable cryptographic Admin identity = fingerprint of the verified Admin public key.
+     Unlike the transport peerId (which changes on every reconnect), this identity is bound
+     to the Admin KEY and therefore to the Admin across refreshes/reconnects. It is used as
+     the namespace for sequence high-water / replay protection, so one Admin key = one
+     monotonic sequence space for the room instance. */
+  adminIdOf(pub){ try{ return pub ? M.SHA.create().update(M.te.encode(JSON.stringify(pub))).hex() : null; }catch(e){ return null; } },
+  selfAdminId(){ return M.Admin.adminIdOf(M.Admin.pubJwk); },
+  /* Reconstruct the Admin's own sequence counter for the current rid so it never reuses low
+     numbers after a reconnect/refresh. Sources, in priority order: the persisted own counter,
+     then the persisted high-water for this Admin identity, then the in-memory value. */
+  _ensureSeq(){
+    const rid=M.State.room?.rid; if(!rid) return;
+    if(M.Admin._seqReady===rid) return;
+    let base=0;
+    try{ base=Math.max(base, M.App.getRoom('adminseq')||0); }catch(e){}
+    try{ const aid=M.Admin.selfAdminId(); if(aid) base=Math.max(base, (M.App.getRoom('maxseq')||{})[aid]||0); }catch(e){}
+    if(base>M.Admin.seq) M.Admin.seq=base;
+    M.Admin._seqReady=rid;
+  },
   pubPin(){ return M.Admin.pubJwk ? M.SHA.create().update(M.te.encode(JSON.stringify(M.Admin.pubJwk))).hex().slice(0,16) : ''; },
   async cmd(name, payload={}, target){
     /* target = send to ONE peer (state sync) without local re-apply;
@@ -2512,7 +2531,12 @@ M.Admin = {
     if(M.Admin.pending) return false;   /* a pending identity sends no Admin commands until authenticated */
     /* admin commands are ECDSA-signed AND bound to the current authenticated room
        instance, so a valid signature from an old instance never executes elsewhere */
+    M.Admin._ensureSeq();   /* never reuse low sequence numbers under this Admin identity after reconnect */
     const body={cmd:name,...payload,from:M.State.self.id,rid:M.State.room?.rid||undefined,ts:Date.now(),seq:++M.Admin.seq};
+    try{ M.App.putRoom('adminseq',M.Admin.seq); }catch(e){}   /* persist own counter for this rid */
+    /* advance THIS identity's high-water locally too, so an older snapshot relayed back to
+       the Admin (even under a new transport id) is rejected by the same namespace */
+    try{ const aid=M.Admin.selfAdminId(); if(aid){ Object.assign(M.Admin._maxSeq,M.App.getRoom('maxseq')||{}); M.Admin._maxSeq[aid]=M.Admin.seq; M.App.putRoom('maxseq',M.Admin._maxSeq); } }catch(e){}
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
     const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){ M.log('err','cmd '+name+' send failed: '+e.message); } };
@@ -2550,14 +2574,17 @@ M.Admin = {
          "not yet checked". A command from any other instance is rejected too. */
       if(!M.State.room?.rid){ M.log('warn','admin command rejected — current room rid not yet authenticated'); return false; }
       if(body.rid!==M.State.room.rid){ M.log('warn','admin command rejected — rid '+(body.rid||'none')+' != current '+M.State.room.rid); return false; }
-      /* replay protection persists per Admin sender + room instance, so a refresh
-         cannot reset the high-water mark and allow an old signed command to replay */
+      /* replay protection persists per stable ADMIN IDENTITY (verified public key) + room
+         instance — NOT per transport peerId, which changes on every reconnect. m.pub has been
+         authenticated above, so adminIdOf(m.pub) is the one durable sequence namespace for this
+         Admin key; an Admin refresh that keeps the same key keeps the same high-water. */
       const map=M.Admin._maxSeq;
       const stored=M.App.getRoom('maxseq')||{};
       Object.assign(map,stored);
-      const mx=map[m.from]||0;
+      const aid=M.Admin.adminIdOf(m.pub)||m.from;
+      const mx=map[aid]||0;
       if(typeof body.seq==='number' && body.seq<=mx){ M.log('warn','replayed admin command rejected (seq '+body.seq+' <= '+mx+')'); return false; }
-      if(typeof body.seq==='number'){ map[m.from]=body.seq; M.App.putRoom('maxseq',map); }
+      if(typeof body.seq==='number'){ map[aid]=body.seq; M.App.putRoom('maxseq',map); }
       return true;
     }catch(e){ return false; }
   },
@@ -2589,18 +2616,21 @@ M.Admin = {
       let ok=false;
       try{ ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(m.sig),M.te.encode(JSON.stringify(body))); }catch(e){ ok=false; }
       if(!ok){ M.log('warn','relayed snapshot failed Admin signature verification'); return false; }
-      /* stale rollback protection via the existing per-Admin seq high-water */
+      /* stale rollback protection via the per-ADMIN-IDENTITY (verified pubkey) high-water —
+         keyed by the durable Admin key, not the transport peerId embedded as m.from, so an
+         old snapshot stays stale across Admin reconnects */
       const map=M.Admin._maxSeq;
       Object.assign(map,M.App.getRoom('maxseq')||{});
-      const mx=map[m.from]||0;
+      const raid=M.Admin.adminIdOf(m.pub)||m.from;
+      const mx=map[raid]||0;
       if(typeof m.seq!=='number'||m.seq<=mx){ M.log('warn','stale relayed snapshot rejected (seq '+m.seq+' <= '+mx+')'); return false; }
-      map[m.from]=m.seq; M.App.putRoom('maxseq',map);
+      map[raid]=m.seq; M.App.putRoom('maxseq',map);
       if(!M.State.roomPub){ M.State.roomPub=key; M.State.roomPubStr=pubStr; }   /* anchor adoption only after full verification */
       return true;
     }catch(e){ return false; }
   },
   acceptRelayedSnapshot(m,relayerPid){
-    const key=m.from+':'+m.seq;
+    const key=(M.Admin.adminIdOf(m.pub)||m.from)+':'+m.seq;   /* dedup by stable Admin identity */
     if(M.Admin._seen.has(key)) return;                       /* duplicate relay → idempotent drop */
     M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
     M.Admin.cacheSnapshot(m);
@@ -2629,7 +2659,12 @@ M.Admin = {
      goes offline immediately afterwards */
   pushSnapshotToAll(){
     if(!M.Perms.isAdmin()||!M.State.room) return;
-    M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload());
+    /* target ONLY proven key-holders — never broadcast the private room state to the
+       whole namespace (which would include keyless code-only clients). Peers that prove
+       later receive the current snapshot at that moment via M.Net.keyPeer(). */
+    const peers=[...(M.Net.keyPeers||[])];
+    if(!peers.length) return;
+    peers.forEach(pid=>{ M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload(),pid); });
   },
   dispatch(body, from){
     const B=M.bus; const P=M.Perms.p();
@@ -3152,6 +3187,10 @@ M.Guard = {
    ===================================================================== */
 M.Net = {
   T:null, room:null, A:{}, connected:false, lastHb:new Map(), rtt:new Map(),
+  /* peers that have PROVEN room-key possession via the E2EE key-proof beacon.
+     Only these peers are eligible to receive the full signed room snapshot —
+     a code-only/keyless client is never marked and never receives it. */
+  keyPeers:null,
   /* verified-Admin heartbeat freshness: an Admin heartbeat older than this is stale.
      Heartbeats fire every 12s, so 30s tolerates one missed beat but rejects replays. */
   HB_FRESH:30000,
@@ -3161,9 +3200,33 @@ M.Net = {
        proxy and is kept ONLY as a last-resort availability fallback.
      • jspdf @2.5.2, lamejs @1.2.1 (via CDN script), ffmpeg.wasm core @0.12.6 /
        @ffmpeg/ffmpeg @0.12.10 / @ffmpeg/util @0.12.1 — loaded on demand.
-     All URLs are version-pinned; no floating "latest" loads. Browser dynamic
-     import() does not support SRI, so integrity relies on the pinned jsDelivr
-       npm mirror; for maximum assurance, self-host these files beside index.html. */
+      All URLs are version-pinned; no floating "latest" loads. Browser dynamic
+      import() does not support SRI, so integrity relies on the pinned jsDelivr
+        npm mirror; for maximum assurance, self-host these files beside index.html. */
+  /* mark a peer that PROVED room-key possession and deliver the authoritative room
+     snapshot (Admin push or member relay) — only ever to proven key-holders. Idempotent:
+     the snapshot is delivered once per peer per session. This is the ONLY path that hands
+     out the full signed snapshot; code-only/keyless peers are never marked, so they never
+     receive board pages/images, permission internals, bans, denyByMid, or room metadata. */
+  keyPeer(peerId){
+    M.Net.keyPeers ??= new Set();
+    if(M.Net.keyPeers.has(peerId)) return;
+    M.Net.keyPeers.add(peerId);
+    M.log('info','E2EE room-key possession proven for '+M.fmt.idShort(peerId));
+    if(M.Perms.isAdmin() && M.State.room){
+      M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload(),peerId);
+    } else if(M.Admin._snapCache && M.State.room){
+      try{ M.Net.A.adm.send(M.Admin._snapCache,{target:peerId}); M.log('info','relayed cached Admin snapshot to '+M.fmt.idShort(peerId)); }catch(e){}
+    }
+  },
+  /* announce our own room-key possession (E2EE beacon). Keyless clients never call this,
+     so they are never marked eligible and never receive the full snapshot. Re-sent briefly
+     to survive a dropped packet. */
+  announceKey(){
+    if(!M.Crypto.has()||!M.Net.A.kp) return;
+    const send=()=>{ try{ M.Net.sendEnc('kp',{t:'kp',from:M.State.self.id,ts:Date.now()}); }catch(e){} };
+    send(); setTimeout(send,1200); setTimeout(send,4000);
+  },
   async loadTrystero(){
     const urls=[
       'https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',
@@ -3227,7 +3290,9 @@ M.Net = {
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
-    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe','idc','idp']) M.Net.A[n]=R.makeAction(n);
+    /* 'kp' = E2EE key-proof beacon: proves room-key possession so the full signed
+       room snapshot is only delivered to authorized (key-holding) members */
+    for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe','idc','idp','kp']) M.Net.A[n]=R.makeAction(n);
     /* member identity challenge/response: proves possession of the private key bound to mid */
     M.Net.A.idc.onMessage=async (chal,{peerId})=>{
       if(!M.Guard.check('idc',chal,peerId)) return;
@@ -3293,6 +3358,7 @@ M.Net = {
     R.onPeerLeave = peerId => {
       M.log('warn','peer left '+M.fmt.idShort(peerId));
       M.bus.emit('peerLeave',peerId);
+      M.Net.keyPeers?.delete(peerId);   /* key-possession is per transport session */
       M.Members.offline(peerId);
     };
 
@@ -3310,22 +3376,11 @@ M.Net = {
         const pp=M.State.peers.get(peerId);
         if(pp&&pp.claimedMid&&!pp.midAuth&&M.Id.priv) M.Id.challengePeer(peerId);
       }
-      /* admin → EVERY joiner receives the current board/timer/policy state unconditionally,
-         so a member is never left with a closed board or an unverified Admin regardless of
-         whether the board happens to be open */
-      if(M.Perms.isAdmin() && M.State.room){
-        /* denyByMid rides the SIGNED snapshot: a member who was offline when a deny was
-           applied reconstructs the authoritative stable-deny state from here on (re)join */
-        M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload(),peerId);
-      } else if(M.Admin._snapCache && M.State.room){
-        /* SERVERLESS CONVERGENCE RELAY — the Admin is absent, but this member holds a
-           previously VERIFIED Admin-signed snapshot. Forward it VERBATIM (never modified)
-           to the newcomer, who re-verifies the original Admin signature independently.
-           Relaying confers no Admin authority on the relayer. Once per peer per session. */
-        M.Admin._relayedTo ??= new Set();
-        if(!M.Admin._relayedTo.has(peerId)){ M.Admin._relayedTo.add(peerId);
-          try{ M.Net.A.adm.send(M.Admin._snapCache,{target:peerId}); M.log('info','relayed cached Admin snapshot to '+M.fmt.idShort(peerId)); }catch(e){} }
-      }
+      /* PRIVATE-ROOM GATE: the full signed room snapshot (board pages, permissions, bans,
+         denyByMid, room metadata) is NO LONGER pushed on hello. It is delivered exclusively
+         through M.Net.keyPeer() once the peer has proven room-key possession via the E2EE
+         key-proof beacon — so a code-only/keyless client never receives it. Presence
+         (hello/hb roster) is unaffected. */
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
     M.Net.A.who.onMessage = (d,{peerId}) => { if(!M.Guard.check('who',d,peerId)) return; try{ M.Net.A.hello.send(profile(),{target:peerId}); }catch(e){} };
@@ -3420,9 +3475,11 @@ M.Net = {
          relayed kick/ban/end/etc is rejected outright, and a member relay never confers
          Admin authority or presence. */
       if(m.from!==peerId){
-        /* I authored this snapshot (e.g. the Admin reconnected while members still held
-           an older copy): my local state is canonical — a relay of my own older snapshot
-           must never roll it back, so it is dropped before any verification work. */
+        /* The Admin is the authoritative source and never needs a member relay — accepting
+           one could roll back locally-applied (newer) state, so drop it outright. */
+        if(M.Perms.isAdmin()){ M.log('warn','admin ignored relayed snapshot (local state is canonical)'); return; }
+        /* I authored this snapshot (e.g. a pending-Admin reconnected while members still
+           held an older copy): a relay of my own snapshot must never roll state back. */
         if(m.from===M.State.self.id){ M.log('warn','ignored relay of own snapshot (local state is canonical)'); return; }
         if(m.cmd==='wbCtrl'&&m.sub==='snapshot'){
           if(await M.Admin.verifyRelayedSnapshot(m)){ M.Admin.acceptRelayedSnapshot(m,peerId); }
@@ -3494,6 +3551,24 @@ M.Net = {
        decrypted them on receive; the wrap fixes that path. Authorship of each
        entry is proven per-message inside onHist — never by responder fiat. */
     M.Net.A.hist.onMessage = wrap('hist',(d,{peerId})=>M.Chat.onHist(d,peerId));
+
+    /* E2EE KEY-PROOF beacon — a key-holding member proves room-key possession so the
+       full signed room snapshot is only delivered to authorized members. The beacon is
+       encrypted with the room key (only key-holders can PRODUCE one), carries the sender's
+       own id + a fresh timestamp, and is accepted only when the decrypted sender id matches
+       the delivering transport peerId — so a keyless client that merely captures/replays a
+       beacon can never pass (its peerId differs from the embedded, key-signed sender id).
+       Proving key possession grants snapshot ELIGIBILITY only — never Admin authority. */
+    M.Net.A.kp.onMessage = async (d,{peerId}) => {
+      if(!(d&&typeof d==='object'&&typeof d.e==='string')) return;   /* must be an envelope */
+      if(!M.Crypto.has()) return;                                    /* we can't open it without the key */
+      if(d.e.length>8192){ M.Guard.log('oversized key-proof envelope','kp',peerId); return; }
+      let p; try{ p=await M.Crypto.dec(d.e); }catch(e){ return; }
+      if(!M.Guard.isObj(p)||p.t!=='kp') return;
+      if(typeof p.ts!=='number'||Math.abs(Date.now()-p.ts)>60000) return;   /* freshness — bounds replay */
+      if(!M.Guard.isPid(p.from)||p.from!==peerId) return;                   /* transport sender binding */
+      M.Net.keyPeer(peerId);
+    };
 
     /* call signaling — per-type allowlist; call authority stays bound to the
        transport peerId, never to payload fields */
@@ -9068,6 +9143,9 @@ M.App = {
     M.lobbyMsg('');   /* no stale lobby text survives into a live session */
     M.UI.enterApp();
     try{ M.WB.restoreClip(); }catch(e){}
+    /* prove room-key possession (if we hold it) so we become eligible to receive the
+       authoritative signed snapshot — keyless clients skip this and stay snapshot-free */
+    M.Net.announceKey();
     /* ask the room to backfill anything this device missed while it was away */
     setTimeout(()=>{ try{ M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },900);
     /* second backfill pass: hres requires an authenticated responder (midAuth), and a
@@ -9105,7 +9183,7 @@ M.App = {
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
     M.State.self.admin=false;
-    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={};   /* persisted maxseq stays: it is instance-scoped, not refresh-scoped */
+    M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={}; M.Admin._seqReady=null;   /* persisted maxseq/adminseq stay: instance-scoped, not refresh-scoped */
     M.Crypto.key=null;
     M.Chat.threads.clear(); M.Chat.unread.clear(); M.Chat.renderKey='room';
     if(M.Chat._fileMsgEls) M.Chat._fileMsgEls.clear();
