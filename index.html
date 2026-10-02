@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2161,7 +2161,23 @@ M.Perms = {
       default: return {ok:true};
     }
   },
-  denyToast(feature){ const r=M.Perms.can(feature); if(!r.ok) M.toast('warn', M.t('perm_denied'), M.t(r.reason)); return r.ok; }
+  denyToast(feature){ const r=M.Perms.can(feature); if(!r.ok) M.toast('warn', M.t('perm_denied'), M.t(r.reason)); return r.ok; },
+  /* RECEIVE-side resolver: is MEMBER <peerId> allowed this feature under the
+     current authoritative room policy? Unlike can(), this NEVER short-circuits
+     on the local observer being Admin — it evaluates the TARGET member, which
+     is what an incoming packet needs. Overrides (the Admin's per-member state,
+     kept in sync with identity migration) win; the base policy is the default.
+     Only chat/dm are resolved here — the only features enforced on receive so far. */
+  memberCan(feature, peerId){
+    const P=M.Perms.p();
+    const ov=(P.overrides&&P.overrides[peerId])||{};
+    const has=(k,d)=> ov[k]==null ? d : ov[k];
+    switch(feature){
+      case 'chat': return {ok:!!has('chat',P.chat), reason:'chat_disabled'};
+      case 'dm': return {ok:!!has('dm',P.dm), reason:'dm_disabled'};
+      default: return {ok:true};
+    }
+  }
 };
 
 /* ---------------- Admin authority (ECDSA P-256, signed commands) ---------------- */
@@ -2777,7 +2793,7 @@ M.Guard = {
       hbs:M.Guard.str(512), pub:M.Guard.obj(2048) },pid,a); },
     chat(d,pid,a){
       if(typeof d.e==='string') return d.e.length<=M.Guard.CIPHER.chat;   /* opaque envelope for a keyless viewer — never decrypted here */
-      if(d.sys===true){ M.Guard.log('sys chat lines are never network-originated',a,pid); return false; }
+      if('sys' in d){ M.Guard.log('sys chat lines are never network-originated',a,pid); return false; }   /* ANY sys key — remote packets must never render as system lines */
       if('from' in d && d.from!==pid){ M.Guard.log('embedded from does not match transport sender',a,pid); return false; }
       if(!M.Guard.str(M.Guard.TEXT_MAX)(d.text)){ M.Guard.log('bad text',a,pid); return false; }
       return M.Guard.shape(d,{ id:M.Guard.str(32), to:v=>v===null||M.Guard.isPid(v), ts:v=>M.Guard.ts(v),
@@ -3195,6 +3211,10 @@ M.Net = {
     };
     M.Net.A.chat.onMessage = wrap('chat',(d,{peerId})=>{
       if(typeof d.e==='string'){ M.bus.emit('chatIn',{e:true,to:d.to,name:d.name,peerId}); return; }   /* keyless viewer: lock bubble only */
+      /* RECEIVE-SIDE POLICY ENFORCEMENT — a member whose chat/DM permission is
+         disabled cannot bypass the UI by crafting a valid encrypted packet.
+         Rejected BEFORE name adoption / history / unread / notify / persist / render. */
+      if(!M.Chat.authorized(d,peerId)) return;
       const m=M.Guard.pick(d,M.Guard.PICK.chat);   /* allowlist — arbitrary fields never enter chat state */
       if(m.name) M.Members.adopt(peerId,m.name); M.bus.emit('chatIn',{...m,peerId}); });
     /* wb: emitted intact — signed ops must reach verifyObj byte-identical;
@@ -3675,6 +3695,37 @@ M.Chat = {
     const ok=await M.Net.sendEnc('chat',msg,target||undefined);
     if(!ok) return;
     M.Chat.append(M.Chat.key(target),msg,true);
+  },
+  /* RECEIVE-side Chat/DM authorization — valid packet ≠ authorized action.
+     A correctly encrypted, well-formed, even identity-authenticated packet is
+     still refused here if the CURRENT room policy forbids that member from
+     chatting / DMing. Called after Guard validation and BEFORE any state or UI
+     effect (history, unread, notifications, persistence, name adoption, render).
+
+     Identity used for the decision: the ACTUAL transport sender (peerId from
+     the Trystero receive event) resolved against the roster + the Admin's
+     per-member overrides. Payload identity fields (from / to / mid / fp / name)
+     never authorize anything. The override model is peerId-keyed and follows the
+     stable member identity on reconnect via migrateIdentity()/fp-migration, so a
+     legitimately reconnecting member keeps their permission under the new peerId.
+
+     Room chat and DMs are membership-gated by the room key; they do NOT require
+     cryptographic member authentication (midAuth), so an unauthenticated-but-
+     legitimate member is not wrongly blocked. Admins are exempt (mirrors the
+     send-side `me||…` bypass) and are recognized ONLY via verified Admin
+     presence — never via a payload adm claim. Rejection is silent on the wire
+     and logs no content/keys. */
+  _rej:{chat:0,dm:0},
+  authorized(d,peerId){
+    if(peerId===M.State.self.id) return true;                       /* self loopback */
+    if(M.Members.verifiedAdmin(M.State.peers.get(peerId))) return true;   /* Admin exempt */
+    const isDm=!!d.to;
+    const gate=M.Perms.memberCan(isDm?'dm':'chat',peerId);
+    if(!gate.ok){
+      M.Chat._rej[isDm?'dm':'chat']++;
+      M.log('warn',(isDm?'DM':'CHAT')+'_REJECTED_PERMISSION from '+M.fmt.idShort(peerId));
+    }
+    return gate.ok;
   },
   onIn(d){
     if(!d||d.sys) { if(d?.text) M.Chat.append('room',{sys:true,text:d.text,ts:d.ts||Date.now()},false); return; }
