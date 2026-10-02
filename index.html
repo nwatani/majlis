@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.3';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2169,6 +2169,56 @@ M.Perms = {
      becomes effective only once identity migration binds it to the authenticated
      peer. */
   _denyByMid:new Map(),
+  _denyLoadedRid:null,
+  /* ----- persistent stable deny index ----------------------------------
+     The in-memory map above dies on refresh, which re-opened the reconnect
+     race (a denied member could fall back to the base policy while re-proving
+     under a new peerId). These helpers persist and reconstruct the index via
+     the existing room persistence system, keyed by the AUTHENTICATED rid:
+
+       putRoom('denyByMid', …) → localStorage 'mj.denyByMid.<rid>'
+
+     Because skey()/putRoom() return null until the instance rid is known and
+     NEVER key on the reusable 6-char code, the index is inherently rid-scoped:
+     a reused code or another room instance can never resurrect a deny that
+     belongs to a different instance. Stored shape: { mid: {chat?:true,dm?:true} }
+     — deny flags only; ALLOW overrides are never persisted here and therefore
+     can never be inherited through an unverified claim.
+
+     WRITE path: only M.Admin.dispatch('override') mutates the map (and calls
+     _saveDeny) — and only for a target that is cryptographically authenticated.
+     No member packet can write it, so a forged claimedMid can never create or
+     modify persistent authorization state.
+     READ path: _ensureDeny() lazily rebuilds the map from storage for the
+     CURRENT rid before evaluation; switching rid re-scopes (never reuses) it. */
+  _ensureDeny(){
+    if(!M.App||!M.App.getRoom) return;
+    const rid=M.State.room?.rid; if(!rid) return;          /* not yet in an authenticated instance */
+    if(M.Perms._denyLoadedRid===rid) return;               /* already loaded for this rid */
+    const switching=M.Perms._denyLoadedRid!=null && M.Perms._denyLoadedRid!==rid;
+    if(switching) M.Perms._denyByMid=new Map();            /* DIFFERENT instance → never reuse its denies */
+    /* First load for this rid: keep any in-session writes (authoritative, most
+       recent) and backfill the rest from persistent storage. Reconstructing DENY
+       flags only means an allow can never be re-materialized from disk. */
+    const obj=M.App.getRoom('denyByMid');
+    if(obj&&typeof obj==='object'){
+      for(const mid in obj){
+        if(M.Perms._denyByMid.has(mid)) continue;          /* in-session write wins */
+        if(!/^[0-9a-f]{64}$/.test(mid)) continue;          /* malformed mid key → ignore */
+        const v=obj[mid]; if(!v||typeof v!=='object') continue;
+        const rec={};
+        if(v.chat===true) rec.chat=true;                   /* reconstruct DENY flags only */
+        if(v.dm===true) rec.dm=true;
+        if(rec.chat||rec.dm) M.Perms._denyByMid.set(mid,rec);
+      }
+    }
+    M.Perms._denyLoadedRid=rid;
+  },
+  _saveDeny(){
+    if(!M.App||!M.App.putRoom) return;
+    const obj={}; M.Perms._denyByMid.forEach((rec,mid)=>{ obj[mid]={...rec}; });
+    M.App.putRoom('denyByMid',obj);                        /* rid-scoped; no-op until rid known */
+  },
   /* RECEIVE-side resolver: is MEMBER <peerId> allowed this feature under the
      current authoritative room policy? Unlike can(), this NEVER short-circuits
      on the local observer being Admin — it evaluates the TARGET member, which
@@ -2199,6 +2249,7 @@ M.Perms = {
       const m=M.State.peers.get(peerId);
       const claimed=(m&&m.claimedMid&&!m.midAuth)?m.claimedMid:null;
       if(claimed){
+        M.Perms._ensureDeny();   /* rebuild the rid-scoped persistent deny index before evaluating */
         let denied=!!(M.Perms._denyByMid.get(claimed)&&M.Perms._denyByMid.get(claimed)[feature]);
         if(!denied){
           for(const k in (P.overrides||{})){
@@ -2487,6 +2538,7 @@ M.Admin = {
             if(body.ov.chat===false) rec.chat=true; else if(body.ov.chat===true) delete rec.chat;
             if(body.ov.dm===false) rec.dm=true; else if(body.ov.dm===true) delete rec.dm;
             if(rec.chat||rec.dm) M.Perms._denyByMid.set(tm.mid,rec); else M.Perms._denyByMid.delete(tm.mid);
+            M.Perms._saveDeny();   /* persist the rid-scoped deny index → survives refresh/restart/re-entry */
           }
         }catch(e){}
         B.emit('perms'); break; }
@@ -8937,6 +8989,7 @@ M.App.restoreRoomLocal = function(){
     const tp=M.App.getRoom('topic'); if(tp!=null) M.State.room.topic=tp;
   }
   const perms=M.App.getRoom('perms'); if(perms) M.State.perms={...M.permsDefault(),...perms};
+  M.Perms._ensureDeny();   /* restore the rid-scoped stable deny index BEFORE any member is evaluated */
   const bans=M.App.getRoom('bans'); if(Array.isArray(bans)) M.State.bans=bans;
   M.WB.renderPages?.(); M.bus.emit('perms'); M.bus.emit('timer');
 };
@@ -8945,7 +8998,7 @@ M.App.purgeRoom = async function(code){
   const rid=M.State.room?.rid || M.Store.get('rid.'+code);
     if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){}
       /* also purge rid-keyed authoritative data so nothing survives the instance */
-      ['wb','timer','rname','topic'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
+      ['wb','timer','rname','topic','denyByMid'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
     }
     try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
     /* remove ALL of this room's transfer chunks, including orphans tracked across refreshes */
