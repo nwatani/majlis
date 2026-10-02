@@ -2475,8 +2475,25 @@ M.Crypto = {
    non-integer or malformed versions are rejected, never processed.
 
    Validation is NON-MUTATING (signed payloads — adm, signed wb ops —
-   must reach signature verification byte-identical). Handlers that
-   absorb broad objects use M.Guard.pick() allowlists instead.
+   must reach signature verification byte-identical). Strict-allowlist policy:
+     • plain families (ft, sig, rc, chat, cur, hello, history msgs): packets
+       are reduced to per-type allowlists (pickFt/pickSig/pickRc/PICK.*)
+       BEFORE the bus — unexpected fields never reach business code;
+     • signed families (adm, wb): the ORIGINAL object is verified first;
+       allowlist extraction happens only AFTER verification succeeds
+       (pickWbObj in WB.onNet) — verification bytes are never mutated;
+     • whiteboard objects pass a bounded per-type schema (wbObj) covering
+       pen/hi/line/arrow/rect/ellipse/text/note/image before state entry;
+     • visible Admin identity never comes from the untrusted `adm` hint —
+       only from verified presence (adminVerifiedAt freshness).
+
+   History authorship: hres requires an authenticated responder (midAuth),
+   but responder authentication is NOT proof of authorship. Each history
+   entry may carry the original author's signature (amid/asig/midpub over
+   'majlis-chat-v1|id|ts|amid|name|text'); verifyHistMsg proves it, and
+   attribute() binds the display author. Unsigned/unverifiable entries are
+   shown relayed-by-responder with the unverified chip — never as someone
+   else's authenticated content.
 
    Per-class limits (deliberately different per packet family):
      plaintext envelope budgets (JSON chars): hello 4K · hb 4K · chat 64K
@@ -2498,14 +2515,33 @@ M.Guard = {
   ENV:{ hello:4096, hb:4096, chat:65536, type:512, probe:256, dupe:256, bye:256, who:256,
         sig:8192, ft:8192, wb:12*1024*1024, hist:1024*1024, rc:4096, adm:16384,
         idc:1024, idp:4096, cur:512, here:256, where:256 },
-  CIPHER:{ chat:98304, ft:16384, wb:16*1024*1024 },   /* base64 envelope caps, enforced BEFORE decryption.
-        chat headroom: an 8000-char TEXT_MAX can JSON-escape up to ~6x (quotes/backslashes) */
+  CIPHER:{ chat:98304, ft:16384, wb:16*1024*1024, hist:1572864 },   /* base64 envelope caps, enforced
+        BEFORE decryption. chat headroom: an 8000-char TEXT_MAX can JSON-escape up to ~6x
+        (quotes/backslashes). hist: up to 200 msgs × 8 KB text + authorship material. */
   HEX32:/^[0-9a-f]{32}$/, HEX64:/^[0-9a-f]{64}$/, MID:/^[0-9a-f]{64}$/,
-  /* allowlists — the only sanctioned way peer data enters application state */
-  PICK:{ hello:['n','fp','mid','midpub','adm','os','br','mob','v','jt','ts'],
-         chat:['id','to','text','ts','from','name'],
+  /* allowlists — the only sanctioned way peer data enters application state.
+     NOTE: 'adm' is deliberately NOT in PICK.hello — a remote adm claim is an
+     untrusted hint only; visible Admin identity comes from adminVerifiedAt. */
+  PICK:{ hello:['n','fp','mid','midpub','os','br','mob','v','jt','ts'],
+         chat:['id','to','text','ts','from','name','amid','asig','midpub'],
          cur:['x','y'],
-         histMsg:['id','text','ts','from','name'] },
+         histMsg:['id','text','ts','from','name','amid','asig','midpub'] },
+  /* per-type allowlists for ft/sig/rc — the ONLY fields that may reach the
+     business handlers. smid is intentionally absent from offer: no client ever
+     sends it, and an attacker-injected smid must not influence recvAuth. */
+  FT_PICK:{ offer:['t','id','name','size','type','target','fromName','voice','dur','shot','clip','rfp','sfp'],
+    ack:['t','id','seq'], nack:['t','id','seqs'], resume:['t','id','offset'],
+    done:['t','id','hash'], result:['t','id','ok'], cancel:['t','id','why'] },
+  SIG_PICK:{ invite:['t','callId','to','kind','fromName'], ginvite:['t','callId','to','kind','fromName'],
+    accept:['t','callId'], gaccept:['t','callId'], members:['t','callId','peers'],
+    reject:['t','callId','to','reason'], greject:['t','callId'],
+    state:['t','callId','from','muted','camOff'], rec:['t','callId','on'], end:['t','callId','reason'] },
+  /* rc req/rd-req keep sig/pub/rid/ts/from/reqId so authVerify can run on the
+     picked copy; everything else (admin fields, role fields) is dropped */
+  RC_PICK:{ req:['t','to','fromName','sig','pub','rid','from','ts'],
+    accept:['t','to','mode'], decline:['t','to','reason'], end:['t','to'], cur2:['t','x','y'],
+    'rd-req':['t','to','fromName','sig','pub','rid','from','ts','reqId'],
+    rd:['t','to','id','pw','fromName','reqId','rid','from'], 'rd-decline':['t','to'] },
   log(reason,action,peerId){ try{ M.log('warn','guard: rejected '+action+' from '+(M.fmt&&M.fmt.idShort?M.fmt.idShort(peerId):String(peerId).slice(0,8))+' — '+reason); }catch(e){} },
 
   /* ---------- reusable primitive validators ---------- */
@@ -2529,6 +2565,92 @@ M.Guard = {
   pick(o,keys){ const r={}; if(M.Guard.isObj(o)) for(const k of keys){ if(o[k]!==undefined) r[k]=o[k]; } return r; },
   /* defense-in-depth for internal patch merges fed by peer data */
   deproto(patch){ if(M.Guard.poison(patch,0)){ M.Guard.log('hostile keys in patch','patch','?'); return {}; } return patch; },
+  pickFt(d){ return M.Guard.pick(d, M.Guard.FT_PICK[d.t]||['t']); },
+  pickSig(d){ return M.Guard.pick(d, M.Guard.SIG_PICK[d.t]||['t']); },
+  pickRc(d){ return M.Guard.pick(d, M.Guard.RC_PICK[d.t]||['t']); },
+
+  /* ---------- whiteboard objects: bounded per-type schema ----------
+     Coordinates ≤ 1e6 · dims ≤ 1e6 · stroke/font size 0.5–500 ·
+     pts ≤ 8000 points · text ≤ TEXT_MAX · image src ≤ 10 MB dataURL ·
+     unknown types and unknown fields rejected / picked away.
+     Arabic text and embedded images remain fully supported. */
+  wbTypes:['pen','hi','line','arrow','rect','ellipse','text','note','image'],
+  WB_OBJ_KEYS:{ pen:['color','size','pts'], hi:['color','size','pts'],
+    line:['color','size','x1','y1','x2','y2'], arrow:['color','size','x1','y1','x2','y2'],
+    rect:['color','size','x','y','w','h'], ellipse:['color','size','x','y','w','h'],
+    text:['x','y','w','text','size','color','align','style'],
+    note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'] },
+  wbNum(v){ return typeof v==='number' && isFinite(v) && Math.abs(v)<=1e6; },
+  wbPt(p){ return Array.isArray(p) && p.length===2 && M.Guard.wbNum(p[0]) && M.Guard.wbNum(p[1]); },
+  wbObj(o){
+    const G=M.Guard;
+    if(!G.isObj(o)||!G.str(32)(o.id)||!G.en(G.wbTypes)(o.type)) return false;
+    if('alpha' in o && !G.num(0,1)(o.alpha)) return false;
+    if('color' in o && !G.str(32)(o.color)) return false;
+    if('size' in o && !G.num(0.5,500)(o.size)) return false;
+    if('pg' in o && !G.str(32)(o.pg)) return false;
+    if('by' in o && !G.str(64)(o.by)) return false;
+    switch(o.type){
+      case 'pen': case 'hi':
+        return Array.isArray(o.pts) && o.pts.length>0 && o.pts.length<=8000 && o.pts.every(G.wbPt);
+      case 'line': case 'arrow':
+        return ['x1','y1','x2','y2'].every(k=>G.wbNum(o[k]));
+      case 'rect': case 'ellipse': case 'image': case 'note':
+        if(!['x','y','w','h'].every(k=>G.wbNum(o[k]))) return false;
+        if(o.type==='image') return typeof o.src==='string' && o.src.length<=10*1024*1024 && o.src.indexOf('data:image/')===0;
+        if(o.type==='note') return G.str(G.TEXT_MAX)(o.text||'') && (!('bg' in o)||G.str(32)(o.bg));
+        return true;
+      case 'text':
+        return G.wbNum(o.x) && G.wbNum(o.y) && G.str(G.TEXT_MAX)(o.text)
+          && (!('w' in o)||G.wbNum(o.w)) && (!('align' in o)||G.en(['left','center','right'])(o.align))
+          && (!('style' in o)||G.str(64)(o.style));
+    }
+    return false;
+  },
+  /* strict allowlist application for wb objects — called ONLY after any
+     signature verification, never before (signed bytes stay intact) */
+  pickWbObj(o){ if(!M.Guard.wbObj(o)) return null;
+    return M.Guard.pick(o, ['id','type','pg','by','alpha'].concat(M.Guard.WB_OBJ_KEYS[o.type])); },
+
+  /* ---------- history authorship ------------------------------------
+     An authenticated responder RELAYS history; it can never PROVE that
+     another member authored an entry. Authorship is proven per message by
+     an ECDSA signature the original author made at send time over
+     'majlis-chat-v1|id|ts|amid|name|text'. Unsigned entries display with
+     the existing unverified chip, attributed to the relaying responder. */
+  _histOk:new Map(),
+  canonHist(m){ return ['majlis-chat-v1',m.id,m.ts,m.amid,m.name||'',m.text].join('|'); },
+  async verifyHistMsg(m){
+    if(!m || !m.amid || !m.asig || !m.midpub) return false;
+    /* cache key includes the FULL canonical signed content — a tampered message
+       must never reuse a verdict cached for different content under the same sig */
+    const ck=m.asig+':'+M.Guard.canonHist(m);
+    const hit=M.Guard._histOk.get(ck); if(hit!==undefined) return hit;
+    let ok=false;
+    try{
+      if(!M.Id.verifyMid(m.amid,m.midpub)) ok=false;   /* mid must match the signing key */
+      else { const k=await M.Admin.importAdminVerifyKey(m.midpub);
+        ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},k,M.unb64(m.asig),M.te.encode(M.Guard.canonHist(m))); }
+    }catch(e){ ok=false; }
+    if(M.Guard._histOk.size>512) M.Guard._histOk.clear();
+    M.Guard._histOk.set(ck,ok);
+    return ok;
+  },
+  /* pure attribution used by Chat history merge (resPid = transport sender of hres) */
+  attribute(m,resPid){
+    const o={...m};
+    if(m._authOk){
+      if(M.Id.mid && m.amid===M.Id.mid){ o.from=M.State.self.id; o.me=true; }
+      else { let pid=null;
+        M.State.peers.forEach((p,k)=>{ if(p.midAuth===true && p.mid===m.amid) pid=k; });
+        o.from=pid||('mid:'+m.amid);   /* authored by a key we verified offline — author left */
+        o.me=false; }
+      return o;
+    }
+    /* unproven authorship: the authenticated responder is the only vouching party */
+    o.from=resPid; o.me=(resPid===M.State.self.id); o._plain=true;
+    return o;
+  },
 
   /* ---------- identity ---------- */
   auth(peerId){ const p=M.State.peers && M.State.peers.get(peerId); return { midAuth:!!(p && p.midAuth===true && p.mid), mid:(p&&p.mid)||null }; },
@@ -2578,7 +2700,9 @@ M.Guard = {
       if('from' in d && d.from!==pid){ M.Guard.log('embedded from does not match transport sender',a,pid); return false; }
       if(!M.Guard.str(M.Guard.TEXT_MAX)(d.text)){ M.Guard.log('bad text',a,pid); return false; }
       return M.Guard.shape(d,{ id:M.Guard.str(32), to:v=>v===null||M.Guard.isPid(v), ts:v=>M.Guard.ts(v),
-        name:M.Guard.str(24), from:M.Guard.isPid },pid,a); },
+        name:M.Guard.str(24), from:M.Guard.isPid,
+        /* authorship signature material — validated here, trusted only by verifyHistMsg */
+        amid:v=>M.Guard.MID.test(String(v||'')), asig:M.Guard.str(512), midpub:M.Guard.obj(1024) },pid,a); },
     type(d,pid,a){ return M.Guard.shape(d,{ n:M.Guard.str(24), to:v=>v===null||M.Guard.isPid(v) },pid,a); },
     probe(d,pid,a){ return M.Guard.en(['q','ack'])(d.t) && M.Guard.shape(d,{ adm:M.Guard.bool() },pid,a); },
     dupe(d,pid,a){ return d.t==='take' && M.Guard.isPid(d.to); },
@@ -2612,12 +2736,12 @@ M.Guard = {
       if(!M.Guard.en(['up','add','del','clear','close','order','req','state'])(d.t)){ M.Guard.log('bad wb type',a,pid); return false; }
       /* non-mutating: signed admin ops must reach verifyObj byte-identical */
       const base={ sig:M.Guard.str(512), pub:M.Guard.obj(2048), rid:M.Guard.str(64) };
-      if(d.t==='up'||d.t==='add') return M.Guard.isObj(d.o) && M.Guard.str(32)(d.o.id) && M.Guard.shape(d,base,pid,a);
+      if(d.t==='up'||d.t==='add') return M.Guard.wbObj(d.o) && M.Guard.shape(d,base,pid,a);
       if(d.t==='del') return M.Guard.str(32)(d.id) && M.Guard.shape(d,base,pid,a);
       if(d.t==='order') return M.Guard.arr(4000,M.Guard.str(32))(d.ids) && M.Guard.shape(d,base,pid,a);
       if(d.t==='req') return M.Guard.shape(d,base,pid,a);
       if(d.t==='state') return M.Guard.shape({sig:d.sig,pub:d.pub,rid:d.rid},base,pid,a)
-        && M.Guard.int(0,Number.MAX_SAFE_INTEGER)(d.rev||0) && (!('objects' in d)||M.Guard.arr(4000,M.Guard.isObj)(d.objects))
+        && M.Guard.int(0,Number.MAX_SAFE_INTEGER)(d.rev||0) && (!('objects' in d)||M.Guard.arr(4000,M.Guard.wbObj)(d.objects))
         && (!('pages' in d)||M.Guard.arr(32,M.Guard.isObj)(d.pages)) && (!('admin' in d)||typeof d.admin==='boolean');
       return M.Guard.shape(d,base,pid,a);   /* clear/close — logged & ignored downstream as before */
     },
@@ -2631,11 +2755,17 @@ M.Guard = {
       /* room threads legitimately contain LOCAL sys lines {sys:true,text,ts} with no id;
          they may ride along inside hres. Tolerated here — mergeHistory skips sys entries
          and PICK.histMsg strips the flag — but never rendered as history content. */
+      /* authorship (amid/asig/midpub) is schema-checked here but TRUSTED only via
+         verifyHistMsg — an authenticated responder can never claim another member's
+         message without that member's actual signature over the exact content */
       const msg=m=>{ if(!M.Guard.isObj(m)) return false;
         if(m.sys===true) return M.Guard.str(M.Guard.TEXT_MAX)(m.text) && (m.ts===undefined||M.Guard.ts(m.ts));
         return M.Guard.str(32)(m.id) && M.Guard.str(M.Guard.TEXT_MAX)(m.text)
           && (m.ts===undefined||M.Guard.ts(m.ts)) && (m.from===undefined||M.Guard.isPid(m.from))
-          && (m.name===undefined||M.Guard.str(24)(m.name)); };
+          && (m.name===undefined||M.Guard.str(24)(m.name))
+          && (m.amid===undefined||M.Guard.MID.test(String(m.amid)))
+          && (m.asig===undefined||M.Guard.str(512)(m.asig))
+          && (m.midpub===undefined||M.Guard.obj(1024)(m.midpub)); };
       return M.Guard.arr(200,msg)(d.msgs);
     },
     rc(d,pid,a){
@@ -2877,10 +3007,12 @@ M.Net = {
         setTimeout(()=>M.App.backToLobby('dupe'),1400);
       }
     };
-    /* chat history backfill for refreshed / late-joining members (room messages only — DMs are never shared) */
-    M.Net.A.hist.onMessage = (d,{peerId}) => { if(!M.Guard.check('hist',d,peerId)) return; M.Chat.onHist(d,peerId); };
-    /* remote-assistance control channel (consent, input mirroring, teardown) */
-    M.Net.A.rc.onMessage = (d,{peerId}) => { if(!M.Guard.check('rc',d,peerId)) return; M.RC.onMsg(d,peerId); };
+    /* chat history backfill — assigned below with the encrypted-channel wrap
+       (hreq/hres travel through sendEnc and MUST be decrypted before onHist) */
+    /* remote-assistance control channel — per-type allowlist. req/rd-req keep the
+       exact fields authVerify signs over ({rid,ts,from[,reqId]}), everything else
+       (injected admin/role fields) is dropped before the handler */
+    M.Net.A.rc.onMessage = (d,{peerId}) => { if(!M.Guard.check('rc',d,peerId)) return; M.RC.onMsg(M.Guard.pickRc(d),peerId); };
     M.Net.A.bye.onMessage = (d,{peerId}) => { if(!M.Guard.check('bye',d,peerId)) return; M.Members.offline(peerId,true); };
     M.Net.A.hb.onMessage = async (d,{peerId}) => {
       if(!M.Guard.check('hb',d,peerId)) return;
@@ -2918,7 +3050,7 @@ M.Net = {
       }
       M.Net.lastHb.set(peerId,Date.now());   /* presence-only; never feeds Admin/Grace decisions */
       const patch={status:'online'};
-      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.adm=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v;
+      if(d && d.n){ patch.n=d.n; if(d.os)patch.os=d.os; if(d.br)patch.br=d.br; if(d.mob!=null)patch.mob=d.mob; patch.admHint=!!d.adm; if(d.fp)patch.fp=d.fp; if(d.v)patch.v=d.v;
         /* A claimed identity is stored as UNVERIFIED (claimedMid/claimedMidPub). It only
            becomes p.mid after proof-of-possession of that exact key. A forged claim can
            never become an authenticated identity. */
@@ -2963,11 +3095,21 @@ M.Net = {
       if(typeof d.e==='string'){ M.bus.emit('chatIn',{e:true,to:d.to,name:d.name,peerId}); return; }   /* keyless viewer: lock bubble only */
       const pl=d._plain; const m=M.Guard.pick(d,M.Guard.PICK.chat); if(pl) m._plain=pl;   /* allowlist — arbitrary fields never enter chat state */
       if(m.name) M.Members.adopt(peerId,m.name); M.bus.emit('chatIn',{...m,peerId}); });
+    /* wb: emitted intact — signed ops must reach verifyObj byte-identical;
+       WB.onNet allowlists into state only AFTER verification */
     M.Net.A.wb.onMessage   = wrap('wb',(d,{peerId})=>M.bus.emit('wbIn',{...d,peerId}));
-    M.Net.A.ft.onMessage   = wrap('ft',(d,{peerId})=>M.bus.emit('ftIn',{...d,peerId}));
+    /* ft: strict per-type allowlist — unexpected fields (incl. identity fields
+       like smid) never reach transfer state */
+    M.Net.A.ft.onMessage   = wrap('ft',(d,{peerId})=>M.bus.emit('ftIn',{...M.Guard.pickFt(d),peerId}));
+    /* chat history backfill for refreshed / late-joining members (room messages
+       only — DMs are never shared). v1.78.0 sent hreq/hres encrypted but never
+       decrypted them on receive; the wrap fixes that path. Authorship of each
+       entry is proven per-message inside onHist — never by responder fiat. */
+    M.Net.A.hist.onMessage = wrap('hist',(d,{peerId})=>M.Chat.onHist(d,peerId));
 
-    /* call signaling (signed per-call envelopes handled by CallManager) */
-    M.Net.A.sig.onMessage = (d,{peerId}) => { if(!M.Guard.check('sig',d,peerId)) return; M.bus.emit('sigIn',{...d,peerId}); };
+    /* call signaling — per-type allowlist; call authority stays bound to the
+       transport peerId, never to payload fields */
+    M.Net.A.sig.onMessage = (d,{peerId}) => { if(!M.Guard.check('sig',d,peerId)) return; M.bus.emit('sigIn',{...M.Guard.pickSig(d),peerId}); };
 
     /* binary file chunks — metadata is Guard-validated BEFORE the bus */
     M.Net.A.ftbin.onMessage = (buf,{peerId,metadata}) => { if(!M.Guard.check('ftbin',{metadata,buf},peerId)) return; M.bus.emit('ftChunk',{peerId,metadata,buf}); };
@@ -3239,7 +3381,7 @@ M.Members = {
         M.log('info','legacy fp matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
       }
     }
-    if(!m) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,adm:false,lastSeen:Date.now(),overrides:{}};
+    if(!m) m={id:peerId,name:'guest-'+M.fmt.idShort(peerId),status:'connecting',os:'?',br:'?',mobile:false,admHint:false,lastSeen:Date.now(),overrides:{}};
     Object.assign(m,patch); m.lastSeen=Date.now();
     if(patch.n) m.identifying=false;
     M.State.peers.set(peerId,m);
@@ -3293,6 +3435,11 @@ M.Members = {
     const m=M.State.peers.get(peerId);
     if(!m || m.name!==name) M.Members.upsert(peerId,{n:name,...(extra||{})});
   },
+  /* Visible Admin identity. NEVER derived from the untrusted `adm`/`admHint`
+     claim. Only a cryptographically verified Admin presence (signed heartbeat /
+     verified command / signed board state recorded adminVerifiedAt) counts, and
+     only while fresh. A forged adm:true can never render the Admin crown. */
+  verifiedAdmin(p){ return !!(p && p.adminVerifiedAt && Date.now()-p.adminVerifiedAt <= Math.max(60000, 2*M.Net.HB_FRESH)); },
   remove(peerId){ M.State.peers.delete(peerId); M.bus.emit('members'); },
   onlinePeers(){ return [...M.State.peers.values()].filter(m=>m.status==='online').map(m=>m.id); },
   /* display name first; if it never arrived, fall back to the UNIQUE temporary id
@@ -3407,6 +3554,13 @@ M.Chat = {
        creating a ghost message only the sender can see */
     if(typeof text==='string' && text.length>M.Guard.TEXT_MAX){ M.toast('warn','Message too long','Chat messages are limited to '+M.Guard.TEXT_MAX+' characters.'); return; }
     const msg={id:M.uid(8), to:target||null, text, ts:Date.now(), from:M.State.self.id, name:M.State.self.name};
+    /* authorship signature: lets a future history receiver prove this message really
+       came from OUR stable identity (canonical form shared with M.Guard.canonHist).
+       Unsigned messages still send — they just can't be attributed in history. */
+    try{ if(M.Id.priv && M.Id.mid){
+      const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Id.priv,M.te.encode(M.Guard.canonHist({...msg,amid:M.Id.mid})));
+      msg.amid=M.Id.mid; msg.asig=M.b64(raw); msg.midpub=M.Id.pub;
+    } }catch(e){ M.log('warn','chat authorship signature failed: '+(e.message||e)); }
     /* append only after the (encrypted) send actually succeeds — no ghost messages */
     const ok=await M.Net.sendEnc('chat',msg,target||undefined);
     if(!ok) return;
@@ -3544,21 +3698,27 @@ M.Chat = {
       }
     });
   },
-  onHist(d,from){
+  async onHist(d,from){
     if(!d) return;
     if(d.t==='hreq'){
       const th=M.Chat.threads.get('room')||[];
       if(th.length>1){
         setTimeout(()=>{
-          try{ M.Net.sendEnc('hist',{t:'hres',to:from,msgs:th.slice(-120).map(m=>({id:m.id,text:m.text,ts:m.ts,from:m.from,name:m.name,sys:m.sys||undefined}))},from); }catch(e){}
+          /* relay the authorship signature material too — the receiver can then prove
+             who really wrote each message instead of trusting this responder */
+          try{ M.Net.sendEnc('hist',{t:'hres',to:from,msgs:th.slice(-120).map(m=>({id:m.id,text:m.text,ts:m.ts,from:m.from,name:m.name,sys:m.sys||undefined,amid:m.amid,asig:m.asig,midpub:m.midpub}))},from); }catch(e){}
         },300+Math.random()*900);
       }
       return;
     }
     if(d.t==='hres'){
       if(d.to!==M.State.self.id) return;
-      /* allowlist: each history message enters with exactly the known fields */
-      M.Chat.mergeHistory((d.msgs||[]).map(m=>M.Guard.pick(m,M.Guard.PICK.histMsg)));
+      /* allowlist each entry, then prove authorship PER MESSAGE. An authenticated
+         responder relays history; it can never claim another member wrote an entry
+         unless that member's own signature over the exact content verifies. */
+      const msgs=(d.msgs||[]).map(m=>M.Guard.pick(m,M.Guard.PICK.histMsg));
+      for(const m of msgs){ m._authOk=await M.Guard.verifyHistMsg(m); }
+      M.Chat.mergeHistory(msgs.map(m=>M.Guard.attribute(m,from)));
     }
   },
   mergeHistory(msgs){
@@ -3567,7 +3727,7 @@ M.Chat = {
     let added=0;
     for(const m of msgs){
       if(!m||!m.id||m.sys||ids.has(m.id)) continue;   /* room conversation only; system lines are re-created locally */
-      ids.add(m.id); th.push({...m,me:m.from===M.State.self.id}); added++;
+      ids.add(m.id); th.push({...m,me:(m.me!==undefined?m.me:m.from===M.State.self.id)}); added++;
     }
     if(added){
       th.sort((a,b)=>a.ts-b.ts);
@@ -4316,7 +4476,7 @@ M.UI = {
       const info=M.el('div','mi');
       const nm=M.el('div','mn'); nm.textContent=p.name;
       if(unidN) nm.style.cssText='color:var(--dim);font-family:var(--mono);font-size:11.5px;letter-spacing:.04em';  /* pending label, visibly temporary until the display name lands */
-      if(p.adm) nm.insertAdjacentHTML('beforeend',M.Icons.crown);
+      if(M.Members.verifiedAdmin(p)) nm.insertAdjacentHTML('beforeend',M.Icons.crown);
       if(p.v && p.v!==M.Version){ const vc=M.el('span','mono'); vc.textContent='v'+p.v; vc.title='This member is running a different build (you are on v'+M.Version+') — ask them to hard-refresh the page'; vc.style.cssText='color:var(--warn);font-size:10px;border:1px solid var(--warn);border-radius:5px;padding:0 4px;opacity:.9'; nm.appendChild(vc); }
       const inds=M.el('span','ind');
       if(M.Call && M.Call.peerInCall(p.id)) inds.innerHTML+=`<span class="${'hot'}" title="${M.t('in_call')}">${M.Icons.phone}</span>`;
@@ -7377,7 +7537,11 @@ M.WB = {
     }
     if(d.t==='up'||d.t==='add'){
       if(!M.WB.peerCanEdit(from,fromAdmin)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
-      M.WB.applyUp(d.o); return;
+      /* allowlist into state AFTER any signature verification — unknown/hostile
+         object fields never enter the board; malformed objects were already rejected
+         by the wbObj schema at the boundary */
+      const o=M.Guard.pickWbObj(d.o); if(!o){ M.log('warn','board object rejected by schema: '+M.fmt.idShort(from)); return; }
+      M.WB.applyUp(o); return;
     }
     if(d.t==='del'){ if(!M.WB.peerCanEdit(from,fromAdmin)) return; M.WB.localDel(d.id); return; }
     /* clear/close are authoritative ops: they propagate only through SIGNED wbCtrl.
@@ -7417,8 +7581,12 @@ M.WB = {
       M.WBDbg.log('WB: authoritative board state accepted');
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
       M.WB.objs.clear(); M.WB.order=[];
-      (d.objects||[]).forEach(o=>{ if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
-      if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
+      /* every state object passes the bounded schema + per-type allowlist before it
+         may enter board state — verified admin bytes were already checked above */
+      (d.objects||[]).forEach(raw=>{ const o=M.Guard.pickWbObj(raw); if(!o) return;
+        if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
+      if(Array.isArray(d.pages)&&d.pages.length)
+        M.WB.pages=d.pages.map(p=>M.Guard.pick(p,['id','name'])).filter(p=>M.Guard.str(32)(p.id));
       if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
       M.WB.renderPages(); M.WB.hud();
       M.WB.rev=Math.max(M.WB.rev,d.rev||0); M.WB.dirty=true;
@@ -8352,7 +8520,7 @@ M.CC = {
     M.FT.sends.forEach(t=>{ if(t.target===p.id && ['queued','sending','paused','verify'].includes(t.status)) tf++; });
     M.FT.recvs.forEach(r=>{ if(r.from===p.id && r.status==='receiving') tf++; });
     const nm=M.el('div','nm');
-    nm.innerHTML=`<b>${p.name.replace(/</g,'&lt;')}${p.adm?M.Icons.crown:''}${isSelf?`<span style="font-size:11px;color:var(--teal);font-weight:600;margin-inline-start:6px">· ${M.t('you')}</span>`:''}</b><small>${M.fmt.idShort(p.id)} · ${p.os||'?'} · ${p.br||''} · <span style="color:${p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)'}">${M.t(p.status||'online')}</span>${M.Call.peerInCall(p.id)?' · 🔴 '+M.t('in_call'):''}${M.WB.activePeers.has(p.id)?' · 🖊 '+M.t('on_board'):''}${tf?' · ⇅ '+tf+' '+M.t('active_transfers'):''}</small>`;
+    nm.innerHTML=`<b>${p.name.replace(/</g,'&lt;')}${M.Members.verifiedAdmin(p)?M.Icons.crown:''}${isSelf?`<span style="font-size:11px;color:var(--teal);font-weight:600;margin-inline-start:6px">· ${M.t('you')}</span>`:''}</b><small>${M.fmt.idShort(p.id)} · ${p.os||'?'} · ${p.br||''} · <span style="color:${p.status==='online'?'var(--ok)':p.status==='connecting'?'var(--warn)':'var(--dim)'}">${M.t(p.status||'online')}</span>${M.Call.peerInCall(p.id)?' · 🔴 '+M.t('in_call'):''}${M.WB.activePeers.has(p.id)?' · 🖊 '+M.t('on_board'):''}${tf?' · ⇅ '+tf+' '+M.t('active_transfers'):''}</small>`;
     row.append(av,nm);
     if(!isSelf){
       const acts=M.el('div','acts');
