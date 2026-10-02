@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.6';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2301,6 +2301,17 @@ M.Perms = {
       case 'dm': return {ok:!!P.dm, reason:'dm_disabled'};
       default: return {ok:true};
     }
+  },
+  /* SEND-side consistency: the local device must not show "sent" for a member whose
+     OWN stable identity is denied by the authoritative state — otherwise the sender
+     sees a ghost message that every receiver rejects. Restrictive only: a deny may be
+     looked up under the member's own mid (they own that key, so this is not an
+     unverified claim); permission is NEVER granted this way. */
+  selfStableDenied(feature){
+    const mid=M.Id.mid; if(!mid) return false;
+    M.Perms._ensureDeny();
+    const rec=M.Perms._denyByMid.get(mid);
+    return !!(rec&&rec[feature]);
   }
 };
 
@@ -2550,10 +2561,80 @@ M.Admin = {
       return true;
     }catch(e){ return false; }
   },
+  /* ---------- serverless snapshot relay (convergence while Admin is offline) ---------
+     Every member caches the last Admin-signed wbCtrl snapshot it successfully verified —
+     the EXACT signed object, never modified — and forwards it verbatim to newcomers when
+     the Admin is absent. The relayer is NEVER trusted: the receiver independently
+     re-verifies the ORIGINAL Admin signature, the pin-anchored Admin pubkey, the current
+     rid, and the per-Admin sequence high-water before applying anything.
+       member relay ≠ Admin authority  ·  Admin signature = authoritative source */
+  async verifyRelayedSnapshot(m){
+    try{
+      if(!m||m.cmd!=='wbCtrl'||m.sub!=='snapshot'||!m.sig||!m.pub||!m.from) return false;
+      /* rid isolation: a snapshot signed for another instance is never accepted */
+      if(!M.State.room?.rid||m.rid!==M.State.room.rid) return false;
+      /* Admin pubkey: must match the cached authenticated key, or bootstrap from the
+         authenticated invitation pin (same anchor model as verify/verifyState) */
+      const pubStr=JSON.stringify(m.pub);
+      if(M.State.roomPubStr&&pubStr!==M.State.roomPubStr) return false;
+      let key=M.State.roomPub;
+      if(!key){
+        if(!M.State.roomPubPin) return false;
+        const fp=M.SHA.create().update(M.te.encode(pubStr)).hex().slice(0,16);
+        if(fp!==M.State.roomPubPin) return false;   /* not the Admin named by this invitation */
+        try{ key=await M.Admin.importAdminVerifyKey(m.pub); }catch(e){ return false; }
+      }
+      /* the ORIGINAL Admin signature over the exact snapshot body (sig/pub/peerId excluded) */
+      const {sig,pub,peerId,...body}=m;
+      let ok=false;
+      try{ ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,M.unb64(m.sig),M.te.encode(JSON.stringify(body))); }catch(e){ ok=false; }
+      if(!ok){ M.log('warn','relayed snapshot failed Admin signature verification'); return false; }
+      /* stale rollback protection via the existing per-Admin seq high-water */
+      const map=M.Admin._maxSeq;
+      Object.assign(map,M.App.getRoom('maxseq')||{});
+      const mx=map[m.from]||0;
+      if(typeof m.seq!=='number'||m.seq<=mx){ M.log('warn','stale relayed snapshot rejected (seq '+m.seq+' <= '+mx+')'); return false; }
+      map[m.from]=m.seq; M.App.putRoom('maxseq',map);
+      if(!M.State.roomPub){ M.State.roomPub=key; M.State.roomPubStr=pubStr; }   /* anchor adoption only after full verification */
+      return true;
+    }catch(e){ return false; }
+  },
+  acceptRelayedSnapshot(m,relayerPid){
+    const key=m.from+':'+m.seq;
+    if(M.Admin._seen.has(key)) return;                       /* duplicate relay → idempotent drop */
+    M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
+    M.Admin.cacheSnapshot(m);
+    M.Admin.dispatch(m,m.from);                              /* wbCtrl case applies perms/denyByMid/bans like a direct snapshot */
+    M.log('info','relayed Admin snapshot verified & applied (from '+M.fmt.idShort(m.from)+' via '+M.fmt.idShort(relayerPid)+', seq '+m.seq+')');
+  },
+  /* cache the exact signed snapshot object (unmodified) for later verbatim relay */
+  cacheSnapshot(m){
+    if(!m||!m.sig||!m.pub||m.sub!=='snapshot') return;       /* only genuine signed snapshots are cached */
+    M.Admin._snapCache=m;
+    try{ M.App.putRoom('snapcache',{seq:m.seq,m}); }catch(e){}
+  },
+  restoreSnapCache(){
+    try{
+      const c=M.App.getRoom('snapcache');
+      if(c&&c.m&&c.m.sig&&c.m.pub&&c.m.sub==='snapshot'&&c.m.rid===M.State.room?.rid) M.Admin._snapCache=c.m;
+    }catch(e){}
+  },
+  /* current authoritative snapshot payload (shared by the hello push and the broadcast) */
+  snapshotPayload(){
+    const W=M.State.wb;
+    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj()};
+  },
+  /* Admin: broadcast a fresh signed snapshot so every online member holds a current,
+     relayable authoritative state — permission changes then converge even if the Admin
+     goes offline immediately afterwards */
+  pushSnapshotToAll(){
+    if(!M.Perms.isAdmin()||!M.State.room) return;
+    M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload());
+  },
   dispatch(body, from){
     const B=M.bus; const P=M.Perms.p();
     switch(body.cmd){
-      case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; M.App.putRoom('perms',M.State.perms); B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); break;
+      case 'perm': M.State.perms={...M.State.perms,...body.perms,version:(P.version||0)+1}; M.App.putRoom('perms',M.State.perms); B.emit('perms'); M.log('info','permissions updated v'+M.State.perms.version); if(M.Perms.isAdmin()) M.Admin.pushSnapshotToAll(); break;
       case 'topic':
         M.State.room.topic=String(body.topic||'').slice(0,60);
         if(M.Perms.isAdmin()) M.App.putRoom('topic',M.State.room.topic);
@@ -2590,8 +2671,11 @@ M.Admin = {
             M.Perms._saveDeny();
           }
         }catch(e){}
+        /* convergence: hand every online member a fresh SIGNED snapshot (incl. the updated
+           denyByMid) so they hold a relayable authoritative copy if the Admin leaves */
+        if(M.Perms.isAdmin()) M.Admin.pushSnapshotToAll();
         B.emit('perms'); break; }
-      case 'lock': M.State.perms ??= M.permsDefault(); M.State.perms.roomLocked=!!body.on; M.App.putRoom('perms',M.State.perms); B.emit('perms'); B.emit('sysmsg',{text:M.t(body.on?'sys_lock_on':'sys_lock_off')}); M.log('warn','room lock → '+(body.on?'on':'off')); break;
+      case 'lock': M.State.perms ??= M.permsDefault(); M.State.perms.roomLocked=!!body.on; M.App.putRoom('perms',M.State.perms); B.emit('perms'); B.emit('sysmsg',{text:M.t(body.on?'sys_lock_on':'sys_lock_off')}); M.log('warn','room lock → '+(body.on?'on':'off')); if(M.Perms.isAdmin()) M.Admin.pushSnapshotToAll(); break;
       case 'kick': B.emit('kick',body); break;
       case 'ban': if(body.fp && !M.State.bans.includes(body.fp)){ M.State.bans.push(body.fp); M.App.putRoom('bans',M.State.bans); } B.emit('kick',body); break;
       case 'unban': M.State.bans=M.State.bans.filter(f=>f!==body.fp); M.App.putRoom('bans',M.State.bans); B.emit('bans'); break;
@@ -3028,10 +3112,13 @@ M.Guard = {
         from:v=>v===pid, fromName:M.Guard.str(24), sig:M.Guard.str(512), pub:M.Guard.obj(2048), ts:v=>M.Guard.ts(v) },pid,a);
     },
     adm(d,pid,a){
-      /* authority still comes solely from M.Admin.verify (ECDSA + pin anchor);
-         Guard enforces the envelope and binds `from` to the transport sender */
+      /* authority still comes solely from M.Admin.verify (ECDSA + pin anchor).
+         Guard validates the envelope here. The from===transport binding is enforced
+         by the handler: DIRECT commands require from===peerId (M.Admin.verify), while
+         a RELAYED Admin-signed snapshot (from!==peerId) is only accepted through the
+         dedicated snapshot-relay verification — never executed as an arbitrary command. */
       if(!M.Guard.str(32)(d.cmd)||!M.Guard.str(512)(d.sig)||!M.Guard.isObj(d.pub)){ M.Guard.log('bad adm envelope',a,pid); return false; }
-      if(d.from!==pid){ M.Guard.log('adm from does not match transport sender',a,pid); return false; }
+      if(!M.Guard.isPid(d.from)){ M.Guard.log('bad adm from field',a,pid); return false; }
       return M.Guard.shape(d,{ seq:M.Guard.int(1,Number.MAX_SAFE_INTEGER), rid:M.Guard.str(64), ts:v=>M.Guard.ts(v) },pid,a);
     },
     idc(d,pid,a){ return M.Guard.HEX32.test(String(d.nonce||'')) && d.from===pid && M.Guard.isPid(d.to)
@@ -3227,10 +3314,17 @@ M.Net = {
          so a member is never left with a closed board or an unverified Admin regardless of
          whether the board happens to be open */
       if(M.Perms.isAdmin() && M.State.room){
-        const W=M.State.wb;
         /* denyByMid rides the SIGNED snapshot: a member who was offline when a deny was
            applied reconstructs the authoritative stable-deny state from here on (re)join */
-        M.Admin.cmd('wbCtrl',{sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj()},peerId);
+        M.Admin.cmd('wbCtrl',M.Admin.snapshotPayload(),peerId);
+      } else if(M.Admin._snapCache && M.State.room){
+        /* SERVERLESS CONVERGENCE RELAY — the Admin is absent, but this member holds a
+           previously VERIFIED Admin-signed snapshot. Forward it VERBATIM (never modified)
+           to the newcomer, who re-verifies the original Admin signature independently.
+           Relaying confers no Admin authority on the relayer. Once per peer per session. */
+        M.Admin._relayedTo ??= new Set();
+        if(!M.Admin._relayedTo.has(peerId)){ M.Admin._relayedTo.add(peerId);
+          try{ M.Net.A.adm.send(M.Admin._snapCache,{target:peerId}); M.log('info','relayed cached Admin snapshot to '+M.fmt.idShort(peerId)); }catch(e){} }
       }
     };
     /* "who are you?" — answered with our real profile; the name patrol below asks any peer still shown as guest-… */
@@ -3319,6 +3413,23 @@ M.Net = {
     };
     M.Net.A.adm.onMessage = async (m,{peerId}) => {
       if(!M.Guard.check('adm',m,peerId)) return;
+      /* RELAY PATH — an Admin-signed permission snapshot forwarded by a non-Admin peer
+         (serverless convergence when the Admin is offline). The relayer is never trusted:
+         the receiver re-verifies the ORIGINAL Admin signature, pubkey anchor, rid binding
+         and sequence high-water itself. Only wbCtrl snapshots may travel this path — a
+         relayed kick/ban/end/etc is rejected outright, and a member relay never confers
+         Admin authority or presence. */
+      if(m.from!==peerId){
+        /* I authored this snapshot (e.g. the Admin reconnected while members still held
+           an older copy): my local state is canonical — a relay of my own older snapshot
+           must never roll it back, so it is dropped before any verification work. */
+        if(m.from===M.State.self.id){ M.log('warn','ignored relay of own snapshot (local state is canonical)'); return; }
+        if(m.cmd==='wbCtrl'&&m.sub==='snapshot'){
+          if(await M.Admin.verifyRelayedSnapshot(m)){ M.Admin.acceptRelayedSnapshot(m,peerId); }
+          else M.log('warn','rejected relayed snapshot from '+M.fmt.idShort(peerId));
+        } else M.log('warn','rejected relayed non-snapshot admin command ('+m.cmd+') from '+M.fmt.idShort(peerId));
+        return;
+      }
       if(!(await M.Admin.verify(m,peerId))){ M.log('warn','invalid admin command rejected from '+M.fmt.idShort(peerId)); return; }
       /* ANY verified Admin command proves the Admin is present and authenticates the
          instance: adopt the rid if missing and record verified presence for Grace. */
@@ -3808,6 +3919,8 @@ M.Chat = {
       const target=M.State.chatTarget;
       const gate=M.Perms.can(target?'dm':'chat');
       if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return; }
+      /* send-side mirror of the authoritative stable deny: no ghost "sent" messages */
+      if(M.Perms.selfStableDenied(target?'dm':'chat')){ M.toast('warn',M.t('perm_denied'),M.t(target?'dm_disabled':'chat_disabled')); return; }
       inp.value=''; inp.style.height='auto';
       M.Chat.send(text,target);
     };
@@ -3834,6 +3947,9 @@ M.Chat = {
     M.bus.on('sysmsg', ({text})=>M.Chat.append('room',{sys:true,text,ts:Date.now()},false));
   },
   async send(text,target){
+    /* defensive send-side gate (the composer gates too): a member whose own stable
+       identity carries an authoritative deny never emits a ghost message */
+    if(M.Perms.selfStableDenied(target?'dm':'chat')){ M.toast('warn',M.t('perm_denied'),M.t(target?'dm_disabled':'chat_disabled')); return; }
     /* sender-side mirror of the receive boundary: an oversized message would be
        rejected by every other client's Guard — block it locally instead of
        creating a ghost message only the sender can see */
@@ -4073,7 +4189,7 @@ M.Chat = {
   refreshComposerState(){
     const target=M.State.chatTarget;
     const gate=M.Perms.can(target?'dm':'chat');
-    M.$('#composer').toggleAttribute('disabled',!gate.ok);
+    M.$('#composer').toggleAttribute('disabled',!gate.ok||M.Perms.selfStableDenied(target?'dm':'chat'));
   },
   renderAll(){
     const list=M.$('#msgList'); list.innerHTML='';
@@ -8337,12 +8453,15 @@ M.WB = {
           M.State.room.rid=b.rid;   /* signed snapshot is authoritative for the current instance */
           M.App.restoreRoomLocal();   /* (re)restore under the authenticated rid; no-op if nothing stored */
         }
+        /* authoritative stable deny map from the SIGNED snapshot — hydrated BEFORE the
+           'perms' emit so the send-side composer gate sees the current deny state.
+           _hydrateDeny validates structure and reconstructs deny flags only. */
+        if(b.denyByMid&&typeof b.denyByMid==='object') M.Perms._hydrateDeny(b.denyByMid);
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
-        /* authoritative stable deny map from the SIGNED snapshot — reconstructed before
-           the member is evaluated, and before any reconnecting member could slip through
-           the proof window. _hydrateDeny validates structure and denies-only. */
-        if(b.denyByMid&&typeof b.denyByMid==='object') M.Perms._hydrateDeny(b.denyByMid);
+        /* cache the EXACT signed snapshot (unmodified) for verbatim relay while the Admin
+           is offline — applyCtrl is only reachable through verified Admin state */
+        if(b.sig&&b.pub) M.Admin.cacheSnapshot(b);
         /* every room is Private/E2EE; encryption availability is local (rk present) */
         M.UI.encBadge(); M.UI.privNotice();
         if(b.timer) M.State.timerUntil=b.timer;
@@ -9045,6 +9164,7 @@ M.App.restoreRoomLocal = function(){
   }
   const perms=M.App.getRoom('perms'); if(perms) M.State.perms={...M.permsDefault(),...perms};
   M.Perms._ensureDeny();   /* restore the rid-scoped stable deny index BEFORE any member is evaluated */
+  M.Admin.restoreSnapCache();   /* reload the cached Admin-signed snapshot so this member can still relay after a refresh */
   const bans=M.App.getRoom('bans'); if(Array.isArray(bans)) M.State.bans=bans;
   M.WB.renderPages?.(); M.bus.emit('perms'); M.bus.emit('timer');
 };
