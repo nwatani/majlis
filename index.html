@@ -2489,11 +2489,31 @@ M.Crypto = {
 
    History authorship: hres requires an authenticated responder (midAuth),
    but responder authentication is NOT proof of authorship. Each history
-   entry may carry the original author's signature (amid/asig/midpub over
-   'majlis-chat-v1|id|ts|amid|name|text'); verifyHistMsg proves it, and
-   attribute() binds the display author. Unsigned/unverifiable entries are
-   shown relayed-by-responder with the unverified chip — never as someone
-   else's authenticated content.
+   entry may carry the original author's signature (amid/asig/midpub) over
+   the canonical form v2 — a FIXED-ORDER JSON ARRAY:
+     ['majlis-chat-v2', rid, id, ts, amid, name, text]
+   JSON serialization is injective (names/text containing |, quotes,
+   backslashes, newlines or Arabic can never collide onto the same signed
+   bytes), and the signature is bound to the CURRENT room instance rid, so
+   a message signed in one room can never verify in another. verifyHistMsg
+   proves it and attribute() binds the display author. Unsigned/unverifiable
+   entries are shown relayed-by-responder with the unverified chip — never
+   as someone else's authenticated content.
+
+   Whiteboard Admin model:
+     • Admin-CONTENT vs Admin-PRESENCE are separate. A valid Admin signature
+       on a board packet proves the content was Admin-authored, NOT that the
+       delivering transport peer is the Admin. adminVerifiedAt (presence) is
+       therefore never set from replayable board packets — only from the
+       sender-bound signed heartbeat and verified Admin commands.
+     • Signed Admin board ops (up/add/del/order/state) carry the Admin's
+       transport id INSIDE the signed payload (from); WB.onNet treats a
+       packet as Admin-originated only if the delivering peer matches it.
+     • Authoritative board state is replay-protected by a per-instance
+       revision watermark (stateGate): only a STRICTLY NEWER signed Admin
+       state may replace the board; equal rev is idempotent; older rev is
+       rejected BEFORE any mutation. A stale state can never re-open the
+       board or roll it back.
 
    Per-class limits (deliberately different per packet family):
      plaintext envelope budgets (JSON chars): hello 4K · hb 4K · chat 64K
@@ -2612,14 +2632,41 @@ M.Guard = {
   pickWbObj(o){ if(!M.Guard.wbObj(o)) return null;
     return M.Guard.pick(o, ['id','type','pg','by','alpha'].concat(M.Guard.WB_OBJ_KEYS[o.type])); },
 
+  /* ---------- authoritative board-state replay gate ------------------
+     Pure decision used by WB.onNet BEFORE any board mutation.
+     applied = highest authoritative rev already applied for the CURRENT
+     room instance (-1 when none). Returns:
+       'accept'   → strictly newer revision → may replace the board
+       'dupe'     → equal revision → idempotent retransmission, no replace
+       'stale'    → older revision → replay, reject
+       'malformed'→ not a non-negative integer, reject
+     Advancing the watermark is the CALLER's job, and happens only AFTER
+     the state was actually applied. */
+  stateGate(applied,rev){
+    if(!(typeof rev==='number' && Number.isInteger(rev) && rev>=0)) return 'malformed';
+    const a=(typeof applied==='number')?applied:-1;
+    if(rev<a) return 'stale';
+    if(rev===a) return 'dupe';
+    return 'accept';
+  },
+
   /* ---------- history authorship ------------------------------------
      An authenticated responder RELAYS history; it can never PROVE that
      another member authored an entry. Authorship is proven per message by
-     an ECDSA signature the original author made at send time over
-     'majlis-chat-v1|id|ts|amid|name|text'. Unsigned entries display with
-     the existing unverified chip, attributed to the relaying responder. */
+     an ECDSA signature the original author made at send time.
+
+     Canonical form v2 (majlis-chat-v2): a FIXED-ORDER JSON ARRAY —
+       ['majlis-chat-v2', rid, id, ts, amid, name, text]
+     serialized with JSON.stringify. This is deterministic and injective:
+     JSON string escaping makes it impossible for different field values
+     (names/text containing '|', quotes, backslashes, newlines, Arabic)
+     to collide onto the same signed byte sequence — the old
+     delimiter-join canonicalization was ambiguous and is replaced.
+     The signature is additionally BOUND TO THE ROOM INSTANCE: both signer
+     and verifier embed their own authenticated rid, so a legitimately
+     signed message from Room A can never verify inside Room B's history. */
   _histOk:new Map(),
-  canonHist(m){ return ['majlis-chat-v1',m.id,m.ts,m.amid,m.name||'',m.text].join('|'); },
+  canonHist(m){ return JSON.stringify(['majlis-chat-v2',(M.State.room&&M.State.room.rid)||'',m.id,m.ts,m.amid,m.name||'',m.text]); },
   async verifyHistMsg(m){
     if(!m || !m.amid || !m.asig || !m.midpub) return false;
     /* cache key includes the FULL canonical signed content — a tampered message
@@ -2734,13 +2781,15 @@ M.Guard = {
     },
     wb(d,pid,a){
       if(!M.Guard.en(['up','add','del','clear','close','order','req','state'])(d.t)){ M.Guard.log('bad wb type',a,pid); return false; }
-      /* non-mutating: signed admin ops must reach verifyObj byte-identical */
-      const base={ sig:M.Guard.str(512), pub:M.Guard.obj(2048), rid:M.Guard.str(64) };
+      /* non-mutating: signed admin ops must reach verifyObj byte-identical.
+         `from` is the Admin's transport id SIGNED INTO the payload — validated here,
+         bound against the delivering peer inside WB.onNet. */
+      const base={ sig:M.Guard.str(512), pub:M.Guard.obj(2048), rid:M.Guard.str(64), from:M.Guard.isPid };
       if(d.t==='up'||d.t==='add') return M.Guard.wbObj(d.o) && M.Guard.shape(d,base,pid,a);
       if(d.t==='del') return M.Guard.str(32)(d.id) && M.Guard.shape(d,base,pid,a);
       if(d.t==='order') return M.Guard.arr(4000,M.Guard.str(32))(d.ids) && M.Guard.shape(d,base,pid,a);
       if(d.t==='req') return M.Guard.shape(d,base,pid,a);
-      if(d.t==='state') return M.Guard.shape({sig:d.sig,pub:d.pub,rid:d.rid},base,pid,a)
+      if(d.t==='state') return M.Guard.shape({sig:d.sig,pub:d.pub,rid:d.rid,from:d.from},base,pid,a)
         && M.Guard.int(0,Number.MAX_SAFE_INTEGER)(d.rev||0) && (!('objects' in d)||M.Guard.arr(4000,M.Guard.wbObj)(d.objects))
         && (!('pages' in d)||M.Guard.arr(32,M.Guard.isObj)(d.pages)) && (!('admin' in d)||typeof d.admin==='boolean');
       return M.Guard.shape(d,base,pid,a);   /* clear/close — logged & ignored downstream as before */
@@ -7039,6 +7088,10 @@ M.WB = {
   send(op){ if(M.State.wb.open){
       if(M.Perms.isAdmin()){   /* admin ops carry a real ECDSA signature bound to the current rid */
         op.rid=M.State.room?.rid||undefined;
+        /* transport-sender binding: the Admin's CURRENT peer id goes INSIDE the signed
+           payload. Receivers treat the op as Admin-authored only if the delivering
+           transport peer matches it — a replayed op forwarded by anyone else fails. */
+        op.from=M.State.self.id;
         /* fail closed: if signing fails the op is aborted, never sent unsigned */
         M.Admin.signObj(op).then(sig=>{ op.sig=sig; M.Net.sendEnc('wb',op); })
           .catch(e=>{ M.log('err','whiteboard op aborted — signing failed: '+(e.message||e)); });
@@ -7527,11 +7580,15 @@ M.WB = {
   },
   async onNet(d){
     if(!d||!d.t) return;
-    const from=d.peerId;
-    const fromAdmin=!!(d.sig && await M.Admin.verifyObj(d));   /* signature against the accepted Admin key */
-    /* ONLY an authenticated Admin message may open the board. An unauthenticated peer's
-       state/up/add can never flip the board open. */
-    if(fromAdmin && (d.t==='up'||d.t==='add'||d.t==='order'||d.t==='state') && !M.State.wb.open){
+    const from=d.peerId;   /* authoritative transport sender */
+    /* Admin-ORIGINATED = valid Admin signature AND the signed `from` equals the
+       delivering transport peer. A signature alone only proves the CONTENT was
+       Admin-authored at some point; it never proves the CURRENT sender is the Admin.
+       Replayed Admin packets forwarded by a member therefore fail this binding. */
+    const fromAdmin=!!(d.sig && (await M.Admin.verifyObj(d)) && d.from===from);
+    /* ONLY a transport-bound Admin message may open the board. An unauthenticated
+       peer's up/add/order — or a REPLAYED Admin one — can never flip it open. */
+    if(fromAdmin && (d.t==='up'||d.t==='add'||d.t==='order') && !M.State.wb.open){
       M.State.wb.open=true; M.WB.refreshUI();
       M.log('info','board auto-opened by AUTHORIZED admin board data from '+M.fmt.idShort(from));
     }
@@ -7548,7 +7605,7 @@ M.WB = {
        An unsigned wb clear/close from a peer is never applied. */
     if(d.t==='clear' || d.t==='close'){ M.log('warn','ignored unsigned board '+(d.t)+' from '+M.fmt.idShort(from)); return; }
     if(d.t==='order'){
-      if(!M.WB.peerCanEdit(from,!!(d.sig && await M.Admin.verifyObj(d)))) return;
+      if(!M.WB.peerCanEdit(from,fromAdmin)) return;
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
       const missing=M.WB.order.filter(id=>!valid.includes(id));
       M.WB.order=[...valid,...missing];
@@ -7564,21 +7621,33 @@ M.WB = {
     }
     if(d.t==='state'){
       M.WBDbg.log('WB: authoritative board state received');
-      /* Board authority rides on the authenticated Admin pin, NOT on decryption:
-         a sender counts as Admin only if its pin matches the one we accepted for
-         this instance (from the invite link, or the first verified Admin command).
+      /* Board authority rides on the authenticated Admin pin, NOT on decryption.
+         verifyObj for members who already hold the key; verifyState bootstraps the
+         key from the pin and adopts the rid for a fresh member so the board opens.
          Holding the room key alone never grants board authority. */
-      /* Board authority requires an AUTHENTICATED Admin pin (from the invitation URL).
-         Possessing the room key, decrypting, or being first-seen never grants it.
-         Code-only members have no authenticated pin → Admin state stays rev-guarded. */
-      /* ONLY signed Admin state is authoritative; a higher revision from an
-         unauthenticated peer never applies, regardless of revision number */
-      /* verifyObj for members who already hold the key; verifyState bootstraps the key
-         from the pin and adopts the rid for a fresh member so the board opens */
-      const fromAdmin=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
-      if(!fromAdmin){ M.WBDbg.reject('WB: state request rejected — unauthenticated (no valid Admin signature/pin/rid)'); return; }
-      { const ap=M.State.peers.get(from); if(ap) ap.adminVerifiedAt=Date.now(); }  /* verified Admin presence for Grace */
-      M.WBDbg.log('WB: authoritative board state accepted');
+      const sigOk=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
+      if(!sigOk){ M.WBDbg.reject('WB: state rejected — unauthenticated (no valid Admin signature/pin/rid)'); return; }
+      /* TRANSPORT-SENDER BINDING: the signed state carries the Admin's peer id (from).
+         Only the peer actually delivering it may present it as Admin-originated. A
+         replayed state forwarded by a member fails here and gains NOTHING — it does
+         not open the board, does not replace state, and grants no Admin identity. */
+      if(d.from!==from){ M.WBDbg.reject('WB: state rejected — signed sender does not match transport peer (replayed content)'); return; }
+      /* REPLAY PROTECTION — decided BEFORE any board mutation. The authoritative
+         revision watermark is bound to the current room instance (rid); a new
+         instance resets it. Only a STRICTLY NEWER valid Admin state may replace the
+         board; an equal rev is an idempotent retransmission; an older rev is a
+         replay and is rejected. */
+      const rid=M.State.room?.rid||'';
+      if(M.WB._asRid!==rid){ M.WB._asRid=rid; M.WB._asRev=-1; }
+      const verdict=M.Guard.stateGate(M.WB._asRev,d.rev);
+      if(verdict==='malformed'){ M.WBDbg.reject('WB: state rejected — malformed revision'); return; }
+      if(verdict==='stale'){ M.WBDbg.reject('WB: stale board state replay rejected (rev '+d.rev+' < applied '+M.WB._asRev+')'); return; }
+      if(verdict==='dupe'){ M.WBDbg.log('WB: duplicate board state rev '+d.rev+' — idempotent, no replacement'); return; }
+      /* NOTE: authoritative state proves Admin-CONTENT, not Admin transport presence.
+         adminVerifiedAt is deliberately NOT set here — Admin presence comes only from
+         the sender-bound signed heartbeat and verified Admin commands. */
+      M.WBDbg.log('WB: authoritative board state accepted (rev '+d.rev+')');
+      if(!M.State.wb.open){ M.State.wb.open=true; M.WB.refreshUI(); }   /* open only AFTER passing the rev gate */
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
       M.WB.objs.clear(); M.WB.order=[];
       /* every state object passes the bounded schema + per-type allowlist before it
@@ -7589,8 +7658,10 @@ M.WB = {
         M.WB.pages=d.pages.map(p=>M.Guard.pick(p,['id','name'])).filter(p=>M.Guard.str(32)(p.id));
       if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
       M.WB.renderPages(); M.WB.hud();
+      /* advance the watermark ONLY now that the state was actually applied */
+      M.WB._asRev=d.rev;
       M.WB.rev=Math.max(M.WB.rev,d.rev||0); M.WB.dirty=true;
-      M.log('info','board state synced ('+M.WB.objs.size+' objects'+(fromAdmin?', authoritative':'')+')');
+      M.log('info','board state synced ('+M.WB.objs.size+' objects, authoritative rev '+d.rev+')');
       return;
     }
   },
@@ -7604,7 +7675,9 @@ M.WB = {
     const objects=[...M.WB.objs.values()];
     /* pub travels OUTSIDE the signed payload (alongside sig), exactly like Admin
        commands — receivers strip {sig,pub} before verifying, so both must match. */
-    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined};
+    /* `from` carries the Admin's current transport id INSIDE the signed payload so a
+       replayed state forwarded by another peer can never count as Admin-originated */
+    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined,from:M.State.self.id};
     if(M.Perms.isAdmin()){
       /* authoritative state is signed; receivers verify the signature against the
          accepted Admin key — the pin identifies, the signature authorizes.
@@ -8306,6 +8379,7 @@ M.App = {
     if(M.Chat._fileRefs) M.Chat._fileRefs.clear();
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
+    M.WB._asRev=-1; M.WB._asRid=null;   /* authoritative-state watermark reset with the board */
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
     M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
