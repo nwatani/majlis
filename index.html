@@ -483,6 +483,15 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .callwin .tile .no-vid .avatar{width:44px;height:44px;font-size:17px}
 .callwin .tile .scr-tag{position:absolute;top:5px;inset-inline-start:6px;font-size:9.5px;font-family:var(--mono);background:rgba(245,168,60,.85);color:#221503;padding:1px 7px;border-radius:99px;font-weight:600}
 .callwin .cw-ctrl{display:flex;justify-content:center;gap:7px;padding:10px;background:var(--bg2);border-top:1px solid var(--line)}
+/* compact media diagnostics panel — answers "is RTP actually flowing?" */
+.callwin .cw-diagpanel{background:var(--bg2);border-top:1px solid var(--line);padding:8px 10px;max-height:190px;overflow:auto}
+.callwin .cw-diagpanel.hidden{display:none}
+.callwin .cw-diaghead{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:6px}
+.callwin .cw-diagbody{font-family:var(--mono);font-size:11px;line-height:1.7}
+.callwin .dg-row{display:flex;justify-content:space-between;gap:12px;color:var(--ink);border-bottom:1px dashed var(--line)}
+.callwin .dg-row span:first-child{color:var(--mut)}
+.callwin .dg-row span:last-child{text-align:end;white-space:nowrap}
+.callwin .dg-note{color:var(--warn);font-size:10.5px;padding-top:3px}
 .callwin .cw-ctrl .icon-btn{background:var(--bg3);border-color:var(--line)}
 .callwin .cw-ctrl .icon-btn.off{background:rgba(255,97,87,.18);color:#ff8d85;border-color:rgba(255,97,87,.5)}
 .callwin .cw-ctrl .icon-btn.end{background:var(--red);color:#fff;border-color:var(--red);width:46px}
@@ -1681,6 +1690,9 @@ en:{
  screen_share:'Screen share', screen_on:'You are sharing your screen', screen_canceled:'Screen selection was canceled',
  spot_on:'Focus this view', spot_off:'Back to grid', cw_max:'Expand', cw_min:'Restore', cw_fs:'Fullscreen',
 enable_audio:'Call audio is blocked by the browser — click to enable sound',
+diag:'Media diagnostics', call_media:'Call media',
+media_none_yet:'No remote media has arrived yet — the other side may still be connecting, may have blocked camera/microphone, or the relay path may be degraded. The call stays open and recovers automatically once media flows.',
+media_none_short:'no remote media', media_connecting_short:'media connecting…',
  screen_blocked:'Screen capture is blocked here — embedded previews often forbid it; open the site directly in its own tab', transfer_monitor:'Transfer monitor', call_monitor:'Call monitor',
  rc_btn:'Remote view', rc_win_title:'Remote view', rc_request_title:'Remote view request',
  rc_request_body:'wants to view your screen in real time. Your screen is shared with the Admin only, and you can revoke access at any time.',
@@ -1880,6 +1892,9 @@ ar:{
  screen_share:'مشاركة الشاشة', screen_on:'أنت تشارك شاشتك', screen_canceled:'أُلغي اختيار الشاشة',
  spot_on:'تركيز على هذا العرض', spot_off:'العودة إلى الشبكة', cw_max:'توسيع', cw_min:'استعادة', cw_fs:'ملء الشاشة',
 enable_audio:'صوت المكالمة محظور من المتصفح — اضغط هنا لتفعيل الصوت',
+diag:'تشخيصات الوسائط', call_media:'وسائط المكالمة',
+media_none_yet:'لم تصل وسائط من الطرف الآخر بعد — قد لا يزال يتصل، أو حظر الكاميرا/المايكروفون، أو أن مسار الترحيل متدهور. تبقى المكالمة مفتوحة وتتعافى تلقائياً بمجرد تدفق الوسائط.',
+media_none_short:'لا وسائط واردة', media_connecting_short:'جارٍ توصيل الوسائط…',
  screen_blocked:'التقاط الشاشة محظور هنا — المعاينات المضمّنة غالباً تمنعه؛ افتح الموقع مباشرة في تبويب مستقل', transfer_monitor:'مراقب النقل', call_monitor:'مراقب المكالمات',
  rc_btn:'عرض عن بُعد', rc_win_title:'عرض عن بُعد', rc_request_title:'طلب عرض عن بُعد',
  rc_request_body:'يرغب في مشاهدة شاشتك مباشرة. تُشارَك شاشتك مع المشرف فقط، ويمكنك إلغاء الوصول في أي لحظة.',
@@ -3202,10 +3217,14 @@ M.Net = {
     M.Net.A.ftbin.onMessage = (buf,{peerId,metadata}) => { if(!M.Guard.check('ftbin',{metadata,buf},peerId)) return; M.bus.emit('ftChunk',{peerId,metadata,buf}); };
 
     /* media plane — stream metadata is type-checked at the boundary */
+    /* stream-metadata boundary check. KNOWN kinds: 'cam' (normal call media —
+       voice AND video), 'screen' (share), 'rc'/'rc-admin' (remote assistance).
+       NOTE: 'cam' must stay in this list — dropping it silently kills all call
+       audio/video at the transport edge while signaling still looks healthy. */
     R.onPeerStream = (stream,peerId,metadata) => {
       if(metadata!=null && !M.Guard.isObj(metadata)) return;
-      if(metadata && (('kind' in metadata && !['rc','rc-admin','screen'].includes(metadata.kind))
-        || ('call' in metadata && !M.Guard.isPid(metadata.call)))) return;
+      if(metadata && (('kind' in metadata && !['cam','screen','rc','rc-admin'].includes(metadata.kind))
+        || ('call' in metadata && !M.Guard.isPid(metadata.call)))){ M.log('warn','stream with unknown metadata dropped from '+M.fmt.idShort(peerId)); return; }
       M.bus.emit('peerStream',{stream,peerId,metadata});
     };
 
@@ -4874,7 +4893,15 @@ M.Media = {
       const s=await navigator.mediaDevices.getUserMedia(M.Media.constraints(kind));
       M.Media.streams[kind]=s; M.Media.refs[kind]=(M.Media.refs[kind]||0)+1;
       M.Media.watch(kind);
-      M.log('info','acquired '+kind+' media ('+s.getTracks().map(t=>t.kind).join('+')+')');
+      /* CAPTURE AUDIT — permission granted is not enough: verify the tracks we
+         are about to send are actually live and enabled */
+      const desc=s.getTracks().map(t=>{
+        let dev=''; try{ const st=t.getSettings&&t.getSettings(); if(st&&st.deviceId) dev=' dev='+String(st.deviceId).slice(0,12); }catch(e){}
+        return t.kind+'['+t.readyState+(t.enabled?'/enabled':'/DISABLED')+(t.muted?'/MUTED':'')+dev+']';
+      }).join(' ');
+      M.log('info','acquired '+kind+' media: stream='+s.id.slice(0,8)+' active='+s.active+' tracks: '+desc);
+      if(!s.getAudioTracks().some(t=>t.readyState==='live'&&t.enabled) && kind!=='video') M.log('warn','capture produced no usable AUDIO track');
+      if(kind==='video' && !s.getVideoTracks().some(t=>t.readyState==='live'&&t.enabled)) M.log('warn','capture produced no usable VIDEO track');
       return s;
     }catch(e){
       M.log('err','getUserMedia failed: '+e.name);
@@ -5022,6 +5049,7 @@ M.Call = {
     M.Call._spk=new WeakMap();                       /* §12 active-speaker indication */
     setInterval(()=>M.Call.paintSpeakers(),700);
     setInterval(()=>M.Call.adaptQuality(),4000);     /* loss-driven adaptive bitrate */
+    setInterval(()=>M.Call.mediaProbe(),2500);       /* RTP-flow media state machine + diag refresh */
   },
   all(){ return [...M.Call.sessions.values()]; },
   activeCount(){ let n=0; M.Call.sessions.forEach(s=>{ if(s.status==='active') n++; }); return n; },
@@ -5095,7 +5123,13 @@ M.Call = {
         const s=M.Call.sessions.get(d.callId); if(!s||s.status!=='ringing') return;
         clearTimeout(s._timeout);
         s.status='active'; s.startedAt=Date.now();
-        M.Call.sendLocal(s,[d.peerId]);
+        /* signaling success ≠ media success: a getUserMedia/addStream failure here
+           must be surfaced, never left as a silent "active" call with no media */
+        M.Call.sendLocal(s,[d.peerId]).catch(e=>{
+          M.log('err','local media failed after accept: '+(e&&e.name)+': '+(e&&e.message));
+          s.mediaState='capture-failed'; M.Call.renderWin(s);
+          M.toast('err',M.t('call_media'),(e&&e.name==='NotAllowedError')?M.t('perm_denied'):((e&&e.message)||'media failed'),{ms:8000});
+        });
         M.toast('ok',M.Members.name(d.peerId),M.t('call_state_active'));
         M.bus.emit('sysmsg',{text:M.Members.name(d.peerId)+' — '+M.t('call_state_active')});
         M.bus.emit('callState');
@@ -5104,7 +5138,11 @@ M.Call = {
       case 'gaccept': {
         const s=M.Call.sessions.get(d.callId); if(!s) return;
         s.peers.add(d.peerId);
-        M.Call.sendLocal(s,[d.peerId]);
+        M.Call.sendLocal(s,[d.peerId]).catch(e=>{
+          M.log('err','local media failed for group join: '+(e&&e.name)+': '+(e&&e.message));
+          s.mediaState='capture-failed'; M.Call.renderWin(s);
+          M.toast('err',M.t('call_media'),(e&&e.name==='NotAllowedError')?M.t('perm_denied'):((e&&e.message)||'media failed'),{ms:8000});
+        });
         M.Call.broadcastMembers(s);
         M.bus.emit('sysmsg',{text:M.t('joined_call',{n:M.Members.name(d.peerId)})});
         M.bus.emit('callState');
@@ -5206,12 +5244,30 @@ M.Call = {
   async sendLocal(s,targets){
     const stream=await M.Media.acquire(s.kind);
     s.localStream=stream; s.localKind=s.kind;
+    s.mediaState=s.mediaState||'media-connecting'; s._mediaT0=Date.now();
     for(const pid of targets){
       if(s.sentTo.has(pid)) continue;
       try{
         M.Net.room.addStream(stream,{target:pid, metadata:{call:s.id, kind:'cam'}});
         s.sentTo.add(pid);
-      }catch(e){ M.log('err','addStream failed for '+M.fmt.idShort(pid)+': '+e.message); }
+        /* addStream returning without throwing is NOT proof media is being sent.
+           Inspect the actual peer connection: senders must carry our live tracks. */
+        try{
+          const pc=M.Net.room.getPeers?.()?.[pid];
+          if(!pc){ M.log('err','addStream: NO peer connection for '+M.fmt.idShort(pid)+' — media cannot flow yet'); }
+          else{
+            const sds=pc.getSenders?.()||[];
+            const rep=sds.map(sd=>sd.track?(sd.track.kind+'/'+sd.track.readyState+(sd.track.enabled?'':'/disabled')):'(no-track)').join(', ');
+            M.log('info','addStream → '+M.fmt.idShort(pid)+' senders=['+(rep||'none')+'] pc: ice='+(pc.iceConnectionState||'?')+' conn='+(pc.connectionState||'?')+' sig='+(pc.signalingState||'?'));
+            if(!sds.some(sd=>sd.track&&sd.track.kind==='audio')) M.log('err','addStream: NO AUDIO sender toward '+M.fmt.idShort(pid)+' — remote will hear nothing');
+            if(s.kind==='video'&&!sds.some(sd=>sd.track&&sd.track.kind==='video')) M.log('err','addStream: NO VIDEO sender toward '+M.fmt.idShort(pid)+' — remote will see nothing');
+          }
+        }catch(e){ M.log('warn','post-addStream verification failed: '+(e.message||e)); }
+      }catch(e){
+        M.log('err','addStream failed for '+M.fmt.idShort(pid)+': '+e.message);
+        s.mediaState='send-failed';
+        M.toast('err',M.t('call_media'),'addStream failed: '+(e.message||e),{ms:7000});
+      }
     }
     M.Call.renderWin(s);
   },
@@ -5290,8 +5346,8 @@ M.Call = {
     if(s.localKind) M.Media.release(s.localKind);
     s.remotes.forEach(r=>{
       /* release cached media elements alongside their streams */
-      try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; }catch(e){}
-      r._cam=null; r._scr=null;
+      try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; if(r._aud?.el) r._aud.el.srcObject=null; }catch(e){}
+      r._cam=null; r._scr=null; r._aud=null;
       r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop());
     });
     try{ if(s._self?.el) s._self.el.srcObject=null; if(s._ss?.el) s._ss.el.srcObject=null; }catch(e){}
@@ -5308,7 +5364,7 @@ M.Call = {
     M.Call.sessions.forEach(s=>{
       if(!s.peers.has(pid)) return;
       const r=s.remotes.get(pid); if(r){
-        try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; }catch(e){}
+        try{ if(r._cam?.el) r._cam.el.srcObject=null; if(r._scr?.el) r._scr.el.srcObject=null; if(r._aud?.el) r._aud.el.srcObject=null; }catch(e){}
         r.stream?.getTracks().forEach(t=>t.stop()); r.screen?.getTracks().forEach(t=>t.stop()); s.remotes.delete(pid); }
       s.peers.delete(pid); s.sentTo.delete(pid);
       if(s.peers.size===0){ M.Call.teardown(s.id, M.t('sys_left',{n:M.Members.name(pid)}), true); }
@@ -5351,6 +5407,38 @@ M.Call = {
      .catch(err=>{ M.log('warn','media play() REJECTED ('+label+'): '+(err&&err.name||'?')+' — '+(err&&err.message||'')+' — user interaction required');
         s._blocked ??= new Set(); s._blocked.add(el); M.Call._syncAudioBanner(s); });
   },
+  /* VIDEO-call playback, robust against autoplay policy:
+       1. try unmuted playback of the <video> element (audio + video together);
+       2. on NotAllowedError, the VIDEO must not vanish — mute the element and
+          play it (muted autoplay is always allowed → picture survives), then
+          route the SAME remote stream's audio to a dedicated hidden <audio>
+          sink (no stream clone → no duplicate RTP);
+       3. if the audio sink is ALSO blocked, the "Enable call audio" action
+          appears — but the video keeps playing either way. */
+  _playRemoteVideo(s,r,tile,el,pid){
+    let p; try{ p=el.play(); }catch(e){ M.log('warn','remote video play() threw: '+(e.message||e)); return; }
+    if(!p||!p.then) return;
+    p.then(()=>{
+      if(!el._ok) M.log('info','remote video+audio playback started ('+M.fmt.idShort(pid)+')');
+      el._ok=true;
+      /* unmuted video plays audio itself — retire any leftover audio sink (no double audio) */
+      if(r._aud&&r._aud.el){ try{ r._aud.el.pause(); r._aud.el.srcObject=null; }catch(e){} r._aud=null; }
+      if(s._blocked){ s._blocked.delete(el); M.Call._syncAudioBanner(s); }
+    }).catch(err=>{
+      M.log('warn','remote video play() REJECTED: '+(err&&err.name||'?')+' — '+(err&&err.message||''));
+      if(err&&err.name==='NotAllowedError'){
+        el.muted=true;
+        const mp=el.play();
+        if(mp&&mp.then) mp.then(()=>{ el._ok=true; M.log('info','remote video playing MUTED — audio routed to dedicated <audio> sink ('+M.fmt.idShort(pid)+')'); }).catch(()=>{});
+        const a=M.Call._slot(r,'_aud',r.stream,'audio');   /* same MediaStream — no extra RTP */
+        M.Call._sink(a);
+        if(!a.parentNode) tile.appendChild(a);
+        M.Call._play(s,a,'remote audio '+M.fmt.idShort(pid));   /* banner if this is blocked too */
+        return;
+      }
+      s._blocked ??= new Set(); s._blocked.add(el); M.Call._syncAudioBanner(s);
+    });
+  },
   /* never silently show an "active" call with no audible remote audio:
      while any media element is autoplay-blocked, the window carries a
      one-click action (a real user gesture satisfies the autoplay policy) */
@@ -5375,6 +5463,9 @@ M.Call = {
     if(!M.Platform.mobile){ w.style.top=(86+cascade*26)+'px'; w.style.insetInlineEnd=(16+cascade*26)+'px'; }
     w.appendChild(M.el('div','cw-head'));
     w.appendChild(M.el('div','cw-grid'));
+    const dp=M.el('div','cw-diagpanel hidden');
+    dp.innerHTML='<div class="cw-diaghead"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> '+M.t('diag')+'</div><div class="cw-diagbody"></div>';
+    w.appendChild(dp);
     w.appendChild(M.el('div','cw-ctrl'));
     layer.appendChild(w);
     s.win=w;
@@ -5434,9 +5525,14 @@ M.Call = {
         tile.appendChild(ex);
         tile.ondblclick=()=>{ s._spot=(spot===tl)?null:tkey(tl); M.Call.renderWin(s); };
       }
+      /* playback is QUEUED, not started here: the tile is not attached to the
+         live window DOM until makeTile returns, and play() on a detached element
+         behaves differently across Firefox/Chromium. renderWin flushes the queue
+         once everything is attached. */
       if(tl.selfScreen){
         const v=M.Call._slot(s,'_ss',s.screenStream,'video');
-        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v); M.Call._play(s,v,'self screen preview');
+        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v);
+        (s._playQ ??= []).push(()=>M.Call._play(s,v,'self screen preview'));
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',M.t('you')+' · '+M.t('screen')));
         return tile;
@@ -5444,7 +5540,8 @@ M.Call = {
       if(tl.screen){
         const r=s.remotes.get(tl.pid)||{}; const nm=M.Members.name(tl.pid);
         const v=M.Call._slot(r,'_scr',r.screen,'video');
-        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v); M.Call._play(s,v,'remote screen '+M.fmt.idShort(tl.pid));
+        v.muted=true; v.style.objectFit='contain'; tile.appendChild(v);
+        (s._playQ ??= []).push(()=>M.Call._play(s,v,'remote screen '+M.fmt.idShort(tl.pid)));
         tile.appendChild(M.el('div','scr-tag',M.t('screen')));
         tile.appendChild(M.el('div','t-name',nm.replace(/</g,'&lt;')+' · '+M.t('screen')));
         return tile;
@@ -5455,7 +5552,8 @@ M.Call = {
         if(s.kind==='video'&&s.localStream){
           /* muted local preview — reuse across renders, never replaced needlessly */
           const v=M.Call._slot(s,'_self',s.localStream,'video');
-          v.muted=true; v.style.transform='scaleX(-1)'; tile.appendChild(v); M.Call._play(s,v,'self preview');
+          v.muted=true; v.style.transform='scaleX(-1)'; tile.appendChild(v);
+          (s._playQ ??= []).push(()=>M.Call._play(s,v,'self preview'));
         }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(M.State.self.name)}">${M.initials(M.State.self.name)}</div><span>${s.camOff?M.t('cam_off'):name}</span>`)); }
         const tag=M.el('div','t-name'); tag.innerHTML=(s.muted?M.Icons.micOff:M.Icons.mic)+name+(s.sharing?' · '+M.t('screen'):'');
@@ -5482,7 +5580,13 @@ M.Call = {
               +at.map(t=>'['+t.readyState+(t.enabled?'/enabled':'/disabled')+(t.muted?'/muted':'')+']').join('')
               +' videoTracks='+vt.length);
           }
-          M.Call._play(s,el,'remote '+(wantTag==='audio'?'voice':'video')+' '+M.fmt.idShort(pid));
+          /* video calls: visual playback must survive autoplay policy blocking
+             audible playback (muted-video fallback + dedicated audio sink).
+             voice calls: dedicated <audio> sink only. Started after DOM attach. */
+          (s._playQ ??= []).push(()=>{
+            if(wantTag==='video') M.Call._playRemoteVideo(s,r,tile,el,pid);
+            else M.Call._play(s,el,'remote voice '+M.fmt.idShort(pid));
+          });
         }
         if(!hasVid){ tile.appendChild(M.el('div','no-vid',`<div class="avatar" style="background:${M.avatarBg(nm)}">${M.initials(nm)}</div><span>${r.camOff?M.t('cam_off'):nm.replace(/</g,'&lt;')}</span>`)); }
         const rtt=M.Net.rtt.get(pid);
@@ -5530,7 +5634,13 @@ M.Call = {
       btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>',on?'off':'',on?M.t('rec_stop'):M.t('rec_start'),()=>on?M.Rec.stop():M.Rec.start(s.id),on);
     }
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg>','',M.t('devices'),()=>M.Media.openDevicesModal());
+    btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>','',M.t('diag'),()=>M.Call.toggleDiag(s),!!s.diagOpen);
     btn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>','end',M.t('end_call'),()=>M.Call.leave(s.id));
+    /* flush queued playback only now that every tile is attached to the live
+       window DOM — play() on a detached element is unreliable across Firefox
+       and Chromium (srcObject assigned → connected → play) */
+    const pq=s._playQ; if(pq&&pq.length){ s._playQ=[];
+      requestAnimationFrame(()=>{ pq.forEach(f=>{ try{ f(); }catch(e){ M.log('warn','deferred playback error: '+(e.message||e)); } }); }); }
   },
 
   renderList(){
@@ -5598,6 +5708,170 @@ M.Call = {
       }
     });
   },
+  /* ================= Media diagnostics ================================
+     The question that matters is NOT "is the ICE transport connected?" but
+     "is RTP actually flowing, and is it being rendered?". A connected PC with
+     zero media packets is NOT a working call. collectDiag() answers, per peer:
+       are we SENDING audio/video RTP? are we RECEIVING it? is the selected
+       candidate pair host/relay (direct vs TURN)? And separately, is each
+       media element attached, unpaused, and advancing currentTime?
+     This is intentionally decoupled from signaling state. */
+  async collectDiag(s){
+    const out={ session:{ id:s.id, kind:s.kind, status:s.status, group:s.group, mediaState:s.mediaState, startedAt:s.startedAt },
+      local:{ mic:null, cam:null }, peers:[], playback:[] };
+    /* local capture truth (readyState/enabled/muted), not what signaling claims */
+    try{
+      const st=s.localStream;
+      const mk=t=>t?{present:true,live:t.readyState==='live',enabled:t.enabled,muted:t.muted,id:t.id.slice(0,8)}:{present:false};
+      const a=st?st.getAudioTracks()[0]:null, v=st?st.getVideoTracks()[0]:null;
+      out.local.mic=mk(a); out.local.cam=mk(v);
+    }catch(e){}
+    const pcs=M.Net.room?.getPeers?.()||{};
+    for(const pid of s.peers){
+      const pd={ pid, name:M.Members.name(pid), pcExists:false, ice:null, conn:null, sig:null, pair:null,
+                 aOut:{pk:0,b:0}, aIn:{pk:0,b:0,level:undefined}, vOut:{pk:0,b:0}, vIn:{pk:0,b:0,frames:undefined} };
+      out.peers.push(pd);
+      const pc=pcs[pid]; if(!pc){ continue; }
+      pd.pcExists=true;
+      try{ pd.ice=pc.iceConnectionState; pd.conn=pc.connectionState; pd.sig=pc.signalingState; }catch(e){}
+      if(!pc.getStats) continue;
+      try{
+        const st=await pc.getStats();
+        const cand={};
+        st.forEach(r=>{ if(r.type==='local-candidate'||r.type==='remote-candidate') cand[r.id]=r; });
+        st.forEach(r=>{
+          if(r.type==='transport'&&r.selectedCandidatePairId){ /* resolved below via pair */ }
+          if(r.type==='candidate-pair'&&(r.selected||(r.nominated&&r.state==='succeeded'))){
+            const lc=cand[r.localCandidateId];
+            if(lc) pd.pair=lc.candidateType||pd.pair;   /* host | srflx | prflx | relay(TURN) */
+          }
+          const k=r.kind||r.mediaType;
+          if(r.type==='outbound-rtp'){
+            if(k==='audio'){ pd.aOut.pk+=r.packetsSent||0; pd.aOut.b+=r.bytesSent||0; }
+            if(k==='video'){ pd.vOut.pk+=r.packetsSent||0; pd.vOut.b+=r.bytesSent||0; }
+          }
+          if(r.type==='inbound-rtp'){
+            if(k==='audio'){ pd.aIn.pk+=r.packetsReceived||0; pd.aIn.b+=r.bytesReceived||0; if(r.audioLevel!=null) pd.aIn.level=r.audioLevel; }
+            if(k==='video'){ pd.vIn.pk+=r.packetsReceived||0; pd.vIn.b+=r.bytesReceived||0; if(r.framesDecoded!=null) pd.vIn.frames=r.framesDecoded; }
+          }
+        });
+      }catch(e){ /* stats unavailable — keep the pc-state fields we already have */ }
+    }
+    /* playback truth: attached + unpaused + advancing currentTime */
+    try{
+      if(s.win){
+        s.win.querySelectorAll('video, audio').forEach(el=>{
+          const kind=el.tagName==='VIDEO'?'video':'audio';
+          out.playback.push({ kind, attached:!!el.srcObject, muted:el.muted, paused:el.paused,
+            readyState:el.readyState, t:(el.currentTime||0).toFixed(1),
+            blocked:!!(s._blocked&&[...s._blocked].includes(el)) });
+        });
+      }
+    }catch(e){}
+    return out;
+  },
+  /* Reduce the raw diag into the single verdict a human needs: for each
+     direction, is media FLOWING / RECEIVED / RENDERED, or WHERE did it stop. */
+  diagVerdict(d){
+    const v={ sendAudio:'—', sendVideo:'—', recvAudio:'—', recvVideo:'—', ice:'—', notes:[] };
+    let anyPc=false, iceUp=true;
+    d.peers.forEach(p=>{
+      if(p.pcExists) anyPc=true;
+      if(p.pcExists && !(p.ice==='connected'||p.ice==='completed')) iceUp=false;
+      if(p.aOut.pk>0) v.sendAudio='ok';
+      if(p.vOut.pk>0) v.sendVideo='ok';
+      if(p.aIn.pk>0) v.recvAudio='ok';
+      if(p.vIn.pk>0) v.recvVideo='ok';
+    });
+    v.ice = !anyPc ? 'no-pc' : (iceUp?'up':'down');
+    if(d.local.mic&&d.local.mic.present&&!d.local.mic.live) v.notes.push('mic track not live');
+    if(d.local.mic&&d.local.mic.present&&d.local.mic.muted) v.notes.push('mic track muted at source');
+    /* remote never arrived vs arrived-but-not-rendered */
+    if(anyPc&&iceUp){
+      if(v.recvAudio!=='ok'&&v.sendAudio==='ok') v.notes.push('audio RTP: sending, RX=0 (remote not sending audio or relay drop)');
+      if(v.recvAudio==='ok'&&d.playback.length&&!d.playback.some(p=>p.kind==='audio'&&!p.paused)) v.notes.push('audio RTP received but no unpaused audio element');
+      if(d.playback.some(p=>p.blocked)) v.notes.push('playback blocked by autoplay policy (needs Enable audio)');
+    }
+    return v;
+  },
+  /* build the compact diagnostics panel body (monospace, per-line ✓/✗) */
+  diagHTML(d){
+    const ok=x=>x?'<span style="color:var(--ok)">✓</span>':'<span style="color:var(--err)">✗</span>';
+    const kb=n=> n>=1048576?(n/1048576).toFixed(1)+' MB': n>=1024?Math.round(n/1024)+' KB':(n+' B');
+    const v=this.diagVerdict(d);
+    const peer=d.peers[0]||{};
+    const pair=peer.pair?(peer.pair==='relay'?'TURN relay':peer.pair):'—';
+    const lc=d.local;
+    const pb=d.playback;
+    const audPb=pb.find(p=>p.kind==='audio'), vidPb=pb.find(p=>p.kind==='video'&&!p.muted)||pb.find(p=>p.kind==='video');
+    const L=[];
+    L.push('<div class="dg-row"><span>Signaling</span><span>'+ok(d.session.status==='active'||d.session.status==='ringing')+' · '+d.session.status+'</span></div>');
+    L.push('<div class="dg-row"><span>Local mic</span><span>'+ok(lc.mic&&lc.mic.present&&lc.mic.live)+' · '+(lc.mic&&lc.mic.present?(lc.mic.live?(lc.mic.muted?'muted':'live'):'not live'):'absent')+'</span></div>');
+    if(d.session.kind==='video') L.push('<div class="dg-row"><span>Local camera</span><span>'+ok(lc.cam&&lc.cam.present&&lc.cam.live)+' · '+(lc.cam&&lc.cam.present?(lc.cam.live?(lc.cam.enabled?'live':'off'):'not live'):'absent')+'</span></div>');
+    L.push('<div class="dg-row"><span>Peer connection</span><span>'+ok(peer.pcExists)+' · '+(peer.pcExists?(peer.conn||'?'):'missing')+'</span></div>');
+    L.push('<div class="dg-row"><span>ICE</span><span>'+ok(v.ice==='up')+' · '+(peer.ice||'—')+' · '+pair+'</span></div>');
+    L.push('<div class="dg-row"><span>Audio RTP</span><span>'+ok(v.recvAudio==='ok'||v.sendAudio==='ok')+' · TX '+kb(peer.aOut.b||0)+' / RX '+kb(peer.aIn.b||0)+'</span></div>');
+    if(d.session.kind==='video') L.push('<div class="dg-row"><span>Video RTP</span><span>'+ok(v.recvVideo==='ok'||v.sendVideo==='ok')+' · TX '+kb(peer.vOut.b||0)+' / RX '+kb(peer.vIn.b||0)+(peer.vIn.frames!=null?' · '+peer.vIn.frames+' fr':'')+'</span></div>');
+    L.push('<div class="dg-row"><span>Remote audio</span><span>'+ok(v.recvAudio==='ok')+' · '+(v.recvAudio==='ok'?kb(peer.aIn.b||0):'not received')+'</span></div>');
+    if(d.session.kind==='video') L.push('<div class="dg-row"><span>Remote video</span><span>'+ok(v.recvVideo==='ok')+' · '+(v.recvVideo==='ok'?kb(peer.vIn.b||0):'not received')+'</span></div>');
+    L.push('<div class="dg-row"><span>Audio playback</span><span>'+ok(!!(audPb&&audPb.attached&&!audPb.paused&&!audPb.blocked))+' · '+(audPb?(audPb.blocked?'blocked':(audPb.paused?'paused':'playing')):'no element')+'</span></div>');
+    if(d.session.kind==='video') L.push('<div class="dg-row"><span>Video playback</span><span>'+ok(!!(vidPb&&vidPb.attached&&!vidPb.paused))+' · '+(vidPb?(vidPb.paused?'paused':'playing'):'no element')+'</span></div>');
+    v.notes.forEach(n=>L.push('<div class="dg-note">⚠ '+n+'</div>'));
+    return L.join('');
+  },
+  async refreshDiag(s){
+    if(!s.diagOpen||!s.win) return;
+    const box=s.win.querySelector('.cw-diagbody'); if(!box) return;
+    try{ const d=await M.Call.collectDiag(s); box.innerHTML=M.Call.diagHTML(d); s._lastDiag=d; }catch(e){}
+  },
+  toggleDiag(s){
+    s.diagOpen=!s.diagOpen;
+    const p=s.win?.querySelector('.cw-diagpanel'); if(p) p.classList.toggle('hidden',!s.diagOpen);
+    if(s.diagOpen) M.Call.refreshDiag(s);
+    M.Call.renderWin(s);
+  },
+  /* MEDIA STATE MACHINE — runs for every active session whether or not the
+     diagnostics panel is open, because a call must never silently present as
+     "active" while no media is flowing. States:
+       media-connecting → ICE up but no inbound RTP yet (grace period)
+       media-active     → inbound RTP observed (the only true "working" state)
+       no-remote-media  → ICE up, >12s since answer, still zero inbound RTP
+       ice-down / no-peer-connection / capture-failed / send-failed
+     Nothing ends the call automatically — states recover on their own when
+     media starts flowing again. */
+  async mediaProbe(){
+    for(const s of M.Call.sessions.values()){
+      if(s.status!=='active') continue;
+      let d; try{ d=await M.Call.collectDiag(s); }catch(e){ continue; }
+      s._lastDiag=d;
+      const v=M.Call.diagVerdict(d);
+      const prev=s.mediaState||'media-connecting';
+      let next;
+      if(prev==='capture-failed'||prev==='send-failed') next=prev;   /* explicit failure stays until teardown */
+      else if(!d.peers.some(p=>p.pcExists)) next='no-peer-connection';
+      else if(v.ice==='down') next='ice-down';
+      else if(v.recvAudio==='ok'||v.recvVideo==='ok') next='media-active';
+      else if(Date.now()-(s.startedAt||Date.now())>12000) next='no-remote-media';
+      else next='media-connecting';
+      if(next!==prev){
+        s.mediaState=next;
+        M.log(next==='media-active'?'info':'warn','call '+s.id+' media state: '+prev+' → '+next
+          +' (A in '+(d.peers[0]?.aIn.pk||0)+' pkts, V in '+(d.peers[0]?.vIn.pk||0)+' pkts, ice '+(d.peers[0]?.ice||'none')+')');
+        if(next==='no-remote-media'&&!s._mediaWarned){ s._mediaWarned=true;
+          M.toast('warn',M.t('call_media'),M.t('media_none_yet'),{ms:9000}); }
+        if(next==='media-active') s._mediaWarned=false;
+      }
+      if(s.diagOpen&&s.win){ const box=s.win.querySelector('.cw-diagbody'); if(box) box.innerHTML=M.Call.diagHTML(d); }
+      /* keep the window header honest about media state without a full re-render */
+      if(s.durEl&&s.status==='active'){
+        const lbl={'media-active':'','media-connecting':' · '+M.t('media_connecting_short'),'no-remote-media':' · ⚠ '+M.t('media_none_short'),
+          'ice-down':' · ⚠ ICE','no-peer-connection':' · ⚠ PC','capture-failed':' · ⚠ mic/cam','send-failed':' · ⚠ send'}[next]||'';
+        const base=M.fmt.dur((Date.now()-s.startedAt)/1000);
+        if(s.durEl.textContent!==base+lbl) s.durEl.textContent=base+lbl;
+      }
+    }
+  },
+
   /* adaptive quality — step bitrate/resolution with sustained packet loss */
   _qLevels:[{label:'HD',br:1200000,sc:1},{label:'SD',br:600000,sc:1},{label:'ECO',br:250000,sc:2}],
   adaptQuality(){
