@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.80.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.80.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -8555,16 +8555,18 @@ M.WB = {
     M.WB.saveRevoke();
   },
   _syncRevokeFromEditors(){
-    /* incremental roster-based fallback (when a command carries no revoke map): add/remove
-       revocations for authenticated roster peers per the editors map; offline revoked
-       members keep their persisted entry because they are simply not iterated. */
+    /* LEGACY / mixed-version fallback — used only when a command carries NO authoritative
+       wbRevokeByMid. ADDITIVE-ONLY for safety:
+         • editors[peerId]===false for an authenticated member ADDs a stable revocation;
+         • it NEVER deletes an existing stable revocation, because the mere absence of a
+           peer-level deny does not prove a legitimate restore — a stale/incomplete legacy
+           editors map must never upgrade a revoked member.
+       Revocations are removed ONLY via an explicit authoritative restore (the modern
+       hydrateRevoke replacement path). Offline revoked members keep their persisted entry. */
     M.WB.ensureRevoke();
     const E=M.State.wb.editors||{};
     M.State.peers.forEach((p,pid)=>{
-      if(p.midAuth===true&&p.mid){
-        if(E[pid]===false) M.WB._revokeByMid.set(p.mid,true);
-        else M.WB._revokeByMid.delete(p.mid);
-      }
+      if(p.midAuth===true&&p.mid&&E[pid]===false) M.WB._revokeByMid.set(p.mid,true);
     });
     M.WB.saveRevoke();
   },
@@ -9402,8 +9404,10 @@ M.App.purgeRoom = async function(code){
   /* destroy this instance's Admin key so a reused code starts with a fresh identity */
   const rid=M.State.room?.rid || M.Store.get('rid.'+code);
     if(rid){ try{ await M.KeyDB.del('admin.'+rid); }catch(e){}
-      /* also purge rid-keyed authoritative data so nothing survives the instance */
-      ['wb','timer','rname','topic','denyByMid'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
+      /* also purge rid-keyed authoritative data so nothing survives the instance.
+         wbRevokeByMid (stable Whiteboard editor revocation) is RID-scoped and must go with
+         the rest — termination leaves no Whiteboard authorization/revocation data for this rid. */
+      ['wb','timer','rname','topic','denyByMid','wbRevokeByMid'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
     }
     try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
     /* remove ALL of this room's transfer chunks, including orphans tracked across refreshes */
