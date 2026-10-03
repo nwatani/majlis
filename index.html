@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.89.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.90.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3942,10 +3942,12 @@ M.Members = {
          was already terminal stays terminal (never revived). */
       M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
       M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
-      /* broadcast recipient state: migrate this member's recipient record to the new
-         transport endpoint (only reached after a proven same-mid takeover) and restore it
-         as ACTIVE so its saved ACK/resume/result state participates again. */
-      M.FT.sends.forEach(t=>{ if(t.recips){ let ch=false; t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=newId; const np=M.State.peers.get(newId); if(!rec.canceled&&np&&np.status==='online'){ rec.active=true; ch=true; } } }); if(ch) M.FT._bcastLifecycle(t); } });   /* restore only when the new session is genuinely online */
+      /* broadcast recipient state: migrate this member's recipient record to the new transport
+          endpoint AND promote its canonical binding from the temporary peerId key to the proven
+          stable mid (old.mid), so repeated reconnects with new peerIds keep reclaiming the same
+          recipient record. Restored ACTIVE (when the new session is genuinely online) so the
+          saved ACK/resume/result state participates again. */
+       M.FT.sends.forEach(t=>{ if(M.FT._migrateRecips(t,oldId,newId,old.mid)) M.FT._bcastLifecycle(t); });
     }
     try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}   /* FT: no-op for the rebound transfers */
     M.bus.emit('members');
@@ -4606,6 +4608,47 @@ M.FT = {
     let minAck=Infinity, anyActive=false;
     t.recips.forEach(r=>{ if(!r.canceled&&r.active){ anyActive=true; if(r.ack<minAck) minAck=r.ack; } });
     if(anyActive) t.ack=Math.min(minAck,t.seq);
+  },
+  /* Migrate broadcast recipient records bound to oldId to the new transport newId, and PROMOTE
+     the canonical binding from the temporary peerId key to the authenticated stable mid.
+     Only called from migrateIdentity (reached after a successful same-mid identity proof), so
+     `stableMid` is the proven, authenticated mid of the old member — never a claimed/unverified
+     mid, and fp is never used. Preserves ack/resumeOff/result/canceled/active (the record object
+     itself is re-keyed, so no state is copied or lost). Never creates a duplicate recipient: if a
+     record already occupies the stable-mid key (collision), fail closed — keep that existing
+     stable-mid record canonical and drop the orphaned temporary-key duplicate rather than merge
+     two recipients. Returns whether any recipient became active (caller runs the lifecycle). */
+  _migrateRecips(t,oldId,newId,stableMid){
+    if(!t.recips) return false;
+    let becameActive=false;
+    const toMigrate=[];
+    t.recips.forEach((rec,key)=>{ if(rec.peerId===oldId) toMigrate.push([key,rec]); });
+    for(const [key,rec] of toMigrate){
+      if(stableMid&&key!==stableMid){
+        if(t.recips.has(stableMid)){
+          /* collision: a different recipient record already holds this stable mid. Fail closed —
+             never merge two recipients. Keep the existing stable-mid record canonical (rebind its
+             transport) and drop the orphaned temporary-key duplicate. */
+          t.recips.delete(key);
+          const existing=t.recips.get(stableMid);
+          if(existing&&!existing.canceled){
+            existing.peerId=newId;
+            const np=M.State.peers.get(newId);
+            if(np&&np.status==='online'){ existing.active=true; becameActive=true; }
+          }
+          continue;
+        }
+        t.recips.delete(key);          /* remove the temporary peerId key */
+        rec.mid=stableMid;
+        t.recips.set(stableMid,rec);   /* promote to the stable-mid key; state preserved */
+      } else if(stableMid){
+        rec.mid=stableMid;             /* already under the stable-mid key; (re)bind mid */
+      }
+      rec.peerId=newId;
+      const np=M.State.peers.get(newId);
+      if(!rec.canceled&&np&&np.status==='online'){ rec.active=true; becameActive=true; }
+    }
+    return becameActive;
   },
   /* Broadcast lifecycle after a recipient's availability changes. Recomputes the watermark
      over active participants; if NO recipient is active the sender PAUSES (safe non-success
