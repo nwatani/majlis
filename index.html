@@ -3905,11 +3905,9 @@ M.Members = {
     Object.assign(m,patch); m.lastSeen=Date.now();
     if(patch.n) m.identifying=false;
     M.State.peers.set(peerId,m);
-    /* legacy fp FT rebinding only; mid-based rebinding happens after proof in migrateIdentity */
-    if(patch.fp && M.FT){
-      M.FT.sends.forEach(t=>{ if(t.target==='*'||t.target===peerId) return; if(t.rfp===patch.fp) t.target=peerId; });
-      M.FT.recvs.forEach(r=>{ if(r.from!==peerId && r.sfp===patch.fp) r.from=peerId; });
-    }
+    /* File Transfer endpoints are NEVER rebound by fp. A reconnecting peer takes over a
+       transfer only after proving the endpoint's stable mid (midAuth===true) via
+       migrateIdentity. fp remains non-authoritative device metadata only. */
     if(patch.n && isNew && !migrated){ M.bus.emit('sysmsg',{text:M.t('new_member',{n:m.name})}); M.log('info',m.name+' joined'); M.Notify.join(m); }
     if(patch.n && M.State.chatTarget===peerId && !M.$('#btnBackDm').classList.contains('hidden')) M.$('#chatTitle').textContent=m.name;
     M.bus.emit('members');
@@ -3929,11 +3927,15 @@ M.Members = {
     if(M.Chat._midMap){ for(const [k,v] of [...M.Chat._midMap]){ if(v===old.mid) M.Chat._midMap.set(newId,old.mid); } }
     if(M.State.perms?.overrides?.[oldId]){ M.State.perms.overrides[newId]=M.State.perms.overrides[oldId]; delete M.State.perms.overrides[oldId]; }
     if(M.State.wb.editors[oldId]!=null){ M.State.wb.editors[newId]=M.State.wb.editors[oldId]; delete M.State.wb.editors[oldId]; }
-    try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
     if(M.FT){
+      /* REBIND FIRST: the proven same-mid reconnect takes over the old File Transfer
+         endpoint BEFORE any failure pass, so an active transfer is not spuriously failed
+         merely because the transport peerId changed. Status is untouched — a transfer that
+         was already terminal stays terminal (never revived). */
       M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
       M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
     }
+    try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}   /* FT: no-op for the rebound transfers */
     M.bus.emit('members');
     M.log('info','authenticated identity migrated ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(newId)+')');
   },
@@ -4475,40 +4477,37 @@ M.FT = {
     maxBuf:2*1024*1024          /* a single chunk never exceeds this */
   },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
+  /* Receive-side FILE permission gate for a transport sender. Resolves the sender's file
+     authorization from the Admin-controlled policy (P.files / filesRoom / filesPriv plus the
+     per-member overrides). Restrictive denies always stand; a GRANT is honored only when the
+     local permission state is authoritative (directly confirmed), so a stale relayed grant can
+     never authorize a file operation (fail-closed). `isRoom` selects the room-broadcast vs the
+     private/directed permission. */
+  _peerFileOk(from,isRoom){
+    const P=M.Perms.p();
+    if(!M.State.peers.get(from)){ M.log('warn','FT_REJECTED_AUTH unknown peer '+M.fmt.idShort(from)); return false; }
+    const ov=(P.overrides&&P.overrides[from])||{};
+    const has=(k,d)=> ov[k]==null ? d : ov[k];
+    const ok=isRoom ? (!!P.files&&!!has('files',P.filesRoom)) : (!!P.files&&!!P.filesPriv&&!!has('files',true));
+    if(!ok){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)); return false; }
+    if(!M.Perms.grantsAuthorized()){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)+' (unconfirmed policy)'); return false; }
+    return true;
+  },
   /* ownership: is `from` the legitimate counterparty for this transfer?
-     Targeted transfer → the exact other endpoint OR the same device fingerprint after a
-     reconnect (peerId changes on reconnect, the device fp does not). Room → any member. */
+     peerId is the transport/session identity; a reconnect takeover is recognized ONLY after the
+     new transport peer has proven the transfer endpoint's stable mid (midAuth===true). Legacy fp
+     is NEVER an authentication factor. Room broadcast control is isolated to authorized
+     recipients via _peerFileOk, not an open "any peer" rule. */
   authSendPeer(t,from){
-    if(t.target==='*') return !!M.State.peers.get(from);
-    if(from===t.target) return true;
+    if(t.target==='*') return M.FT._peerFileOk(from,true);   /* room recipient must hold the room file permission */
+    if(from===t.target) return true;                          /* the exact intended receiver */
     const p=M.State.peers.get(from);
-    /* mid-based authorization requires proof-of-possession; fp remains legacy fallback */
-    return !!((t.rmid&&p?.midAuth&&p.mid===t.rmid)||(t.rfp&&p?.fp&&p.fp===t.rfp));
+    return !!(t.rmid&&p&&p.midAuth===true&&p.mid===t.rmid);  /* proven same receiver mid */
   },
   recvAuth(r,from){
-    if(from===r.from) return true;
+    if(from===r.from) return true;                            /* the exact sender */
     const p=M.State.peers.get(from);
-    return !!((r.smid&&p?.midAuth&&p.mid===r.smid)||(r.sfp&&p?.fp&&p.fp===r.sfp));
-  },
-  /* Receive-side evaluation of the EXISTING Admin-controlled file permission for the
-     ACTUAL transport sender `from`. Mirrors M.Perms.can('fileRoom'/'filePriv') but WITHOUT
-     the local-admin bypass (the local viewer's Admin status must not grant a remote sender
-     anything) and honoring the sender's per-member `files` override. This is the canonical
-     gate that stops a forbidden member from creating a transfer with a hand-crafted packet. */
-  _peerCanSend(from,isRoom){
-    const P=M.Perms.p();
-    if(!P.files) return false;
-    const ov=(P.overrides&&P.overrides[from])||{};
-    if(isRoom) return !!(ov.files==null ? P.filesRoom : ov.files);
-    if(!P.filesPriv) return false;
-    return !!(ov.files==null ? true : ov.files);
-  },
-  /* stable-mid of the actual transport sender, taken from the roster ONLY when proven
-     (midAuth) — never from a payload claim. Used to bind a transfer to its sender's stable
-     identity for safe reconnect rebinding. Before proof this returns undefined. */
-  _authMidOf(pid){
-    const p=M.State.peers.get(pid);
-    return (p&&p.midAuth===true&&p.mid)?p.mid:undefined;
+    return !!(r.smid&&p&&p.midAuth===true&&p.mid===r.smid);  /* proven same sender mid */
   },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
@@ -4596,6 +4595,9 @@ M.FT = {
     const isRoom=target==='*';
     const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
     if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return null; }
+    /* defensive sender-side fail-closed: a file GRANT is honored only from authoritative
+       (directly-confirmed) permission state, consistent with the receive-side gate. */
+    if(!M.Perms.grantsAuthorized()){ M.toast('warn',M.t('perm_denied'),M.t('perms_unconfirmed')); return null; }
     const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
     /* sender-side validation mirrors the receiver's hostile-offer checks */
     if(!M.FT.L.idRe.test(id) || !(file.size>0) || file.size>M.FT.L.maxFile || String(file.name).length>M.FT.L.maxName){
@@ -4672,32 +4674,24 @@ M.FT = {
     const from=d.peerId;
     switch(d.t){
       case 'offer': {
-        if(d.target && d.target!==M.State.self.id) return;   /* directed offer must be addressed to us */
-        const isRoom=!d.target;
-        /* SENDER AUTHORIZATION — enforced BEFORE any adoption, allocation, persistence or
-           notification. The ACTUAL transport sender must hold the existing Admin-controlled
-           file permission (room policy + their per-member override; no local-admin bypass).
-           A forbidden member's hand-crafted encrypted offer is rejected here. */
-        if(!M.FT._peerCanSend(from,isRoom)){
-          M.log('warn','FT_REJECTED_PERMISSION offer from '+M.fmt.idShort(from));
-          try{ M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); }catch(e){}
-          return;
-        }
-        M.Members.adopt(from,d.fromName);
+        if(d.target && d.target!==M.State.self.id) return;
         /* hostile-offer validation BEFORE any allocation */
         if(!M.FT.L.idRe.test(d.id||'')){ M.log('warn','FT_REJECTED_STATE offer: bad transfer id'); return; }
         if(typeof d.size!=='number' || !isFinite(d.size) || d.size<=0 || d.size>M.FT.L.maxFile){ M.log('warn','FT_REJECTED_STATE offer: bad size'); return; }
         if(typeof d.name!=='string' || d.name.length>M.FT.L.maxName){ M.log('warn','FT_REJECTED_STATE offer: bad filename'); return; }
         if(typeof d.type==='string' && d.type.length>M.FT.L.maxType){ M.log('warn','FT_REJECTED_STATE offer: bad mime'); return; }
-        if(M.FT.recvs.has(d.id)){ M.log('warn','FT_REJECTED_STATE duplicate transfer id'); return; }
+        if(M.FT.recvs.has(d.id)){ M.log('warn','FT_REJECTED_STATE duplicate transfer id '+d.id); return; }
         if(M.FT.recvs.size>=M.FT.L.maxRecv){ M.log('warn','FT_REJECTED_STATE too many simultaneous receives'); return; }
-        const gate=M.Perms.can(isRoom?'fileRoom':'filePriv');
-        if(!gate.ok){ M.log('warn','FT_REJECTED_PERMISSION offer (room policy)'); try{ M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); }catch(e){} return; }
+        const isRoom=!d.target;
+        /* SENDER authorization from the Admin policy — BEFORE any receive state is created,
+           any notification, or any persistence. A forbidden sender's offer is rejected here. */
+        if(!M.FT._peerFileOk(from,isRoom)){ try{ M.Net.sendEnc('ft',{t:'cancel',id:d.id,why:'denied'},from); }catch(e){} return; }
+        M.Members.adopt(from,d.fromName);
+        /* capture the sender's VERIFIED stable mid from the roster (never a payload claim) so
+           a proven same-mid sender reconnect can be recognized; unauthenticated → undefined. */
+        const _sp=M.State.peers.get(from); const _smid=(_sp&&_sp.midAuth===true)?_sp.mid:undefined;
         (async()=>{
-          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code,
-            smid:M.FT._authMidOf(from),   /* sender's stable mid from the roster, only if proven (midAuth) — never a payload claim */
-            sfp:d.sfp||undefined,         /* legacy device-fp fallback (compat only; non-authoritative) */
-            voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
+          const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code, smid:_smid, sfp:d.sfp||undefined, voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
             expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
             hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
           /* ---- resume from persisted chunks (survives refresh / crash) ---- */
@@ -4729,19 +4723,10 @@ M.FT = {
         })();
         break;
       }
-      case 'ack': {
-        const t=M.FT.sends.get(d.id);
-        if(t){
-          if(!M.FT.authSendPeer(t,from)){ M.log('warn','FT_REJECTED_AUTH ack from '+M.fmt.idShort(from)); break; }
-          if(!['done','canceled','failed'].includes(t.status)) t.ack=Math.max(t.ack,d.seq);   /* no progress on terminal transfers */
-        }
-        break;
-      }
+      case 'ack': { const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ t.ack=Math.max(t.ack,d.seq); } break; }
       case 'nack': {
         /* receiver asked for specific missing chunks by number — resend them from the file */
-        const t=M.FT.sends.get(d.id); if(!t) break;
-        if(!M.FT.authSendPeer(t,from)){ M.log('warn','FT_REJECTED_AUTH nack from '+M.fmt.idShort(from)); break; }
-        if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE nack on terminal transfer'); break; }
+        const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
         (async()=>{
           for(const seq of (d.seqs||[])){
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
@@ -4750,42 +4735,36 @@ M.FT = {
               await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},...(t.target==='*'?{}:{target:t.target})});
             }catch(e){}
           }
-          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.id);
+          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.name);
         })();
         break;
       }
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
-        const t=M.FT.sends.get(d.id);
-        if(!t){ M.log('warn','FT_REJECTED_STATE resume for unknown transfer'); return; }
-        if(!M.FT.authSendPeer(t,from)){ M.log('warn','FT_REJECTED_AUTH resume from '+M.fmt.idShort(from)); return; }
-        if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE resume of terminal transfer'); return; }
+        const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) return;
+        /* validate the offset BEFORE any state mutation: a finite number within [0, t.size].
+           An out-of-range/invalid offset must not touch t.seq/t.ack/t.sent/t.status or start the loop. */
+        if(typeof d.offset!=='number' || !isFinite(d.offset) || d.offset<0 || d.offset>t.size){ M.log('warn','FT_REJECTED_STATE resume offset out of range'); return; }
+        const off=Math.floor(d.offset/M.FT.CHUNK)*M.FT.CHUNK;   /* align down to the chunk boundary (≤ d.offset ≤ size) */
         (async()=>{
-          const off=Math.floor((d.offset||0)/M.FT.CHUNK)*M.FT.CHUNK;
           let p=0;
           try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); t.hash.update(new Uint8Array(b)); p+=M.FT.CHUNK; } }
           catch(e){ M.FT.fail(t,'resume read failed'); return; }
           t.seq=off/M.FT.CHUNK; t.ack=t.seq; t.sent=off; t.status='sending'; t.startedAt=t.startedAt||Date.now();
-          M.log('info','resuming send '+t.id+' from '+M.fmt.bytes(off));
+          M.log('info','resuming send '+t.name+' from '+M.fmt.bytes(off));
           M.FT.render(); M.FT.loop(t);
         })();
         break;
       }
       case 'done': {
-        const r=M.FT.recvs.get(d.id);
-        if(!r){ M.log('warn','FT_REJECTED_STATE done for unknown transfer'); return; }
-        if(!M.FT.recvAuth(r,from)){ M.log('warn','FT_REJECTED_AUTH done from '+M.fmt.idShort(from)); return; }   /* only the transfer's sender (or its proven reconnected identity) may complete it */
-        if(['done','failed','canceled'].includes(r.status)){ M.log('warn','FT_REJECTED_STATE done on terminal transfer'); return; }
-        if(r.from!==from) r.from=from;   /* authorized sender reconnected under a new peerId (recvAuth already proved identity) */
+        const r=M.FT.recvs.get(d.id); if(!r || !M.FT.recvAuth(r,from)) return;   /* only the transfer's sender (or its reconnected device) may complete it */
+        if(r.from!==from) r.from=from;   /* sender reconnected under a new peerId */
         if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
-        else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.id); }
+        else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.name); }
         break;
       }
       case 'result': {
-        const t=M.FT.sends.get(d.id);
-        if(!t){ M.log('warn','FT_REJECTED_STATE result for unknown transfer'); return; }
-        if(!M.FT.authSendPeer(t,from)){ M.log('warn','FT_REJECTED_AUTH result from '+M.fmt.idShort(from)); return; }
-        if(t.status!=='verify'){ M.log('warn','FT_REJECTED_STATE result outside verify state'); return; }
+        const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify'||!M.FT.authSendPeer(t,from)) return;
         if(d.ok){ t.status='done'; M.Chat.updateFileCard(t.id,{statusLabel:`${M.t('st_done')} ✓`}); M.toast('ok',t.name,M.t('st_done')); M.Notify.beep('ok'); }
         else { M.FT.fail(t,M.t('integrity_fail')); }
         M.FT.render(); M.UI.badges();
@@ -4793,14 +4772,9 @@ M.FT = {
       }
       case 'cancel': {
         /* a send may only be canceled by its intended receiver; a receive only by its sender */
-        let acted=false;
-        const t=M.FT.sends.get(d.id);
-        if(t){ if(M.FT.authSendPeer(t,from)){ if(t.target!=='*'&&t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); acted=true; }
-               else M.log('warn','FT_REJECTED_AUTH cancel(send) from '+M.fmt.idShort(from)); }
-        const r=M.FT.recvs.get(d.id);
-        if(r){ if(M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); acted=true; }
-               else M.log('warn','FT_REJECTED_AUTH cancel(recv) from '+M.fmt.idShort(from)); }
-        if(acted) M.log('warn','transfer canceled '+(d.id||''));
+        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ if(t.target!=='*'&&t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const r=M.FT.recvs.get(d.id); if(r && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        M.log('warn','transfer canceled '+(d.id||''));
         M.UI.badges();
         break;
       }
