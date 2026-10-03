@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.88.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.89.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4591,12 +4591,21 @@ M.FT = {
      shared window while another active recipient has not acknowledged the data. Monotonic and
      capped at the sender's real send progress; recipients who left (canceled) stop holding it. */
   _bcastWatermark(t){
-    /* watermark = the SLOWEST CURRENTLY-ACTIVE recipient. Offline/inactive recipients are
-       excluded so a disappeared peer cannot hold the sender window forever; a recipient's
-       saved ACK is incorporated again when it reconnects and becomes active. */
+    /* watermark = the minimum ACK of the CURRENTLY ACTIVE, NON-CANCELED recipients — NOT a
+       globally monotonic value. Offline/inactive and canceled recipients are excluded, so a
+       disappeared peer cannot hold the window forever. When a recipient RECONNECTS with a
+       saved ACK lower than the current watermark, the watermark is lowered to that recipient's
+       real delivery position, constraining further global sending.
+
+       Sender safety: lowering the watermark does NOT retransmit or rewind the global transfer —
+       the sender only ever sends chunks >= t.seq. The lower watermark merely shrinks how far
+       ahead the window may run (t.seq - t.seq stays bounded by WINDOW), making the sender hold
+       for the slow recipient. That recipient's missed data is delivered by the existing
+       recipient-scoped resume/nack retransmission, not by a global rewind. Capped at t.seq
+       (the sender can never be acknowledged beyond what it actually sent). */
     let minAck=Infinity, anyActive=false;
     t.recips.forEach(r=>{ if(!r.canceled&&r.active){ anyActive=true; if(r.ack<minAck) minAck=r.ack; } });
-    if(anyActive) t.ack=Math.max(t.ack,Math.min(minAck,t.seq));
+    if(anyActive) t.ack=Math.min(minAck,t.seq);
   },
   /* Broadcast lifecycle after a recipient's availability changes. Recomputes the watermark
      over active participants; if NO recipient is active the sender PAUSES (safe non-success
