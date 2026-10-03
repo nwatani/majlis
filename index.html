@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.85.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.86.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4565,11 +4565,21 @@ M.FT = {
   _bcastRecip(t,from){
     if(!t.recips) return null;
     const p=M.State.peers.get(from);
+    /* a CURRENT live session = a roster entry that is not offline. Receipt of a packet by
+       itself is NOT proof of a legitimate reconnect — an offline old peer's stale packet
+       must not reactivate the recipient. Only a live session, or the authenticated same-mid
+       takeover below, may restore active=true. fp is never used. */
+    const live=!!(p&&p.status!=='offline');
     /* a CANCELED recipient is returned as null — its state stays canceled and it can never
-       reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol).
-       A recipient that sends a control message is by definition online → marked active. */
-    for(const rec of t.recips.values()){ if(rec.peerId===from){ if(rec.canceled) return null; rec.active=true; return rec; } }   /* active transport match */
-    if(p&&p.midAuth===true&&p.mid){
+       reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol). */
+    for(const rec of t.recips.values()){
+      if(rec.peerId===from){
+        if(rec.canceled) return null;
+        if(!live) return null;   /* offline old peer + stale packet → remains inactive */
+        rec.active=true; return rec;   /* exact current peerId of a live recipient */
+      }
+    }
+    if(live&&p.midAuth===true&&p.mid){
       const rec=t.recips.get(p.mid);
       if(rec){ if(rec.canceled) return null; rec.peerId=from; rec.active=true; return rec; }   /* proven same-mid takeover: migrate transport + restore active */
     }
@@ -4859,9 +4869,9 @@ M.FT = {
              active recipient has not acknowledged the data. A canceled recipient is ignored. */
           if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: ignore stale acks */
           const rec=M.FT._bcastRecip(t,from);
-          if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient/canceled '+M.fmt.idShort(from)); break; }
+          if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient/canceled/inactive '+M.fmt.idShort(from)); break; }
           rec.ack=Math.min(Math.max(rec.ack,d.seq),M.FT._chunkCount(t.size));   /* cap at real chunk count */
-          M.FT._bcastWatermark(t);
+          M.FT._bcastLifecycle(t);   /* watermark over active recipients; resumes a paused broadcast now that a recipient is active again */
         } else if(M.FT.authSendPeer(t,from)){
           t.ack=Math.max(t.ack,d.seq);   /* directed: the receiver's ack drives the window */
         }
@@ -4969,17 +4979,25 @@ M.FT = {
             if(b){
               b.canceled=true;
               M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped)');
-              M.FT._bcastWatermark(t);   /* a canceled recipient stops holding the watermark */
-              /* ALL recipients canceled → stop the send loop cleanly. Reuse the existing
-                 'canceled' terminal state; do NOT report success and do not resurrect later
-                 (the send loop exits on status!=='sending' and terminal transfers ignore
-                 stale ack/result). */
-              let anyActive=false;
-              t.recips.forEach(r=>{ if(!r.canceled) anyActive=true; });
-              if(!anyActive && ['queued','sending','paused','verify'].includes(t.status)){
+              /* Remaining participants are distinguished as ACTIVE (active && !canceled) vs
+                 merely REMAINING (offline/inactive, !canceled). An offline/inactive recipient
+                 must NOT keep the sender in an active sending state. */
+              let anyRemaining=false;
+              t.recips.forEach(r=>{ if(!r.canceled) anyRemaining=true; });
+              if(!anyRemaining && ['queued','sending','paused','verify'].includes(t.status)){
+                /* ALL recipients canceled → terminal 'canceled'. Do NOT report success and do
+                   not resurrect (send loop exits on status!=='sending'; terminal transfers
+                   ignore stale ack/result). */
                 t.status='canceled';
                 M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')});
                 M.log('warn','all recipients canceled broadcast '+t.id+' — send loop stopped');
+              } else {
+                /* active or offline/inactive recipients remain → the lifecycle decides:
+                   watermark over ACTIVE recipients only; when the last ACTIVE recipient is
+                   gone the sender enters the safe 'paused' no-active-recipient state (offline
+                   recipients are preserved for a possible authenticated reconnect) instead of
+                   continuing to send/spin. */
+                M.FT._bcastLifecycle(t);
               }
             }
             else M.log('warn','FT_REJECTED_AUTH broadcast cancel from non-recipient or already-canceled recipient');
