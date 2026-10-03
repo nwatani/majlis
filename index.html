@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.7';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.8';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1632,7 +1632,7 @@ en:{
  cap_recording:'Recording', cap_stop:'Stop', cap_shot_sent:'Screenshot sent', cap_clip_sent:'Screen recording sent',
  cap_pick_hint:'Pick the screenshot of the issue from your gallery',
  cap_cam_hint:'Point your camera at the screen and record the issue',
- perm_denied:'Not permitted', chat_disabled:'Room chat is disabled by the Admin', dm_disabled:'Private messages are disabled by the Admin',
+ perm_denied:'Not permitted', chat_disabled:'Room chat is disabled by the Admin', dm_disabled:'Private messages are disabled by the Admin', perms_unconfirmed:'Permissions are not yet confirmed by the room Admin — messaging unlocks once the Admin is reachable',
  files_disabled:'File sharing is disabled by the Admin', calls_disabled:'Calls are disabled by the Admin', member_calls_disabled:'Only the Admin can start calls',
  notif_msg:'New message in {r}', notif_dm:'Private message from {n}', notif_file:'File received: {f}', notif_call:'Incoming call from {n}',
  kick_q:'Remove member?', kick_q_body:'{n} will be disconnected and removed from the room.',
@@ -2127,6 +2127,13 @@ M.State = {
   self: { id:'', name:'', fp:'', admin:false },
   peers: new Map(),      // peerId -> member
   perms: null,           // authoritative permissions object
+  /* provenance of the current permission state — the serverless "latest-known vs
+     guaranteed-current" distinction. true ONLY once this client has received permission
+     state DIRECTLY from the Admin (signed, verified, from===transport) or is the Admin.
+     A RELAYED snapshot (latest-known while the Admin is offline) never sets this, so an
+     old relay can only restrict (denyByMid) — it can never UPGRADE a member from DENY to
+     ALLOW, because grants require direct confirmation. */
+  permsConfirmed: false,
   bans: [],
   wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{} },
   chatTarget: null,      // null = room, else peerId
@@ -2141,25 +2148,38 @@ M.Perms = {
   p(){ return M.State.perms || M.permsDefault(); },
   isAdmin(){ return !!(M.Admin.priv && !M.Admin.pending); },   /* a pending identity holds no local Admin privileges */
   memberOv(peerId){ const p=M.Perms.p(); return (p.overrides&&p.overrides[peerId])||{}; },
+  /* Can security-sensitive permission GRANTS be honored right now? Only when the current
+     permission state was confirmed DIRECTLY by the Admin (or we are the Admin). Relayed /
+     latest-known state (Admin offline) may restrict via denyByMid but never grants — this is
+     the explicit "latest-known ≠ guaranteed-current" fail-closed boundary. */
+  grantsAuthorized(){ return !!(M.Perms.isAdmin() || M.State.permsConfirmed); },
   can(feature, peerId){ // peerId optional -> check that member's rights (admin view)
     const P=M.Perms.p(); const me=M.Perms.isAdmin();
     const ov = peerId ? (P.overrides?.[peerId]||{}) : (me?{}:(P.overrides?.[M.State.self.id]||{}));
     const has=(k,d)=> ov[k]==null ? d : ov[k];
+    let r;
     switch(feature){
-      case 'chat': return {ok: me||has('chat',P.chat), reason:'chat_disabled'};
-      case 'dm': return {ok: me||has('dm',P.dm), reason:'dm_disabled'};
-      case 'fileRoom': return {ok: P.files && (me||has('files',P.filesRoom)), reason:'files_disabled'};
-      case 'filePriv': return {ok: P.files && P.filesPriv && (me||has('files',true)), reason:'files_disabled'};
-      case 'callVoice': return {ok: P.voice && (me||P.memberCalls||has('calls',false)) || (P.voice&&me), reason: !P.voice?'calls_disabled':'member_calls_disabled'};
-      case 'callVideo': return {ok: P.video && (me||P.memberCalls||has('calls',false)), reason: !P.video?'calls_disabled':'member_calls_disabled'};
-      case 'callGroup': return {ok: P.group && (me||P.memberCalls||has('calls',false)), reason: !P.group?'calls_disabled':'member_calls_disabled'};
-      case 'callReceive': return {ok: P.privCalls && (me||has('calls',P.voice||P.video)), reason:'calls_disabled'};
-      case 'wbView': return {ok: M.State.wb.open, reason:'board_closed'};
-      case 'wbEdit': return {ok: M.State.wb.open && !M.State.wb.locked && (me || (M.State.wb.mode==='collab' && (M.State.wb.editors[M.State.self.id]!==false))), reason:'perm_denied'};
-      case 'wbImage': return {ok: me || M.State.wb.images!==false, reason:'wb_img_denied'};   /* only an explicit admin "off" blocks members */
-      case 'wbExport': return {ok: me || M.State.wb.export!==false, reason:'wb_export_denied'};
-      default: return {ok:true};
+      case 'chat': r={ok: me||has('chat',P.chat), reason:'chat_disabled'}; break;
+      case 'dm': r={ok: me||has('dm',P.dm), reason:'dm_disabled'}; break;
+      case 'fileRoom': r={ok: P.files && (me||has('files',P.filesRoom)), reason:'files_disabled'}; break;
+      case 'filePriv': r={ok: P.files && P.filesPriv && (me||has('files',true)), reason:'files_disabled'}; break;
+      case 'callVoice': r={ok: P.voice && (me||P.memberCalls||has('calls',false)) || (P.voice&&me), reason: !P.voice?'calls_disabled':'member_calls_disabled'}; break;
+      case 'callVideo': r={ok: P.video && (me||P.memberCalls||has('calls',false)), reason: !P.video?'calls_disabled':'member_calls_disabled'}; break;
+      case 'callGroup': r={ok: P.group && (me||P.memberCalls||has('calls',false)), reason: !P.group?'calls_disabled':'member_calls_disabled'}; break;
+      case 'callReceive': r={ok: P.privCalls && (me||has('calls',P.voice||P.video)), reason:'calls_disabled'}; break;
+      case 'wbView': r={ok: M.State.wb.open, reason:'board_closed'}; break;
+      case 'wbEdit': r={ok: M.State.wb.open && !M.State.wb.locked && (me || (M.State.wb.mode==='collab' && (M.State.wb.editors[M.State.self.id]!==false))), reason:'perm_denied'}; break;
+      case 'wbImage': r={ok: me || M.State.wb.images!==false, reason:'wb_img_denied'}; break;   /* only an explicit admin "off" blocks members */
+      case 'wbExport': r={ok: me || M.State.wb.export!==false, reason:'wb_export_denied'}; break;
+      default: r={ok:true};
     }
+    /* FAIL-CLOSED for chat/DM GRANTS: a grant resting only on relayed / unconfirmed
+       permission state is not honored, so a stale relay can never resurrect a revoked
+       ALLOW. Denials (r.ok===false) and the Admin always stand. */
+    if(r.ok && !me && (feature==='chat'||feature==='dm') && !M.Perms.grantsAuthorized()){
+      return {ok:false, reason:'perms_unconfirmed'};
+    }
+    return r;
   },
   denyToast(feature){ const r=M.Perms.can(feature); if(!r.ok) M.toast('warn', M.t('perm_denied'), M.t(r.reason)); return r.ok; },
   /* stable-identity DENY memory (mid → {chat?,dm?}). Maintained by Admin.dispatch
@@ -2279,24 +2299,32 @@ M.Perms = {
     const P=M.Perms.p();
     const ov=(P.overrides&&P.overrides[peerId])||{};
     const val=feature==='chat'?ov.chat:ov.dm;
-    if(val!=null) return {ok:!!val, reason:feature+'_disabled'};   /* 1. direct authoritative override */
+    if(val!=null){                                                   /* 1. direct override for this member */
+      /* an ALLOW carried only by unconfirmed (relayed) state must not grant */
+      if(val && !M.Perms.grantsAuthorized()) return {ok:false, reason:'perms_unconfirmed'};
+      return {ok:!!val, reason:feature+'_disabled'};
+    }
     if(feature==='chat'||feature==='dm'){                            /* 2. deny-only inheritance while proof pending */
       const m=M.State.peers.get(peerId);
       const claimed=(m&&m.claimedMid&&!m.midAuth)?m.claimedMid:null;
-      if(claimed){
+      const authMid=(m&&m.midAuth===true&&m.mid)?m.mid:null;
+      const stableMid=claimed||authMid;   /* stable identity: claimed (pre-proof) or authenticated */
+      if(stableMid){
         M.Perms._ensureDeny();   /* rebuild the rid-scoped persistent deny index before evaluating */
-        let denied=!!(M.Perms._denyByMid.get(claimed)&&M.Perms._denyByMid.get(claimed)[feature]);
-        if(!denied){
+        let denied=!!(M.Perms._denyByMid.get(stableMid)&&M.Perms._denyByMid.get(stableMid)[feature]);
+        if(!denied&&claimed){    /* a claimant matching an authenticated member inherits that member's override deny */
           for(const k in (P.overrides||{})){
             const o=P.overrides[k]; if(!o||(feature==='chat'?o.chat:o.dm)!==false) continue;   /* denies only */
             const km=M.State.peers.get(k);
             if(km&&km.midAuth===true&&km.mid===claimed){ denied=true; break; }
           }
         }
-        if(denied) return {ok:false, reason:feature+'_disabled'};
+        if(denied) return {ok:false, reason:feature+'_disabled'};   /* denies always stand (fail-closed) */
       }
     }
-    switch(feature){                                                 /* 3. base policy */
+    /* 3. base policy — but a chat/DM GRANT is honored only from directly-confirmed state */
+    if((feature==='chat'||feature==='dm') && !M.Perms.grantsAuthorized()) return {ok:false, reason:'perms_unconfirmed'};
+    switch(feature){
       case 'chat': return {ok:!!P.chat, reason:'chat_disabled'};
       case 'dm': return {ok:!!P.dm, reason:'dm_disabled'};
       default: return {ok:true};
@@ -3473,7 +3501,13 @@ M.Net = {
          the receiver re-verifies the ORIGINAL Admin signature, pubkey anchor, rid binding
          and sequence high-water itself. Only wbCtrl snapshots may travel this path — a
          relayed kick/ban/end/etc is rejected outright, and a member relay never confers
-         Admin authority or presence. */
+         Admin authority or presence.
+
+         LATEST-KNOWN ≠ GUARANTEED-CURRENT: a relay only proves "newer than my local
+         high-water", NOT "the latest Admin state". It therefore applies RESTRICTIVE state
+         (denyByMid) and harmless UI state, but it never sets M.State.permsConfirmed — so a
+         stale relay can never UPGRADE a member from DENY to ALLOW. Chat/DM grants require
+         direct-from-Admin confirmation (see M.Perms.grantsAuthorized). */
       if(m.from!==peerId){
         /* The Admin is the authoritative source and never needs a member relay — accepting
            one could roll back locally-applied (newer) state, so drop it outright. */
@@ -3493,9 +3527,13 @@ M.Net = {
       if(m.rid && M.State.room && !M.State.room.rid) M.State.room.rid=m.rid;
       const ap=M.State.peers.get(peerId); if(ap) ap.adminVerifiedAt=Date.now();
       if(m.cmd==='end') M.log('warn','TERMINATE received & verified from admin '+M.fmt.idShort(peerId));
-      const key=m.from+':'+m.seq;                                  /* retransmissions are safe: duplicates are dropped */
+      const key=(M.Admin.adminIdOf(m.pub)||m.from)+':'+m.seq;      /* dedup by stable Admin identity */
       if(M.Admin._seen.has(key)) return;
       M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
+      /* DIRECT-from-Admin permission state is CONFIRMED — guaranteed-current at the moment of
+         signing (as opposed to a relay, which is only latest-known). This is what unlocks
+         chat/DM grants on the receiver. */
+      if(m.cmd==='perm'||m.cmd==='override'||m.cmd==='lock'||(m.cmd==='wbCtrl'&&m.sub==='snapshot')) M.State.permsConfirmed=true;
       M.Admin.dispatch(m,peerId);
     };
     M.Net.A.type.onMessage = (d,{peerId}) => { if(!M.Guard.check('type',d,peerId)) return; if(d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d.to}); };
@@ -4022,8 +4060,11 @@ M.Chat = {
     M.bus.on('sysmsg', ({text})=>M.Chat.append('room',{sys:true,text,ts:Date.now()},false));
   },
   async send(text,target){
-    /* defensive send-side gate (the composer gates too): a member whose own stable
-       identity carries an authoritative deny never emits a ghost message */
+    /* defensive send-side gate (the composer gates too): never emit a ghost message.
+       can() fail-closes chat/DM grants from unconfirmed (relayed-only) permission state,
+       and selfStableDenied enforces the member's own stable deny. */
+    const g=M.Perms.can(target?'dm':'chat');
+    if(!g.ok){ M.toast('warn',M.t('perm_denied'),M.t(g.reason)); return; }
     if(M.Perms.selfStableDenied(target?'dm':'chat')){ M.toast('warn',M.t('perm_denied'),M.t(target?'dm_disabled':'chat_disabled')); return; }
     /* sender-side mirror of the receive boundary: an oversized message would be
        rejected by every other client's Guard — block it locally instead of
@@ -9116,6 +9157,7 @@ M.App = {
        is known. Admins know it immediately (local pointer) → restore now. Members stay
        on safe defaults until the signed snapshot delivers the authenticated rid. */
     M.State.perms=M.permsDefault();
+    M.State.permsConfirmed=false;   /* no permission state is confirmed until the Admin speaks directly */
     M.State.bans=[];
     M.App._sessionEnded=false; M.App._ending=false;
     if(!M.State.room.name) M.State.room.name=M.Perms.isAdmin()?M.t('room_of',{n:M.State.self.name}):'';
@@ -9179,7 +9221,8 @@ M.App = {
     M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
-    M.State.peers.clear(); M.State.perms=null; M.State.chatTarget=null;
+    M.State.peers.clear(); M.State.perms=null; M.State.permsConfirmed=false; M.State.chatTarget=null;
+    M.Net.keyPeers=null;   /* key-possession is per transport session */
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
     M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
     M.State.self.admin=false;
