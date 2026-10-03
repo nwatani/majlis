@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.86.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.87.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3945,7 +3945,7 @@ M.Members = {
       /* broadcast recipient state: migrate this member's recipient record to the new
          transport endpoint (only reached after a proven same-mid takeover) and restore it
          as ACTIVE so its saved ACK/resume/result state participates again. */
-      M.FT.sends.forEach(t=>{ if(t.recips){ let ch=false; t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=newId; if(!rec.canceled){ rec.active=true; ch=true; } } }); if(ch) M.FT._bcastLifecycle(t); } });
+      M.FT.sends.forEach(t=>{ if(t.recips){ let ch=false; t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=newId; const np=M.State.peers.get(newId); if(!rec.canceled&&np&&np.status==='online'){ rec.active=true; ch=true; } } }); if(ch) M.FT._bcastLifecycle(t); } });   /* restore only when the new session is genuinely online */
     }
     try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}   /* FT: no-op for the rebound transfers */
     M.bus.emit('members');
@@ -4565,11 +4565,12 @@ M.FT = {
   _bcastRecip(t,from){
     if(!t.recips) return null;
     const p=M.State.peers.get(from);
-    /* a CURRENT live session = a roster entry that is not offline. Receipt of a packet by
-       itself is NOT proof of a legitimate reconnect — an offline old peer's stale packet
-       must not reactivate the recipient. Only a live session, or the authenticated same-mid
-       takeover below, may restore active=true. fp is never used. */
-    const live=!!(p&&p.status!=='offline');
+    /* a CURRENT live session = a roster entry with an ESTABLISHED online session
+       (status==='online'). 'connecting' (handshake/presence incomplete) is NOT live, and
+       'offline' is rejected. Receipt of a packet by itself is NOT proof of a legitimate
+       reconnect. Only an online session, or the authenticated same-mid takeover below, may
+       restore active=true. fp is never used. */
+    const live=!!(p&&p.status==='online');
     /* a CANCELED recipient is returned as null — its state stays canceled and it can never
        reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol). */
     for(const rec of t.recips.values()){
@@ -4748,7 +4749,10 @@ M.FT = {
       t.recips=new Map();
       M.State.peers.forEach((p,pid)=>{
         if(pid===M.State.self.id) return;
-        if(p.status==='offline') return;   /* an offline roster entry is NOT an active recipient — it must not block the watermark at ACK 0 */
+        /* ONLY peers with an ESTABLISHED online session are recipients. Both 'offline' and
+           'connecting' (handshake/presence not yet completed) are excluded, so an
+           unestablished peer cannot become an active recipient holding the watermark at ACK 0. */
+        if(p.status!=='online') return;
         const key=(p.midAuth===true&&p.mid)?p.mid:('p:'+pid);
         t.recips.set(key,{mid:(p.midAuth===true?p.mid:undefined),peerId:pid,ack:0,resumeOff:null,result:null,canceled:false,active:true});
       });
