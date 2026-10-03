@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.83.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.84.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4564,12 +4564,23 @@ M.FT = {
   _bcastRecip(t,from){
     if(!t.recips) return null;
     const p=M.State.peers.get(from);
-    for(const rec of t.recips.values()){ if(rec.peerId===from) return rec; }   /* active transport match */
+    /* a CANCELED recipient is returned as null — its state stays canceled and it can never
+       reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol). */
+    for(const rec of t.recips.values()){ if(rec.peerId===from) return rec.canceled?null:rec; }   /* active transport match */
     if(p&&p.midAuth===true&&p.mid){
       const rec=t.recips.get(p.mid);
-      if(rec){ rec.peerId=from; return rec; }   /* proven same-mid takeover: migrate active transport */
+      if(rec){ if(rec.canceled) return null; rec.peerId=from; return rec; }   /* proven same-mid takeover: migrate active transport */
     }
     return null;   /* not a recipient — no state created */
+  },
+  /* Broadcast sender-window watermark = the SLOWEST active (non-canceled) recipient. An
+     unacknowledged recipient counts as ACK 0, so one fast recipient can never advance the
+     shared window while another active recipient has not acknowledged the data. Monotonic and
+     capped at the sender's real send progress; recipients who left (canceled) stop holding it. */
+  _bcastWatermark(t){
+    let minAck=Infinity, anyActive=false;
+    t.recips.forEach(r=>{ if(!r.canceled){ anyActive=true; if(r.ack<minAck) minAck=r.ack; } });
+    if(anyActive) t.ack=Math.max(t.ack,Math.min(minAck,t.seq));
   },
   /* ownership: is `from` the legitimate counterparty for this transfer?
      peerId is the transport/session identity; a reconnect takeover is recognized ONLY after the
@@ -4820,16 +4831,16 @@ M.FT = {
       case 'ack': {
         const t=M.FT.sends.get(d.id); if(!t) break;
         if(t.target==='*'){
-          /* BROADCAST: only an ACTUAL recipient may ack; one recipient's ack is recorded
-             per-recipient and NEVER advances a global watermark by itself. The send window
-             watermark is the SLOWEST acknowledging recipient, so an artificially large/forged
-             ack from one recipient cannot bypass the sender's flow-control limits. */
+          /* BROADCAST: only an ACTUAL, non-canceled recipient may ack. One recipient's ack is
+             recorded per-recipient (capped at the real chunk count) and never advances the
+             window by itself. The watermark is the SLOWEST active recipient — including one
+             still at ACK 0 — so a fast recipient cannot advance the shared window while another
+             active recipient has not acknowledged the data. A canceled recipient is ignored. */
+          if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: ignore stale acks */
           const rec=M.FT._bcastRecip(t,from);
-          if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient '+M.fmt.idShort(from)); break; }
+          if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient/canceled '+M.fmt.idShort(from)); break; }
           rec.ack=Math.min(Math.max(rec.ack,d.seq),M.FT._chunkCount(t.size));   /* cap at real chunk count */
-          let minAck=Infinity;
-          t.recips.forEach(r=>{ if(!r.canceled&&r.ack>0) minAck=Math.min(minAck,r.ack); });
-          if(minAck!==Infinity) t.ack=Math.max(t.ack,Math.min(minAck,t.seq));   /* monotonic, ≤ sent progress */
+          M.FT._bcastWatermark(t);
         } else if(M.FT.authSendPeer(t,from)){
           t.ack=Math.max(t.ack,d.seq);   /* directed: the receiver's ack drives the window */
         }
@@ -4838,8 +4849,10 @@ M.FT = {
       case 'nack': {
         /* receiver asked for specific missing chunks by number — resend them from the file.
            Retransmission is TARGETED to the requesting recipient so one recipient's NACK cannot
-           manipulate another recipient's transfer path (broadcast isolation). */
+           manipulate another recipient's transfer path (broadcast isolation). A canceled
+           recipient (or a terminal broadcast) cannot NACK. */
         const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
+        if(t.target==='*' && ['done','canceled','failed'].includes(t.status)) break;   /* terminal: no retransmission */
         (async()=>{
           for(const seq of (d.seqs||[])){
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
@@ -4855,7 +4868,14 @@ M.FT = {
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
         const t=M.FT.sends.get(d.id); if(!t) return;
-        if(t.target==='*'){ if(!M.FT._bcastRecip(t,from)){ M.log('warn','FT_REJECTED_AUTH broadcast resume from non-recipient'); return; } }
+        let brec=null;
+        if(t.target==='*'){
+          /* BROADCAST: only an ACTUAL, non-canceled recipient may resume; a terminal broadcast
+             cannot be resumed. A canceled recipient cannot reactivate itself via resume. */
+          if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE resume on terminal broadcast'); return; }
+          brec=M.FT._bcastRecip(t,from);
+          if(!brec){ M.log('warn','FT_REJECTED_AUTH broadcast resume from non-recipient/canceled '+M.fmt.idShort(from)); return; }
+        }
         else if(!M.FT.authSendPeer(t,from)) return;
         /* validate the offset BEFORE any state mutation: an integer, ≥0, ≤ t.size, and
            CHUNK-aligned (offset===t.size preserved as the valid end-of-transfer). An invalid
@@ -4868,7 +4888,7 @@ M.FT = {
           /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
              other recipients. Record the recipient's offset and retransmit the missed range to
              THIS recipient only; the shared send state (t.seq/t.ack/t.sent/t.status) is untouched. */
-          const b=M.FT._bcastRecip(t,from); b.resumeOff=off;
+          const b=brec; b.resumeOff=off;
           (async()=>{
             const upto=Math.max(t.sent,off);
             for(let s2=off/M.FT.CHUNK; s2*M.FT.CHUNK<upto && s2*M.FT.CHUNK<t.size; s2++){
@@ -4904,7 +4924,7 @@ M.FT = {
              integrity result is THEIRS alone — it must not mark the entire broadcast
              complete/failed for the other recipients. */
           const b=M.FT._bcastRecip(t,from);
-          if(!b){ M.log('warn','FT_REJECTED_AUTH broadcast result from non-recipient'); return; }
+          if(!b){ M.log('warn','FT_REJECTED_AUTH broadcast result from non-recipient/canceled'); return; }
           b.result=!!d.ok;   /* recipient-scoped; shared send status not driven by one recipient */
           M.log('info','broadcast result from '+M.fmt.idShort(from)+': '+(d.ok?'ok':'integrity fail')+' (recipient-scoped)');
           M.FT.render();
@@ -4922,10 +4942,26 @@ M.FT = {
         if(t){
           if(t.target==='*'){
             /* BROADCAST: only an ACTUAL recipient may cancel, and doing so withdraws THEIR
-               reception only — it must not cancel the shared broadcast for the others. */
+               reception only — it must not cancel the shared broadcast for the others. A
+               canceled recipient stays canceled (no rejoin op), so re-cancel is a no-op. */
             const b=M.FT._bcastRecip(t,from);
-            if(b){ b.canceled=true; M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped; broadcast continues for others)'); }
-            else M.log('warn','FT_REJECTED_AUTH broadcast cancel from non-recipient');
+            if(b){
+              b.canceled=true;
+              M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped)');
+              M.FT._bcastWatermark(t);   /* a canceled recipient stops holding the watermark */
+              /* ALL recipients canceled → stop the send loop cleanly. Reuse the existing
+                 'canceled' terminal state; do NOT report success and do not resurrect later
+                 (the send loop exits on status!=='sending' and terminal transfers ignore
+                 stale ack/result). */
+              let anyActive=false;
+              t.recips.forEach(r=>{ if(!r.canceled) anyActive=true; });
+              if(!anyActive && ['queued','sending','paused','verify'].includes(t.status)){
+                t.status='canceled';
+                M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')});
+                M.log('warn','all recipients canceled broadcast '+t.id+' — send loop stopped');
+              }
+            }
+            else M.log('warn','FT_REJECTED_AUTH broadcast cancel from non-recipient or already-canceled recipient');
           } else if(M.FT.authSendPeer(t,from)){
             if(t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render();
           }
