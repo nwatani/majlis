@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.82.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.83.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3942,6 +3942,9 @@ M.Members = {
          was already terminal stays terminal (never revived). */
       M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
       M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
+      /* broadcast recipient state: migrate this member's recipient record to the new
+         transport endpoint (only reached after a proven same-mid takeover). */
+      M.FT.sends.forEach(t=>{ if(t.recips){ t.recips.forEach(rec=>{ if(rec.peerId===oldId) rec.peerId=newId; }); } });
     }
     try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}   /* FT: no-op for the rebound transfers */
     M.bus.emit('members');
@@ -4551,14 +4554,22 @@ M.FT = {
   },
   /* sender-side variant for the LOCAL member's own stable mid (deny-only, fail-closed). */
   _fileStableDeniedSelf(){ M.FT.ensureFileDeny(); const mid=M.Id.mid; return !!(mid&&M.FT._fileDenyByMid.has(mid)); },
-  /* Per-recipient control state for a room BROADCAST send, so one recipient's ack/nack/resume/
-     result/cannot cannot implicitly become the state of every other recipient. Keyed by the
-     recipient's transport peer binding. */
-  _bcastPeer(t,from){
-    t.bcast ??= new Map();
-    let b=t.bcast.get(from);
-    if(!b){ b={ack:0,resumeOff:null,result:null,canceled:false}; t.bcast.set(from,b); }
-    return b;
+  /* Recipient binding for a room BROADCAST. Returns the caller's recipient record ONLY if
+     `from` is an actual recipient of THIS transfer; otherwise null (no record is created, so a
+     non-recipient cannot forge an entry). A recipient is recognized by an active transport
+     peerId match, or — after a successful midAuth proof of the SAME stable mid — by taking over
+     the recorded recipient state (migrating the active transport endpoint). fp is never used, and
+     a claimed/unverified mid never inherits a recipient's state. Recipient records are anchored by
+     stable mid when authenticated at distribution, else by transport peerId. */
+  _bcastRecip(t,from){
+    if(!t.recips) return null;
+    const p=M.State.peers.get(from);
+    for(const rec of t.recips.values()){ if(rec.peerId===from) return rec; }   /* active transport match */
+    if(p&&p.midAuth===true&&p.mid){
+      const rec=t.recips.get(p.mid);
+      if(rec){ rec.peerId=from; return rec; }   /* proven same-mid takeover: migrate active transport */
+    }
+    return null;   /* not a recipient — no state created */
   },
   /* ownership: is `from` the legitimate counterparty for this transfer?
      peerId is the transport/session identity; a reconnect takeover is recognized ONLY after the
@@ -4566,7 +4577,9 @@ M.FT = {
      is NEVER an authentication factor. Room broadcast control is isolated to authorized
      recipients via _peerFileOk, not an open "any peer" rule. */
   authSendPeer(t,from){
-    if(t.target==='*') return M.FT._peerFileOk(from,true);   /* room recipient must hold the room file permission */
+    /* broadcast control is restricted to ACTUAL recipients of this transfer — fileRoom
+       permission alone is NOT sufficient to control an existing broadcast. */
+    if(t.target==='*') return !!M.FT._bcastRecip(t,from);
     if(from===t.target) return true;                          /* the exact intended receiver */
     const p=M.State.peers.get(from);
     return !!(t.rmid&&p&&p.midAuth===true&&p.mid===t.rmid);  /* proven same receiver mid */
@@ -4686,6 +4699,18 @@ M.FT = {
     const rp=isRoom?null:M.State.peers.get(target);
     t.rmid=rp?.mid||undefined; t.rfp=rp?.fp||undefined;
     t.smid=M.Id.mid||undefined; t.sfp=M.State.self.fp;
+    if(isRoom){
+      /* BROADCAST recipient set — established at distribution from the current room
+         membership (excluding self). Each recipient is anchored by stable mid when
+         authenticated, else by transport peerId. Control of this transfer is limited to
+         these recipients; fileRoom permission alone does not authorize control. */
+      t.recips=new Map();
+      M.State.peers.forEach((p,pid)=>{
+        if(pid===M.State.self.id) return;
+        const key=(p.midAuth===true&&p.mid)?p.mid:('p:'+pid);
+        t.recips.set(key,{mid:(p.midAuth===true?p.mid:undefined),peerId:pid,ack:0,resumeOff:null,result:null,canceled:false});
+      });
+    }
     const sent=await M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,rfp:t.rfp,sfp:t.sfp},isRoom?undefined:target);
     if(!sent){ return null; }
     M.FT.sends.set(id,t);
@@ -4793,9 +4818,20 @@ M.FT = {
         break;
       }
       case 'ack': {
-        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){
-          if(t.target==='*') M.FT._bcastPeer(t,from).ack=Math.max(M.FT._bcastPeer(t,from).ack,d.seq);   /* recipient-scoped record */
-          t.ack=Math.max(t.ack,d.seq);   /* broadcast send-window progress; directed: the receiver's ack */
+        const t=M.FT.sends.get(d.id); if(!t) break;
+        if(t.target==='*'){
+          /* BROADCAST: only an ACTUAL recipient may ack; one recipient's ack is recorded
+             per-recipient and NEVER advances a global watermark by itself. The send window
+             watermark is the SLOWEST acknowledging recipient, so an artificially large/forged
+             ack from one recipient cannot bypass the sender's flow-control limits. */
+          const rec=M.FT._bcastRecip(t,from);
+          if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient '+M.fmt.idShort(from)); break; }
+          rec.ack=Math.min(Math.max(rec.ack,d.seq),M.FT._chunkCount(t.size));   /* cap at real chunk count */
+          let minAck=Infinity;
+          t.recips.forEach(r=>{ if(!r.canceled&&r.ack>0) minAck=Math.min(minAck,r.ack); });
+          if(minAck!==Infinity) t.ack=Math.max(t.ack,Math.min(minAck,t.seq));   /* monotonic, ≤ sent progress */
+        } else if(M.FT.authSendPeer(t,from)){
+          t.ack=Math.max(t.ack,d.seq);   /* directed: the receiver's ack drives the window */
         }
         break;
       }
@@ -4818,16 +4854,21 @@ M.FT = {
       }
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
-        const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) return;
-        /* validate the offset BEFORE any state mutation: a finite number within [0, t.size].
-           An out-of-range/invalid offset must not touch t.seq/t.ack/t.sent/t.status or start the loop. */
-        if(typeof d.offset!=='number' || !isFinite(d.offset) || d.offset<0 || d.offset>t.size){ M.log('warn','FT_REJECTED_STATE resume offset out of range'); return; }
-        const off=Math.floor(d.offset/M.FT.CHUNK)*M.FT.CHUNK;   /* align down to the chunk boundary (≤ d.offset ≤ size) */
+        const t=M.FT.sends.get(d.id); if(!t) return;
+        if(t.target==='*'){ if(!M.FT._bcastRecip(t,from)){ M.log('warn','FT_REJECTED_AUTH broadcast resume from non-recipient'); return; } }
+        else if(!M.FT.authSendPeer(t,from)) return;
+        /* validate the offset BEFORE any state mutation: an integer, ≥0, ≤ t.size, and
+           CHUNK-aligned (offset===t.size preserved as the valid end-of-transfer). An invalid
+           offset is REJECTED — never rounded — and touches no sender state / starts no loop. */
+        if(typeof d.offset!=='number' || !isFinite(d.offset) || !Number.isInteger(d.offset) || d.offset<0 || d.offset>t.size || (d.offset%M.FT.CHUNK!==0 && d.offset!==t.size)){
+          M.log('warn','FT_REJECTED_STATE resume offset invalid (must be chunk-aligned, within [0,size])'); return;
+        }
+        const off=d.offset;   /* validated aligned (or end-of-transfer) — no rounding */
         if(t.target==='*'){
           /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
              other recipients. Record the recipient's offset and retransmit the missed range to
              THIS recipient only; the shared send state (t.seq/t.ack/t.sent/t.status) is untouched. */
-          const b=M.FT._bcastPeer(t,from); b.resumeOff=off;
+          const b=M.FT._bcastRecip(t,from); b.resumeOff=off;
           (async()=>{
             const upto=Math.max(t.sent,off);
             for(let s2=off/M.FT.CHUNK; s2*M.FT.CHUNK<upto && s2*M.FT.CHUNK<t.size; s2++){
@@ -4857,16 +4898,19 @@ M.FT = {
         break;
       }
       case 'result': {
-        const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify'||!M.FT.authSendPeer(t,from)) return;
+        const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify') return;
         if(t.target==='*'){
-          /* BROADCAST: one recipient's integrity result is THEIRS alone — it must not mark the
-             entire broadcast complete/failed for the other recipients. Record it per recipient;
-             the shared send status is not driven by a single recipient. */
-          const b=M.FT._bcastPeer(t,from); b.result=!!d.ok;
+          /* BROADCAST: only an ACTUAL recipient may report a result, and one recipient's
+             integrity result is THEIRS alone — it must not mark the entire broadcast
+             complete/failed for the other recipients. */
+          const b=M.FT._bcastRecip(t,from);
+          if(!b){ M.log('warn','FT_REJECTED_AUTH broadcast result from non-recipient'); return; }
+          b.result=!!d.ok;   /* recipient-scoped; shared send status not driven by one recipient */
           M.log('info','broadcast result from '+M.fmt.idShort(from)+': '+(d.ok?'ok':'integrity fail')+' (recipient-scoped)');
           M.FT.render();
           return;
         }
+        if(!M.FT.authSendPeer(t,from)) return;
         if(d.ok){ t.status='done'; M.Chat.updateFileCard(t.id,{statusLabel:`${M.t('st_done')} ✓`}); M.toast('ok',t.name,M.t('st_done')); M.Notify.beep('ok'); }
         else { M.FT.fail(t,M.t('integrity_fail')); }
         M.FT.render(); M.UI.badges();
@@ -4874,13 +4918,15 @@ M.FT = {
       }
       case 'cancel': {
         /* a send may only be canceled by its intended receiver; a receive only by its sender */
-        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){
+        const t=M.FT.sends.get(d.id);
+        if(t){
           if(t.target==='*'){
-            /* BROADCAST: one recipient canceling withdraws THEIR reception only — it must not
-               cancel the shared broadcast for the other recipients. */
-            const b=M.FT._bcastPeer(t,from); b.canceled=true;
-            M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped; broadcast continues for others)');
-          } else {
+            /* BROADCAST: only an ACTUAL recipient may cancel, and doing so withdraws THEIR
+               reception only — it must not cancel the shared broadcast for the others. */
+            const b=M.FT._bcastRecip(t,from);
+            if(b){ b.canceled=true; M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped; broadcast continues for others)'); }
+            else M.log('warn','FT_REJECTED_AUTH broadcast cancel from non-recipient');
+          } else if(M.FT.authSendPeer(t,from)){
             if(t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render();
           }
         }
