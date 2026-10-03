@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.8';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.79.9';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2128,11 +2128,15 @@ M.State = {
   peers: new Map(),      // peerId -> member
   perms: null,           // authoritative permissions object
   /* provenance of the current permission state — the serverless "latest-known vs
-     guaranteed-current" distinction. true ONLY once this client has received permission
-     state DIRECTLY from the Admin (signed, verified, from===transport) or is the Admin.
-     A RELAYED snapshot (latest-known while the Admin is offline) never sets this, so an
-     old relay can only restrict (denyByMid) — it can never UPGRADE a member from DENY to
-     ALLOW, because grants require direct confirmation. */
+     authoritative" distinction. true ONLY once this client has received a COMPLETE,
+     directly-authenticated authoritative permission state: a full wbCtrl snapshot delivered
+     DIRECTLY by the verified Admin (signature + sender binding + rid + sequence). Direct
+     `perm`/`override`/`lock` DELTAS do NOT confirm — they prove only that one change, not the
+     whole current state. A RELAYED snapshot (latest-known while the Admin is offline) never
+     confirms either. Note: confirmation means "directly authenticated authoritative state,"
+     not a mathematical guarantee that no newer Admin change exists — the security property is
+     that relayed/latest-known state never grants Chat/DM, while a direct full snapshot may
+     establish the trusted permission state. Grants therefore require this flag (or isAdmin). */
   permsConfirmed: false,
   bans: [],
   wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{} },
@@ -2148,10 +2152,11 @@ M.Perms = {
   p(){ return M.State.perms || M.permsDefault(); },
   isAdmin(){ return !!(M.Admin.priv && !M.Admin.pending); },   /* a pending identity holds no local Admin privileges */
   memberOv(peerId){ const p=M.Perms.p(); return (p.overrides&&p.overrides[peerId])||{}; },
-  /* Can security-sensitive permission GRANTS be honored right now? Only when the current
-     permission state was confirmed DIRECTLY by the Admin (or we are the Admin). Relayed /
-     latest-known state (Admin offline) may restrict via denyByMid but never grants — this is
-     the explicit "latest-known ≠ guaranteed-current" fail-closed boundary. */
+  /* Can security-sensitive permission GRANTS be honored right now? Only when this client holds
+     a COMPLETE, directly-authenticated authoritative permission state (a full wbCtrl snapshot
+     delivered directly by the verified Admin) — or we ARE the Admin. Direct perm/override/lock
+     deltas and relayed/latest-known snapshots do NOT establish it; they may restrict (denyByMid)
+     but never grant. This is the explicit fail-closed boundary. */
   grantsAuthorized(){ return !!(M.Perms.isAdmin() || M.State.permsConfirmed); },
   can(feature, peerId){ // peerId optional -> check that member's rights (admin view)
     const P=M.Perms.p(); const me=M.Perms.isAdmin();
@@ -3503,11 +3508,13 @@ M.Net = {
          relayed kick/ban/end/etc is rejected outright, and a member relay never confers
          Admin authority or presence.
 
-         LATEST-KNOWN ≠ GUARANTEED-CURRENT: a relay only proves "newer than my local
-         high-water", NOT "the latest Admin state". It therefore applies RESTRICTIVE state
-         (denyByMid) and harmless UI state, but it never sets M.State.permsConfirmed — so a
-         stale relay can never UPGRADE a member from DENY to ALLOW. Chat/DM grants require
-         direct-from-Admin confirmation (see M.Perms.grantsAuthorized). */
+          LATEST-KNOWN ≠ AUTHORITATIVE: a relay only proves "newer than my local high-water",
+          NOT "the latest Admin state". It therefore applies RESTRICTIVE state (denyByMid) and
+          harmless/latest-known UI state, but it never sets M.State.permsConfirmed — so a stale
+          relay can never UPGRADE a member from DENY to ALLOW. Chat/DM grants require a COMPLETE
+          permission state delivered DIRECTLY by the verified Admin (a full snapshot), which
+          establishes a directly-authenticated authoritative permission state — not a mathematical
+          guarantee that no newer change exists (see M.Perms.grantsAuthorized). */
       if(m.from!==peerId){
         /* The Admin is the authoritative source and never needs a member relay — accepting
            one could roll back locally-applied (newer) state, so drop it outright. */
@@ -3530,10 +3537,18 @@ M.Net = {
       const key=(M.Admin.adminIdOf(m.pub)||m.from)+':'+m.seq;      /* dedup by stable Admin identity */
       if(M.Admin._seen.has(key)) return;
       M.Admin._seen.add(key); if(M.Admin._seen.size>800) M.Admin._seen.clear();
-      /* DIRECT-from-Admin permission state is CONFIRMED — guaranteed-current at the moment of
-         signing (as opposed to a relay, which is only latest-known). This is what unlocks
-         chat/DM grants on the receiver. */
-      if(m.cmd==='perm'||m.cmd==='override'||m.cmd==='lock'||(m.cmd==='wbCtrl'&&m.sub==='snapshot')) M.State.permsConfirmed=true;
+      /* PERMISSION-STATE CONFIRMATION — set ONLY for a DIRECT, COMPLETE wbCtrl snapshot.
+         A full snapshot carries the entire authoritative permission state (perms + overrides +
+         bans + denyByMid), so once it is verified (Admin signature, sender binding, rid,
+         sequence) the client holds a directly-authenticated authoritative permission state and
+         chat/DM grants may be honored.
+
+         A direct `perm`/`override`/`lock` command is only a DELTA: it proves the Admin
+         authenticated and sent that one change, NOT that this client holds the complete current
+         permission state. Applying it must NOT confirm — otherwise a member holding a stale base
+         policy could treat it as a valid grant after receiving an unrelated override for someone
+         else. Deltas apply their fields; confirmation waits for the next full snapshot. */
+      if(m.cmd==='wbCtrl'&&m.sub==='snapshot') M.State.permsConfirmed=true;
       M.Admin.dispatch(m,peerId);
     };
     M.Net.A.type.onMessage = (d,{peerId}) => { if(!M.Guard.check('type',d,peerId)) return; if(d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d.to}); };
