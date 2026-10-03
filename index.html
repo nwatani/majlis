@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.93.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.94.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3368,7 +3368,21 @@ M.Net = {
         /* Also clear the temporary offline flag: a record whose sender went offline and has now
            (re)proven its stable identity on this peer is restored as an authenticated endpoint,
            so the transfer can continue/resume. */
-        M.FT.recvs.forEach(r=>{ if(r.from===peerId){ if(!r.smid) r.smid=proof.mid; r.fromProvisional=false; r.fromOffline=false; } });
+        M.FT.recvs.forEach(r=>{
+          if(r.from!==peerId) return;
+          if(!r.smid){
+            /* Case 1 — stable identity just established for this record. */
+            r.smid=proof.mid; r.fromProvisional=false; r.fromOffline=false;
+          } else if(r.smid===proof.mid){
+            /* Case 2 — the proof establishes the SAME stable sender identity already bound to
+               this transfer; restore the normal authenticated binding. */
+            r.fromProvisional=false; r.fromOffline=false;
+          }
+          /* Case 3 — r.smid is bound to a DIFFERENT identity than the one just proven. Proving
+             SOME valid mid is not enough: the flags are left set (so recvAuth keeps requiring a
+             matching proven identity) and nothing else is modified — this peer is NOT authorized
+             for this transfer. Never fp/claimedMid/packet-smid/fromName. */
+        });
         /* ONLY NOW — after proof — migrate the old authenticated peer's identity-bound
            state to this new transport peer. Before this point nothing was inherited. */
         /* absorb only a DEAD/stale previous session of this identity; a still-live second
@@ -4484,6 +4498,15 @@ M.DB = {
   },
   _k(id,seq){ return id+':'+String(seq).padStart(7,'0'); },
   async putChunk(id,seq,buf){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(buf,M.DB._k(id,seq)); }catch(e){} },
+  /* awaitable put that resolves to true only once the chunk write has been committed, so the
+     caller can persist BEFORE advancing authoritative receive state (never claim a chunk that
+     failed to persist). */
+  putChunkWait(id,seq,buf){
+    return M.DB.open().then(db=>new Promise(res=>{
+      const tx=db.transaction('x','readwrite'); tx.objectStore('x').put(buf,M.DB._k(id,seq));
+      tx.oncomplete=()=>res(true); tx.onerror=()=>res(false); tx.onabort=()=>res(false);
+    })).catch(()=>false);
+  },
   async putMeta(id,meta){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(meta,id+':meta'); }catch(e){} },
   /* delete every chunk/meta key belonging to one transfer id */
   async delTransfer(id){
@@ -4519,6 +4542,7 @@ M.DB = {
 
 M.FT = {
   sends:new Map(), recvs:new Map(),
+  _pending:new Map(),   /* transfer-id reservations held between offer validation and record insertion */
   CHUNK:65536, ACK_EVERY:16, WINDOW:64, MAX_PARALLEL:3,
   /* centralized, sane limits for hostile-peer hardening */
   L:{
@@ -4526,7 +4550,10 @@ M.FT = {
     maxName:260, maxType:120,
     idRe:/^[A-Za-z0-9]{8,24}$/,
     maxRecv:24, maxSends:24,    /* simultaneous transfer caps per room */
-    maxBuf:2*1024*1024          /* a single chunk never exceeds this */
+    maxBuf:2*1024*1024,         /* a single chunk never exceeds this */
+    maxBufChunks:320,           /* out-of-order buffer: max future chunks held per transfer */
+    maxBufBytes:20*1024*1024,   /* out-of-order buffer: max total bytes held per transfer */
+    memWindow:64                /* bounded in-memory receive window (persisted chunks are source of truth) */
   },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
   /* Receive-side FILE permission gate for a transport sender. Resolves the sender's file
@@ -4962,8 +4989,8 @@ M.FT = {
         if(typeof d.size!=='number' || !isFinite(d.size) || d.size<=0 || d.size>M.FT.L.maxFile){ M.log('warn','FT_REJECTED_STATE offer: bad size'); return; }
         if(typeof d.name!=='string' || d.name.length>M.FT.L.maxName){ M.log('warn','FT_REJECTED_STATE offer: bad filename'); return; }
         if(typeof d.type==='string' && d.type.length>M.FT.L.maxType){ M.log('warn','FT_REJECTED_STATE offer: bad mime'); return; }
-        if(M.FT.recvs.has(d.id)){ M.log('warn','FT_REJECTED_STATE duplicate transfer id '+d.id); return; }
-        if(M.FT.recvs.size>=M.FT.L.maxRecv){ M.log('warn','FT_REJECTED_STATE too many simultaneous receives'); return; }
+        if(M.FT.recvs.has(d.id) || M.FT._pending.has(d.id)){ M.log('warn','FT_REJECTED_STATE duplicate transfer id '+d.id); return; }
+        if(M.FT.recvs.size + M.FT._pending.size >= M.FT.L.maxRecv){ M.log('warn','FT_REJECTED_STATE too many simultaneous receives'); return; }
         const isRoom=!d.target;
         /* SENDER authorization from the Admin policy — BEFORE any receive state is created,
            any notification, or any persistence. A forbidden sender's offer is rejected here. */
@@ -4972,7 +4999,12 @@ M.FT = {
         /* capture the sender's VERIFIED stable mid from the roster (never a payload claim) so
            a proven same-mid sender reconnect can be recognized; unauthenticated → undefined. */
         const _sp=M.State.peers.get(from); const _smid=(_sp&&_sp.midAuth===true)?_sp.mid:undefined;
+        /* RESERVE the transfer id synchronously BEFORE any async work, so two simultaneous
+           offers with the same id cannot both pass the duplicate check. The reservation counts
+           toward the receive cap and is released safely if initialization fails. */
+        M.FT._pending.set(d.id,true);
         (async()=>{
+          try{
           const r={ id:d.id, name:d.name, size:d.size, type:d.type||'file', from, dir:'down', room:M.State.room?.code, smid:_smid, sfp:d.sfp||undefined, voice:!!d.voice, dur:d.dur||0, shot:!!d.shot, clip:!!d.clip, status:'receiving',
             expected:0, recv:0, parts:[], buf:new Map(), finHash:null, finAt:0, _lastProg:Date.now(),
             hash:M.SHA.create(), startedAt:Date.now(), speed:0, _lastT:Date.now(), _lastB:0 };
@@ -4985,14 +5017,18 @@ M.FT = {
               if(aligned>0 && aligned<d.size){
                 const bufs=await M.DB.chunks(d.id, aligned/M.FT.CHUNK);
                 if(bufs.length*M.FT.CHUNK===aligned){
-                  r.parts=bufs; r.recv=aligned; r.expected=aligned/M.FT.CHUNK;
+                  r.recv=aligned; r.expected=aligned/M.FT.CHUNK;
                   bufs.forEach(b=>r.hash.update(new Uint8Array(b)));
+                  /* keep the in-memory window bounded — the persisted chunks stay the source of
+                     truth for final assembly (avoids holding a large prefix in memory twice) */
+                  r.parts=bufs.slice(-M.FT.L.memWindow);
                   resumeOff=aligned;
                   M.log('info','resuming receive '+d.name+' from '+M.fmt.bytes(aligned)+' ('+Math.round(aligned/d.size*100)+'%)');
                 }
               }
             }
           }catch(e){}
+          M.FT._pending.delete(d.id);   /* convert the reservation into the real receive record */
           M.FT.recvs.set(r.id,r);
           M.FT.trackRoom(r.id,M.State.room?.code);
           M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving'),voice:r.voice,dur:r.dur,shot:r.shot,clip:r.clip});
@@ -5002,24 +5038,32 @@ M.FT = {
           M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
           M.log('info','incoming file '+r.name+' from '+M.fmt.idShort(from));
           M.FT.render(); M.UI.badges();
+          }catch(e){ M.FT._pending.delete(d.id); M.log('err','offer init failed: '+(e&&e.message||e)); }
         })();
         break;
       }
       case 'ack': {
         const t=M.FT.sends.get(d.id); if(!t) break;
+        /* ACK shape: an integer >= 0. Forged/huge ACKs are additionally capped below against
+           the sender's REAL send progress, so an ACK for unissued chunks can never make the
+           sender believe those chunks were delivered. */
+        if(typeof d.seq!=='number' || !isFinite(d.seq) || (d.seq|0)!==d.seq || d.seq<0) break;
         if(t.target==='*'){
           /* BROADCAST: only an ACTUAL, non-canceled recipient may ack. One recipient's ack is
-             recorded per-recipient (capped at the real chunk count) and never advances the
-             window by itself. The watermark is the SLOWEST active recipient — including one
-             still at ACK 0 — so a fast recipient cannot advance the shared window while another
-             active recipient has not acknowledged the data. A canceled recipient is ignored. */
+             recorded per-recipient and never advances the window by itself. The watermark is the
+             SLOWEST active recipient — including one still at ACK 0 — so a fast recipient cannot
+             advance the shared window while another active recipient has not acknowledged the
+             data. A canceled recipient is ignored. */
           if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: ignore stale acks */
           const rec=M.FT._bcastRecip(t,from);
           if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient/canceled/inactive '+M.fmt.idShort(from)); break; }
-          rec.ack=Math.min(Math.max(rec.ack,d.seq),M.FT._chunkCount(t.size));   /* cap at real chunk count */
+          /* cap at BOTH the real chunk count AND the sender's actual send progress */
+          rec.ack=Math.min(Math.max(rec.ack,d.seq),M.FT._chunkCount(t.size),t.seq);
           M.FT._bcastLifecycle(t);   /* watermark over active recipients; resumes a paused broadcast now that a recipient is active again */
         } else if(M.FT.authSendPeer(t,from)){
-          t.ack=Math.max(t.ack,d.seq);   /* directed: the receiver's ack drives the window */
+          /* directed: the receiver's ack drives the window, but NEVER beyond the chunks the
+             sender has actually transmitted (t.seq). */
+          t.ack=Math.max(t.ack,Math.min(d.seq,t.seq));
         }
         break;
       }
@@ -5030,15 +5074,26 @@ M.FT = {
            recipient (or a terminal broadcast) cannot NACK. */
         const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
         if(t.target==='*' && ['done','canceled','failed'].includes(t.status)) break;   /* terminal: no retransmission */
+        /* validate the requested range, drop duplicates, and bound the batch so a malformed or
+           excessive NACK cannot trigger unbounded file reads / retransmissions. Retransmission
+           stays targeted to the authenticated requesting recipient. */
+        const cc=M.FT._chunkCount(t.size); const seen=new Set(); const seqs=[];
+        for(const s of (d.seqs||[])){
+          if(typeof s!=='number'||!isFinite(s)||(s|0)!==s||s<0||s>=cc) continue;
+          if(seen.has(s)) continue;
+          seen.add(s); seqs.push(s);
+          if(seqs.length>=M.FT.L.maxBufChunks) break;
+        }
+        if(!seqs.length) break;
         (async()=>{
-          for(const seq of (d.seqs||[])){
+          for(const seq of seqs){
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
             try{
               const b=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
               await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},target:from});
             }catch(e){}
           }
-          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.name+' → '+M.fmt.idShort(from));
+          M.log('info','retransmitted '+seqs.length+' chunk(s) for '+t.name+' → '+M.fmt.idShort(from));
         })();
         break;
       }
@@ -5061,6 +5116,9 @@ M.FT = {
           M.log('warn','FT_REJECTED_STATE resume offset invalid (must be chunk-aligned, within [0,size])'); return;
         }
         const off=d.offset;   /* validated aligned (or end-of-transfer) — no rounding */
+        /* DIRECTED: a receiver must not resume from beyond what the sender has actually
+           transmitted. offset===t.size is only valid once the sender has reached that size. */
+        if(t.target!=='*' && off>t.sent){ M.log('warn','FT_REJECTED_STATE resume offset beyond actual send progress'); return; }
         if(t.target==='*'){
           /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
              other recipients. Record the recipient's offset and retransmit the missed range to
@@ -5078,6 +5136,9 @@ M.FT = {
           return;
         }
         (async()=>{
+          /* FRESH hash object — rebuild the prefix digest from scratch so the prefix is never
+             hashed twice onto the previous hash state. */
+          t.hash=M.SHA.create();
           let p=0;
           try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); t.hash.update(new Uint8Array(b)); p+=M.FT.CHUNK; } }
           catch(e){ M.FT.fail(t,'resume read failed'); return; }
@@ -5165,35 +5226,89 @@ M.FT = {
       }
     }
   },
+  /* per-transfer chunk-processing queue: serializes async chunk handling so concurrent
+     arrivals cannot interleave and corrupt expected/recv/hash/parts or IndexedDB ordering.
+     Separate transfers keep separate queues, so one slow transfer never blocks another. */
+  _chunkQ(r,fn){
+    const prev=r._q||Promise.resolve();
+    const next=prev.then(fn).catch(e=>{ M.log('err','chunk processing error: '+(e&&e.message||e)); });
+    r._q=next;
+    return next;
+  },
   onChunk({peerId,metadata,buf}){
     if(!metadata?.id || !M.FT.L.idRe.test(metadata.id)) return;
     const r=M.FT.recvs.get(metadata.id); if(!r) return;
-    if(r.from!==peerId){ M.log('warn','chunk rejected: not from transfer owner'); return; }  /* transfers stay bound to their creator */
+    /* AUTHORIZATION: respect the same identity state as recvAuth. A fromOffline or
+       fromProvisional record rejects chunks until a successful same-mid proof re-establishes
+       the sender; fp never authorizes binary data and payload identity is never consulted. */
+    if(!M.FT.recvAuth(r,peerId)){ M.log('warn','FT_REJECTED_AUTH chunk from unauthorized peer '+M.fmt.idShort(peerId)); return; }
     if(typeof metadata.seq!=='number' || !isFinite(metadata.seq) || metadata.seq<0 || (metadata.seq|0)!==metadata.seq) return;
-    if(buf && buf.byteLength>M.FT.L.maxBuf) return;   /* never accept an oversized chunk */
-    if(metadata.fin){
-      if(r.status==='receiving'){ r.finHash=metadata.hash; r.finAt=Date.now();
-        if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
-      }
-      return;
-    }
     if(r.status!=='receiving') return;
-    if(metadata.seq>=M.FT._chunkCount(r.size)) return;   /* chunk index beyond the declared file */
-    const seq=metadata.seq;
-    if(seq<r.expected) return;                                    /* duplicate of an already-placed chunk */
-    if(seq>r.expected){                                           /* arrived early — hold it, never drop it */
-      if(r.buf && r.buf.size<320 && !r.buf.has(seq)) r.buf.set(seq,new Uint8Array(buf));
+    const cc=M.FT._chunkCount(r.size);
+    const data=(buf&&buf.byteLength!==undefined)?buf:null;
+    if(metadata.fin){
+      /* FIN marker — validate FULLY before touching any state: seq must equal the chunk count,
+         the hash must be a well-formed SHA-256 hex digest, and the buffer must be EMPTY (a fin
+         marker carrying arbitrary data, or a bad seq/hash, is rejected outright). */
+      if(metadata.seq!==cc) return;
+      if(typeof metadata.hash!=='string' || !/^[0-9a-f]{64}$/.test(metadata.hash)) return;
+      if(!data || data.byteLength!==0) return;
+      r.finHash=metadata.hash; r.finAt=Date.now();
+      if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
       return;
     }
-    const consume=(b,s)=>{ r.parts.push(b); r.recv+=b.length; r.hash.update(b); M.DB.putChunk(r.id,s,b); r.expected++; };
-    consume(new Uint8Array(buf),seq);
-    while(r.buf && r.buf.has(r.expected)){ const b2=r.buf.get(r.expected); r.buf.delete(r.expected); consume(b2,r.expected); }
-    r._lastProg=Date.now();
-    if(r.expected%32===0) M.DB.putMeta(r.id,{size:r.size,name:r.name,recv:r.recv});
-    if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
-    M.FT.tickRecv(r);
-    const doneHash=r.finHash||r.pending;
-    if(doneHash && r.recv>=r.size) M.FT.finalize(r,doneHash,peerId);
+    /* DATA chunk — exact shape required BEFORE any mutation */
+    const seq=metadata.seq;
+    if(seq>=cc) return;                                   /* chunk index beyond the declared file */
+    const isLast=(seq===cc-1);
+    const expectedLen=isLast ? (r.size-seq*M.FT.CHUNK) : M.FT.CHUNK;
+    if(expectedLen<=0 || expectedLen>M.FT.CHUNK) return;
+    if(!data || data.byteLength!==expectedLen) return;    /* exact size: full CHUNK, or the final remainder */
+    M.FT._chunkQ(r, async ()=>{
+      if(r.status!=='receiving') return;
+      if(seq<r.expected) return;                          /* duplicate of an already-placed chunk */
+      if(seq>r.expected){                                 /* arrived early — bounded out-of-order hold */
+        const bytes=r._bufBytes||0;
+        if(r.buf && r.buf.size<M.FT.L.maxBufChunks && !r.buf.has(seq) && bytes+data.byteLength<=M.FT.L.maxBufBytes){
+          r.buf.set(seq,new Uint8Array(data)); r._bufBytes=bytes+data.byteLength;
+        }
+        return;                                           /* over-bound early chunk: rejected, state untouched */
+      }
+      const u8=new Uint8Array(data);
+      /* PERSIST FIRST: advance authoritative receive state only after a durable write succeeds. */
+      const okp=await M.DB.putChunkWait(r.id,seq,u8);
+      if(!okp){ M.FT.fail(r,'chunk persistence failed'); return; }
+      r.parts.push(u8); r.recv+=u8.length; r.hash.update(u8); r.expected++;
+      /* drain any buffered consecutive chunks, persisting each before it counts */
+      while(r.buf && r.buf.has(r.expected)){
+        const b2=r.buf.get(r.expected); r.buf.delete(r.expected); r._bufBytes=Math.max(0,(r._bufBytes||0)-b2.length);
+        const ok2=await M.DB.putChunkWait(r.id,r.expected,b2);
+        if(!ok2){ M.FT.fail(r,'chunk persistence failed'); return; }
+        r.parts.push(b2); r.recv+=b2.length; r.hash.update(b2); r.expected++;
+      }
+      /* keep the in-memory window bounded — persisted chunks remain the source of truth */
+      while(r.parts.length>M.FT.L.memWindow) r.parts.shift();
+      r._lastProg=Date.now();
+      if(r.expected%32===0) M.DB.putMeta(r.id,{size:r.size,name:r.name,recv:r.recv});
+      if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
+      M.FT.tickRecv(r);
+      const doneHash=r.finHash||r.pending;
+      if(doneHash && r.recv>=r.size) M.FT.finalize(r,doneHash,peerId);
+    });
+  },
+  /* memory-conscious assembly: the durable persisted chunks are the source of truth. If the
+     bounded in-memory window already holds every chunk (small file), use it directly; otherwise
+     read the persisted chunks once to build the Blob (a single working copy, not a second full
+     in-memory duplicate kept during the transfer). Falls back to the in-memory window when
+     IndexedDB is unavailable. */
+  _assemble(r){
+    const cc=M.FT._chunkCount(r.size);
+    if(r.parts && r.parts.length===cc){ return Promise.resolve(new Blob(r.parts,{type:r.type})); }
+    return M.DB.chunks(r.id,cc).then(bufs=>{
+      if(bufs && bufs.length===cc) return new Blob(bufs.map(b=>b instanceof Uint8Array?b:new Uint8Array(b)),{type:r.type});
+      if(r.parts && r.parts.length) return new Blob(r.parts,{type:r.type});
+      return new Blob([new Uint8Array(r.size)],{type:r.type});
+    });
   },
   finalize(r,hashHex,from){
     if(r.status==='done'||r.status==='failed'||r.status==='canceled') return;
@@ -5202,14 +5317,17 @@ M.FT = {
     const local=r.hash.hex();
     const ok=(local===hashHex) && r.recv===r.size;
     if(ok){
-      const blob=new Blob(r.parts,{type:r.type});
-      r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
-      M.DB.del(r.id);   /* verified complete — free the persisted chunks */
-      M.FT.untrack(r.id,r.room);
-      M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
-      M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
-      M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
-      M.log('info','file verified ✓ '+r.name);
+      M.FT._assemble(r).then(blob=>{
+        if(r.status!=='verify') return;   /* canceled/failed while assembling */
+        r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
+        M.DB.del(r.id);   /* verified complete — free the persisted chunks */
+        M.FT.untrack(r.id,r.room);
+        M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
+        M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
+        M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
+        M.log('info','file verified ✓ '+r.name);
+        M.FT.render(); M.UI.badges();
+      }).catch(e=>{ M.FT.fail(r,'assembly failed'); });
     } else {
       r.status='failed'; r.err=M.t('integrity_fail');
       M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('integrity_fail')});
