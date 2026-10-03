@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.93.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.93.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4696,7 +4696,10 @@ M.FT = {
     let becameActive=false;
     for(const [key,rec] of [...t.recips.entries()]){
       const p=M.State.peers.get(rec.peerId);
-      if(!p||p.status==='offline'){ if(rec.active) rec.active=false; continue; }
+      /* ONLY an established online session may be active. connecting (handshake/presence not
+         yet complete), offline, and missing peers are all inactive — a peer that moved from
+         online to connecting must not remain active and hold the watermark. */
+      if(!p||p.status!=='online'){ if(rec.active) rec.active=false; continue; }
       if(p.midAuth===true&&p.mid){
         if(key!==p.mid){
           if(t.recips.has(p.mid)){ t.recips.delete(key); continue; }   /* collision: keep canonical stable-mid record */
@@ -4704,9 +4707,8 @@ M.FT = {
           rec.mid=p.mid; rec.peerId=p.id;
           t.recips.set(p.mid,rec);
         }
-        if(p.status==='online'&&!rec.canceled){ rec.active=true; becameActive=true; }
       }
-      /* unverified peer: temporary binding kept, no takeover; active flag left as-is */
+      if(!rec.canceled){ if(!rec.active){ rec.active=true; becameActive=true; } }   /* online recipient */
     }
     return becameActive;
   },
@@ -5109,24 +5111,31 @@ M.FT = {
             if(b){
               b.canceled=true;
               M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped)');
-              /* Remaining participants are distinguished as ACTIVE (active && !canceled) vs
-                 merely REMAINING (offline/inactive, !canceled). An offline/inactive recipient
-                 must NOT keep the sender in an active sending state. */
-              let anyRemaining=false;
-              t.recips.forEach(r=>{ if(!r.canceled) anyRemaining=true; });
-              if(!anyRemaining && ['queued','sending','paused','verify'].includes(t.status)){
-                /* ALL recipients canceled → terminal 'canceled'. Do NOT report success and do
-                   not resurrect (send loop exits on status!=='sending'; terminal transfers
-                   ignore stale ack/result). */
-                t.status='canceled';
-                M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')});
-                M.log('warn','all recipients canceled broadcast '+t.id+' — send loop stopped');
+              /* An ACTIVE recipient is exactly r.active && !r.canceled. Offline/inactive
+                 recipients are NOT active merely because they are not canceled, and must not
+                 keep the sender in a sending state. */
+              let anyActive=false;
+              t.recips.forEach(r=>{ if(r.active&&!r.canceled) anyActive=true; });
+              if(!anyActive){
+                /* No active recipients remain. Distinguish ALL-canceled (nobody can ever
+                   resume → terminal) from offline/inactive recipients (→ safe pause via the
+                   lifecycle, preserved for an authenticated reconnect). */
+                let allCanceled=true;
+                t.recips.forEach(r=>{ if(!r.canceled) allCanceled=false; });
+                if(allCanceled && ['queued','sending','paused','verify'].includes(t.status)){
+                  /* terminal 'canceled' — do NOT report success; the send loop exits on
+                     status!=='sending' and terminal transfers ignore stale ack/result. */
+                  t.status='canceled';
+                  M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')});
+                  M.log('warn','all recipients canceled broadcast '+t.id+' — send loop stopped');
+                } else {
+                  /* offline/inactive recipients remain → the existing no-active-recipient
+                     behavior pauses the sender: it does not keep sending, does not report
+                     success, and does not spin. */
+                  M.FT._bcastLifecycle(t);
+                }
               } else {
-                /* active or offline/inactive recipients remain → the lifecycle decides:
-                   watermark over ACTIVE recipients only; when the last ACTIVE recipient is
-                   gone the sender enters the safe 'paused' no-active-recipient state (offline
-                   recipients are preserved for a possible authenticated reconnect) instead of
-                   continuing to send/spin. */
+                /* active recipients remain → lifecycle recomputes the watermark and continues */
                 M.FT._bcastLifecycle(t);
               }
             }
