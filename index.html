@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.84.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.85.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3943,8 +3943,9 @@ M.Members = {
       M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
       M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
       /* broadcast recipient state: migrate this member's recipient record to the new
-         transport endpoint (only reached after a proven same-mid takeover). */
-      M.FT.sends.forEach(t=>{ if(t.recips){ t.recips.forEach(rec=>{ if(rec.peerId===oldId) rec.peerId=newId; }); } });
+         transport endpoint (only reached after a proven same-mid takeover) and restore it
+         as ACTIVE so its saved ACK/resume/result state participates again. */
+      M.FT.sends.forEach(t=>{ if(t.recips){ let ch=false; t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=newId; if(!rec.canceled){ rec.active=true; ch=true; } } }); if(ch) M.FT._bcastLifecycle(t); } });
     }
     try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}   /* FT: no-op for the rebound transfers */
     M.bus.emit('members');
@@ -4565,11 +4566,12 @@ M.FT = {
     if(!t.recips) return null;
     const p=M.State.peers.get(from);
     /* a CANCELED recipient is returned as null — its state stays canceled and it can never
-       reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol). */
-    for(const rec of t.recips.values()){ if(rec.peerId===from) return rec.canceled?null:rec; }   /* active transport match */
+       reactivate itself via ack/nack/resume/result (no rejoin op exists in the protocol).
+       A recipient that sends a control message is by definition online → marked active. */
+    for(const rec of t.recips.values()){ if(rec.peerId===from){ if(rec.canceled) return null; rec.active=true; return rec; } }   /* active transport match */
     if(p&&p.midAuth===true&&p.mid){
       const rec=t.recips.get(p.mid);
-      if(rec){ if(rec.canceled) return null; rec.peerId=from; return rec; }   /* proven same-mid takeover: migrate active transport */
+      if(rec){ if(rec.canceled) return null; rec.peerId=from; rec.active=true; return rec; }   /* proven same-mid takeover: migrate transport + restore active */
     }
     return null;   /* not a recipient — no state created */
   },
@@ -4578,9 +4580,27 @@ M.FT = {
      shared window while another active recipient has not acknowledged the data. Monotonic and
      capped at the sender's real send progress; recipients who left (canceled) stop holding it. */
   _bcastWatermark(t){
+    /* watermark = the SLOWEST CURRENTLY-ACTIVE recipient. Offline/inactive recipients are
+       excluded so a disappeared peer cannot hold the sender window forever; a recipient's
+       saved ACK is incorporated again when it reconnects and becomes active. */
     let minAck=Infinity, anyActive=false;
-    t.recips.forEach(r=>{ if(!r.canceled){ anyActive=true; if(r.ack<minAck) minAck=r.ack; } });
+    t.recips.forEach(r=>{ if(!r.canceled&&r.active){ anyActive=true; if(r.ack<minAck) minAck=r.ack; } });
     if(anyActive) t.ack=Math.max(t.ack,Math.min(minAck,t.seq));
+  },
+  /* Broadcast lifecycle after a recipient's availability changes. Recomputes the watermark
+     over active participants; if NO recipient is active the sender PAUSES (safe non-success
+     state, no success reported, no spinning) and resumes automatically when a recipient
+     becomes active again (authenticated reconnect). Never cancels on a temporary disconnect. */
+  _bcastLifecycle(t){
+    if(!t.recips) return;
+    let anyActive=false;
+    t.recips.forEach(r=>{ if(!r.canceled&&r.active) anyActive=true; });
+    M.FT._bcastWatermark(t);
+    if(!anyActive){
+      if(t.status==='sending'||t.status==='queued'){ t.status='paused'; M.log('warn','broadcast paused — no active recipients (state preserved)'); M.FT.render(); }
+    } else if(t.status==='paused'){
+      t.status='sending'; M.FT.render(); M.FT.loop(t); M.log('info','broadcast resumed — an active recipient returned');
+    }
   },
   /* ownership: is `from` the legitimate counterparty for this transfer?
      peerId is the transport/session identity; a reconnect takeover is recognized ONLY after the
@@ -4718,8 +4738,9 @@ M.FT = {
       t.recips=new Map();
       M.State.peers.forEach((p,pid)=>{
         if(pid===M.State.self.id) return;
+        if(p.status==='offline') return;   /* an offline roster entry is NOT an active recipient — it must not block the watermark at ACK 0 */
         const key=(p.midAuth===true&&p.mid)?p.mid:('p:'+pid);
-        t.recips.set(key,{mid:(p.midAuth===true?p.mid:undefined),peerId:pid,ack:0,resumeOff:null,result:null,canceled:false});
+        t.recips.set(key,{mid:(p.midAuth===true?p.mid:undefined),peerId:pid,ack:0,resumeOff:null,result:null,canceled:false,active:true});
       });
     }
     const sent=await M.Net.sendEnc('ft',{t:'offer',id,name:t.name,size:t.size,type:t.type,target:isRoom?null:target,fromName:M.State.self.name,voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,rfp:t.rfp,sfp:t.sfp},isRoom?undefined:target);
@@ -5046,7 +5067,20 @@ M.FT = {
     M.FT.start(t.file,t.target,{reuseId:id});   /* same id → a receiver with persisted chunks resumes instead of restarting */
   },
   onPeerGone(pid){
-    M.FT.sends.forEach(t=>{ if(t.target===pid && (t.status==='sending'||t.status==='queued'||t.status==='verify')) M.FT.fail(t,M.t('sys_left',{n:M.Members.name(pid)})); });
+    M.FT.sends.forEach(t=>{
+      if(t.target==='*'){
+        /* BROADCAST: a recipient going offline is marked INACTIVE — its saved state
+           (ack/resumeOff/result) is preserved for an authenticated reconnect, it is NOT
+           canceled and NOT marked complete, and it no longer holds the sender watermark. */
+        if(t.recips){
+          let changed=false;
+          t.recips.forEach(rec=>{ if(rec.peerId===pid && !rec.canceled && rec.active){ rec.active=false; changed=true; } });
+          if(changed){ M.log('info','broadcast recipient offline '+M.fmt.idShort(pid)+' (inactive, state preserved)'); M.FT._bcastLifecycle(t); }
+        }
+      } else if(t.target===pid && (t.status==='sending'||t.status==='queued'||t.status==='verify')){
+        M.FT.fail(t,M.t('sys_left',{n:M.Members.name(pid)}));
+      }
+    });
     M.FT.recvs.forEach(r=>{ if(r.from===pid && r.status==='receiving'){ r.status='failed'; r.err='peer offline'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('st_failed')}); M.FT.render(); } });
   },
   activeCount(){ let n=0; M.FT.sends.forEach(t=>{ if(['queued','sending','verify'].includes(t.status)) n++; }); M.FT.recvs.forEach(r=>{ if(r.status==='receiving') n++; }); return n; },
