@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.93.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.93.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3365,7 +3365,10 @@ M.Net = {
            used; never fp/claimedMid/payload fields. A provisional fp-rebound binding is
            CONVERTED into the normal authenticated binding (provisional flag cleared) so the
            exact-peerId shortcut applies again only after proof. */
-        M.FT.recvs.forEach(r=>{ if(r.from===peerId && !r.smid){ r.smid=proof.mid; r.fromProvisional=false; } });
+        /* Also clear the temporary offline flag: a record whose sender went offline and has now
+           (re)proven its stable identity on this peer is restored as an authenticated endpoint,
+           so the transfer can continue/resume. */
+        M.FT.recvs.forEach(r=>{ if(r.from===peerId){ if(!r.smid) r.smid=proof.mid; r.fromProvisional=false; r.fromOffline=false; } });
         /* ONLY NOW — after proof — migrate the old authenticated peer's identity-bound
            state to this new transport peer. Before this point nothing was inherited. */
         /* absorb only a DEAD/stale previous session of this identity; a still-live second
@@ -3972,7 +3975,11 @@ M.Members = {
          merely because the transport peerId changed. Status is untouched — a transfer that
          was already terminal stays terminal (never revived). */
       M.FT.sends.forEach(t=>{ if(t.target===oldId) t.target=newId; });
-      M.FT.recvs.forEach(r=>{ if(r.from===oldId) r.from=newId; });
+      /* Receive records bound to the old sender are rebound to the new transport peer; the
+         temporary offline flag (and any provisional marker) is cleared because this only runs
+         after a successful same-mid proof. All receive state is preserved so the transfer can
+         resume from its existing offset. */
+      M.FT.recvs.forEach(r=>{ if(r.from===oldId){ r.from=newId; r.fromOffline=false; r.fromProvisional=false; } });
       /* broadcast recipient state: migrate this member's recipient record to the new transport
           endpoint AND promote its canonical binding from the temporary peerId key to the proven
           stable mid (old.mid), so repeated reconnects with new peerIds keep reclaiming the same
@@ -4742,6 +4749,13 @@ M.FT = {
   },
   recvAuth(r,from){
     const p=M.State.peers.get(from);
+    /* OFFLINE sender: while the receive endpoint is temporarily offline, stale done/result/
+       cancel/resume from the old peerId must NOT be accepted merely because from===r.from.
+       Control requires a LIVE, proven sender: midAuth===true, a matching proven r.smid, and an
+       online session. Never fp/claimedMid/payload identity. */
+    if(r.fromOffline){
+      return !!(from===r.from&&r.smid&&p&&p.midAuth===true&&p.mid===r.smid&&p.status==='online');
+    }
     /* PROVISIONAL fp-rebound binding: the legacy fp roster migration rebinds r.from to the new
        peerId as pure bookkeeping, but that must NOT authorize the peer. Until the new peer
        proves its stable identity, the exact-peerId shortcut is withheld — control requires
@@ -5238,7 +5252,14 @@ M.FT = {
         M.FT.fail(t,M.t('sys_left',{n:M.Members.name(pid)}));
       }
     });
-    M.FT.recvs.forEach(r=>{ if(r.from===pid && r.status==='receiving'){ r.status='failed'; r.err='peer offline'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('st_failed')}); M.FT.render(); } });
+    M.FT.recvs.forEach(r=>{
+      /* A TEMPORARY sender disconnect is NOT a failed transfer. Preserve the receive record and
+         ALL state (recv/expected/parts/buf/smid/id and persisted chunks); keep status 'receiving'
+         so a legitimate authenticated reconnect can resume from the existing offset. Only the
+         sender binding is marked offline. While offline, stale control packets are rejected by
+         recvAuth (see fromOffline guard). */
+      if(r.from===pid && r.status==='receiving'){ r.fromOffline=true; M.Chat.updateFileCard(r.id,{statusLabel:'⏸ '+M.t('st_paused')}); M.FT.render(); }
+    });
   },
   activeCount(){ let n=0; M.FT.sends.forEach(t=>{ if(['queued','sending','verify'].includes(t.status)) n++; }); M.FT.recvs.forEach(r=>{ if(r.status==='receiving') n++; }); return n; },
   _renderThrottled:null,
