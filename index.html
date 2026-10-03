@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.94.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.95.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -4508,6 +4508,15 @@ M.DB = {
     })).catch(()=>false);
   },
   async putMeta(id,meta){ try{ const db=await M.DB.open(); db.transaction('x','readwrite').objectStore('x').put(meta,id+':meta'); }catch(e){} },
+  /* awaitable metadata write so resume-point metadata is serialized with the chunk queue and
+     never moves ahead of durably-persisted chunk state. A failure leaves metadata stale-low
+     (conservative), never claiming more received data than is durably present. */
+  putMetaWait(id,meta){
+    return M.DB.open().then(db=>new Promise(res=>{
+      const tx=db.transaction('x','readwrite'); tx.objectStore('x').put(meta,id+':meta');
+      tx.oncomplete=()=>res(true); tx.onerror=()=>res(false); tx.onabort=()=>res(false);
+    })).catch(()=>false);
+  },
   /* delete every chunk/meta key belonging to one transfer id */
   async delTransfer(id){
     try{
@@ -4942,13 +4951,24 @@ M.FT = {
     });
     M.FT.render();
   },
-  async loop(t){
+  loop(t){
+    /* SINGLE-FLIGHT sender loop: at most ONE active loop per transfer. A second start request
+       while a loop is running is a no-op (the running loop re-checks status + generation each
+       iteration), so pump / UI-resume / directed-resume / broadcast-resume / repeated resume
+       packets can never create two concurrent loops mutating t.seq/t.sent/t.ack/hash together. */
+    if(t._looping) return;
+    const gen=(t._gen=(t._gen||0)+1);
+    t._looping=true;
+    M.FT._runLoop(t,gen).catch(e=>{ M.log('err','sender loop error: '+(e&&e.message||e)); }).finally(()=>{ t._looping=false; });
+  },
+  async _runLoop(t,gen){
     const isRoom=t.target==='*';
-    while(t.status==='sending'){
-      if(t.seq - t.ack >= M.FT.WINDOW){ await new Promise(r=>setTimeout(r,60)); if(t.status!=='sending') return; continue; }
+    while(t.status==='sending' && t._gen===gen){
+      if(t.seq - t.ack >= M.FT.WINDOW){ await new Promise(r=>setTimeout(r,60)); if(t.status!=='sending'||t._gen!==gen) return; continue; }
       const end=Math.min(t.seq*M.FT.CHUNK + M.FT.CHUNK, t.size);
       const start=t.seq*M.FT.CHUNK;
       let buf; try{ buf=await t.file.slice(start,end).arrayBuffer(); }catch(e){ M.FT.fail(t,'read error'); return; }
+      if(t.status!=='sending'||t._gen!==gen) return;
       const u8=new Uint8Array(buf);
       t.hash.update(u8);
       /* confirmed delivery: await the relay's acceptance and retry — a silently dropped
@@ -4961,7 +4981,7 @@ M.FT = {
           M.log('warn','chunk '+t.seq+' send attempt '+(att+1)+' failed: '+(e.message||e));
           await new Promise(r=>setTimeout(r,300*(att+1)));
         }
-        if(t.status!=='sending') return;
+        if(t.status!=='sending'||t._gen!==gen) return;
       }
       if(!ok){ M.FT.fail(t,'send failed at chunk '+t.seq); return; }
       t.seq++; t.sent=end;
@@ -5048,13 +5068,13 @@ M.FT = {
            the sender's REAL send progress, so an ACK for unissued chunks can never make the
            sender believe those chunks were delivered. */
         if(typeof d.seq!=='number' || !isFinite(d.seq) || (d.seq|0)!==d.seq || d.seq<0) break;
+        if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: ignore stale ack (directed+broadcast) */
         if(t.target==='*'){
           /* BROADCAST: only an ACTUAL, non-canceled recipient may ack. One recipient's ack is
              recorded per-recipient and never advances the window by itself. The watermark is the
              SLOWEST active recipient — including one still at ACK 0 — so a fast recipient cannot
              advance the shared window while another active recipient has not acknowledged the
              data. A canceled recipient is ignored. */
-          if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: ignore stale acks */
           const rec=M.FT._bcastRecip(t,from);
           if(!rec){ M.log('warn','FT_REJECTED_AUTH broadcast ack from non-recipient/canceled/inactive '+M.fmt.idShort(from)); break; }
           /* cap at BOTH the real chunk count AND the sender's actual send progress */
@@ -5071,22 +5091,27 @@ M.FT = {
         /* receiver asked for specific missing chunks by number — resend them from the file.
            Retransmission is TARGETED to the requesting recipient so one recipient's NACK cannot
            manipulate another recipient's transfer path (broadcast isolation). A canceled
-           recipient (or a terminal broadcast) cannot NACK. */
+           recipient (or a terminal transfer) cannot NACK. */
         const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
-        if(t.target==='*' && ['done','canceled','failed'].includes(t.status)) break;   /* terminal: no retransmission */
-        /* validate the requested range, drop duplicates, and bound the batch so a malformed or
-           excessive NACK cannot trigger unbounded file reads / retransmissions. Retransmission
-           stays targeted to the authenticated requesting recipient. */
+        if(['done','canceled','failed'].includes(t.status)) break;   /* terminal: no retransmission (directed+broadcast) */
+        /* Validate the requested range: each seq is an integer, ≥0, < actual chunk count, and
+           < t.seq (the sender must never retransmit data it has not yet sent). Drop duplicates
+           and bound the batch so a malformed/excessive NACK cannot trigger unbounded file reads /
+           retransmissions. Retransmission stays targeted to the authenticated recipient. */
         const cc=M.FT._chunkCount(t.size); const seen=new Set(); const seqs=[];
         for(const s of (d.seqs||[])){
           if(typeof s!=='number'||!isFinite(s)||(s|0)!==s||s<0||s>=cc) continue;
+          if(s>=t.seq) continue;                                     /* unissued/future chunk: never retransmit */
           if(seen.has(s)) continue;
           seen.add(s); seqs.push(s);
           if(seqs.length>=M.FT.L.maxBufChunks) break;
         }
         if(!seqs.length) break;
-        (async()=>{
+        /* serialize retransmission per transfer so repeated NACKs cannot create unbounded
+           concurrent retransmission jobs. */
+        M.FT._nackQ(t, async ()=>{
           for(const seq of seqs){
+            if(['done','canceled','failed'].includes(t.status)) return;   /* went terminal mid-pass */
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
             try{
               const b=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
@@ -5094,17 +5119,18 @@ M.FT = {
             }catch(e){}
           }
           M.log('info','retransmitted '+seqs.length+' chunk(s) for '+t.name+' → '+M.fmt.idShort(from));
-        })();
+        });
         break;
       }
       case 'resume': {
         /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
         const t=M.FT.sends.get(d.id); if(!t) return;
+        /* terminal transfers (done/failed/canceled) ignore resume — never revived (both modes) */
+        if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE resume on terminal transfer'); return; }
         let brec=null;
         if(t.target==='*'){
           /* BROADCAST: only an ACTUAL, non-canceled recipient may resume; a terminal broadcast
              cannot be resumed. A canceled recipient cannot reactivate itself via resume. */
-          if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE resume on terminal broadcast'); return; }
           brec=M.FT._bcastRecip(t,from);
           if(!brec){ M.log('warn','FT_REJECTED_AUTH broadcast resume from non-recipient/canceled '+M.fmt.idShort(from)); return; }
         }
@@ -5116,9 +5142,9 @@ M.FT = {
           M.log('warn','FT_REJECTED_STATE resume offset invalid (must be chunk-aligned, within [0,size])'); return;
         }
         const off=d.offset;   /* validated aligned (or end-of-transfer) — no rounding */
-        /* DIRECTED: a receiver must not resume from beyond what the sender has actually
-           transmitted. offset===t.size is only valid once the sender has reached that size. */
-        if(t.target!=='*' && off>t.sent){ M.log('warn','FT_REJECTED_STATE resume offset beyond actual send progress'); return; }
+        /* BOTH directed and broadcast: a receiver must not resume from beyond what the sender
+           has actually transmitted. offset===t.size is only valid once the sender reached it. */
+        if(off>t.sent){ M.log('warn','FT_REJECTED_STATE resume offset beyond actual send progress'); return; }
         if(t.target==='*'){
           /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
              other recipients. Record the recipient's offset and retransmit the missed range to
@@ -5216,7 +5242,11 @@ M.FT = {
             }
             else M.log('warn','FT_REJECTED_AUTH broadcast cancel from non-recipient or already-canceled recipient');
           } else if(M.FT.authSendPeer(t,from)){
-            if(t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render();
+            /* terminal transfers cannot be canceled (a stale cancel must not turn done/failed
+               into canceled) */
+            if(!['done','failed','canceled'].includes(t.status)){
+              if(t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render();
+            }
           }
         }
         const r=M.FT.recvs.get(d.id); if(r && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
@@ -5228,11 +5258,26 @@ M.FT = {
   },
   /* per-transfer chunk-processing queue: serializes async chunk handling so concurrent
      arrivals cannot interleave and corrupt expected/recv/hash/parts or IndexedDB ordering.
-     Separate transfers keep separate queues, so one slow transfer never blocks another. */
+     Separate transfers keep separate queues, so one slow transfer never blocks another.
+     An unexpected exception FAILS that receive transfer (existing failure path) and stops
+     further processing for it — it is never swallowed and allowed to keep corrupting state.
+     Normal rejected/malformed packets return early (before the queue) and simply don't run. */
   _chunkQ(r,fn){
     const prev=r._q||Promise.resolve();
-    const next=prev.then(fn).catch(e=>{ M.log('err','chunk processing error: '+(e&&e.message||e)); });
+    const next=prev.then(()=>{ if(r.status!=='receiving') return; return fn(); })
+      .catch(e=>{ M.log('err','chunk processing error: '+(e&&e.message||e)); if(r.status==='receiving') M.FT.fail(r,'chunk processing error'); });
     r._q=next;
+    return next;
+  },
+  /* per-transfer NACK/retransmission queue: serializes retransmission jobs so one authenticated
+     recipient cannot spawn unbounded concurrent file reads / DataChannel sends. Bounded batch
+     size is enforced by the caller; the queue keeps at most one retransmission pass running at a
+     time per transfer. Unrelated transfers keep their own queues. */
+  _nackQ(t,fn){
+    const prev=t._nq||Promise.resolve();
+    const next=prev.then(()=>{ if(['done','canceled','failed'].includes(t.status)) return; return fn(); })
+      .catch(e=>{ M.log('err','retransmission error: '+(e&&e.message||e)); });
+    t._nq=next;
     return next;
   },
   onChunk({peerId,metadata,buf}){
@@ -5253,6 +5298,10 @@ M.FT = {
       if(metadata.seq!==cc) return;
       if(typeof metadata.hash!=='string' || !/^[0-9a-f]{64}$/.test(metadata.hash)) return;
       if(!data || data.byteLength!==0) return;
+      /* a conflicting FIN hash cannot replace an already-accepted FIN; a duplicate with the same
+         hash is idempotent. A terminal transfer ignores stale FIN markers. */
+      if(r.finHash && r.finHash!==metadata.hash) return;
+      if(['done','failed','canceled'].includes(r.status)) return;
       r.finHash=metadata.hash; r.finAt=Date.now();
       if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
       return;
@@ -5289,25 +5338,44 @@ M.FT = {
       /* keep the in-memory window bounded — persisted chunks remain the source of truth */
       while(r.parts.length>M.FT.L.memWindow) r.parts.shift();
       r._lastProg=Date.now();
-      if(r.expected%32===0) M.DB.putMeta(r.id,{size:r.size,name:r.name,recv:r.recv});
+      if(r.expected%32===0) await M.DB.putMetaWait(r.id,{size:r.size,name:r.name,recv:r.recv});
       if(r.expected % M.FT.ACK_EVERY===0) M.Net.sendEnc('ft',{t:'ack',id:r.id,seq:r.expected},peerId);
       M.FT.tickRecv(r);
       const doneHash=r.finHash||r.pending;
       if(doneHash && r.recv>=r.size) M.FT.finalize(r,doneHash,peerId);
     });
   },
-  /* memory-conscious assembly: the durable persisted chunks are the source of truth. If the
-     bounded in-memory window already holds every chunk (small file), use it directly; otherwise
-     read the persisted chunks once to build the Blob (a single working copy, not a second full
-     in-memory duplicate kept during the transfer). Falls back to the in-memory window when
-     IndexedDB is unavailable. */
+  /* FAIL-CLOSED, memory-conscious assembly: the durable persisted chunks are the source of
+     truth. A transfer becomes `done` ONLY when the assembled data is complete and corresponds to
+     the verified receive data — exactly `chunkCount` chunks, every sequence present, correct
+     per-chunk lengths, and a total that equals r.size. If the persisted set is incomplete,
+     missing, unreadable, or inconsistent this REJECTS (finalize then fails the transfer). It
+     NEVER fabricates a zero-filled file and NEVER uses partial r.parts as a large-file success.
+     Small files fully held in the bounded in-memory window are used directly; large files are
+     read once from IndexedDB (a single working copy, not a second full in-memory duplicate). */
   _assemble(r){
     const cc=M.FT._chunkCount(r.size);
-    if(r.parts && r.parts.length===cc){ return Promise.resolve(new Blob(r.parts,{type:r.type})); }
+    const check=(parts)=>{
+      if(!parts || parts.length!==cc) return null;
+      let total=0;
+      for(let i=0;i<cc;i++){
+        const p=parts[i]; if(p==null) return null;
+        const len=p.length; if(typeof len!=='number') return null;
+        const exp=(i===cc-1)?(r.size-i*M.FT.CHUNK):M.FT.CHUNK;
+        if(len!==exp) return null;
+        total+=len;
+      }
+      return total===r.size ? parts : null;
+    };
+    if(r.parts && r.parts.length===cc){
+      const ok=check(r.parts);
+      return ok ? Promise.resolve(new Blob(ok,{type:r.type})) : Promise.reject(new Error('incomplete in-memory chunks'));
+    }
     return M.DB.chunks(r.id,cc).then(bufs=>{
-      if(bufs && bufs.length===cc) return new Blob(bufs.map(b=>b instanceof Uint8Array?b:new Uint8Array(b)),{type:r.type});
-      if(r.parts && r.parts.length) return new Blob(r.parts,{type:r.type});
-      return new Blob([new Uint8Array(r.size)],{type:r.type});
+      const parts=(bufs||[]).map(b=>b instanceof Uint8Array?b:new Uint8Array(b));
+      const ok=check(parts);
+      if(!ok) throw new Error('incomplete persisted chunks');
+      return new Blob(ok,{type:r.type});
     });
   },
   finalize(r,hashHex,from){
