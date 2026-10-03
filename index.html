@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.80.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.80.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2173,7 +2173,7 @@ M.Perms = {
       case 'callGroup': r={ok: P.group && (me||P.memberCalls||has('calls',false)), reason: !P.group?'calls_disabled':'member_calls_disabled'}; break;
       case 'callReceive': r={ok: P.privCalls && (me||has('calls',P.voice||P.video)), reason:'calls_disabled'}; break;
       case 'wbView': r={ok: M.State.wb.open, reason:'board_closed'}; break;
-      case 'wbEdit': r={ok: M.State.wb.open && !M.State.wb.locked && (me || (M.State.wb.mode==='collab' && (M.State.wb.editors[M.State.self.id]!==false))), reason:'perm_denied'}; break;
+      case 'wbEdit': r={ok: M.State.wb.open && !M.State.wb.locked && (me || (M.State.wb.mode==='collab' && M.State.wb.editors[M.State.self.id]!==false && !(M.WB&&M.WB._selfRevoked&&M.WB._selfRevoked()))), reason:'perm_denied'}; break;   /* stable self-revocation is deny-only */
       case 'wbImage': r={ok: me || M.State.wb.images!==false, reason:'wb_img_denied'}; break;   /* only an explicit admin "off" blocks members */
       case 'wbExport': r={ok: me || M.State.wb.export!==false, reason:'wb_export_denied'}; break;
       default: r={ok:true};
@@ -2685,7 +2685,7 @@ M.Admin = {
   /* current authoritative snapshot payload (shared by the hello push and the broadcast) */
   snapshotPayload(){
     const W=M.State.wb;
-    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj()};
+    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj(),wbRevokeByMid:M.WB.revokeObj()};
   },
   /* Admin: broadcast a fresh signed snapshot so every online member holds a current,
      relayable authoritative state — permission changes then converge even if the Admin
@@ -8526,8 +8526,57 @@ M.WB = {
      Editor grants are keyed by transport peerId (which changes on reconnect), so this
      resolves the revocation across the member's authenticated roster entries by mid.
      Read on demand — always consistent with current state, no stale cache. */
+  /* ----- persistent, RID-scoped, stable-identity editor revocation -----------------
+     M.State.wb.editors stays keyed by transport peerId (current-session override and
+     post-proof migration). This layer adds a DENY-ONLY stable revocation keyed by the
+     authenticated mid, persisted rid-scoped, so a revoked member STAYS revoked across
+     reconnect / new peerId / browser refresh / browser restart — the same fail-closed
+     model as the Chat/DM stable deny. Only revocations are stored/inherited; an ALLOW
+     grant is never persisted and can never be inherited from an unverified claim. */
+  _revokeByMid:new Map(), _revokeLoadedRid:null,
+  revokeObj(){ M.WB.ensureRevoke(); const o={}; M.WB._revokeByMid.forEach((v,mid)=>{ o[mid]=true; }); return o; },
+  saveRevoke(){ try{ M.App.putRoom('wbRevokeByMid',M.WB.revokeObj()); }catch(e){} },   /* rid-scoped */
+  ensureRevoke(){
+    const rid=M.State.room?.rid; if(!rid) return;
+    if(M.WB._revokeLoadedRid===rid) return;
+    M.WB._revokeByMid=new Map();                       /* re-scope to this rid — never shared across instances */
+    const o=M.App.getRoom('wbRevokeByMid');
+    if(o&&typeof o==='object'){ for(const mid in o){ if(/^[0-9a-f]{64}$/.test(mid)&&o[mid]===true) M.WB._revokeByMid.set(mid,true); } }
+    M.WB._revokeLoadedRid=rid;
+  },
+  restoreRevoke(){ M.WB.ensureRevoke(); },             /* called on room restore, before any member edit */
+  hydrateRevoke(obj){
+    /* authoritative rebuild from a VERIFIED Admin snapshot/command: validate structure
+       (64-hex mid, deny-only true flags), replace the map, persist, mark rid loaded. */
+    const map=new Map();
+    if(obj&&typeof obj==='object'){ for(const mid in obj){ if(/^[0-9a-f]{64}$/.test(mid)&&obj[mid]===true) map.set(mid,true); } }
+    M.WB._revokeByMid=map;
+    M.WB._revokeLoadedRid=M.State.room?.rid||null;
+    M.WB.saveRevoke();
+  },
+  _syncRevokeFromEditors(){
+    /* incremental roster-based fallback (when a command carries no revoke map): add/remove
+       revocations for authenticated roster peers per the editors map; offline revoked
+       members keep their persisted entry because they are simply not iterated. */
+    M.WB.ensureRevoke();
+    const E=M.State.wb.editors||{};
+    M.State.peers.forEach((p,pid)=>{
+      if(p.midAuth===true&&p.mid){
+        if(E[pid]===false) M.WB._revokeByMid.set(p.mid,true);
+        else M.WB._revokeByMid.delete(p.mid);
+      }
+    });
+    M.WB.saveRevoke();
+  },
+  /* deny-only self check for the LOCAL send/UI path — never grants. */
+  _selfRevoked(){ M.WB.ensureRevoke(); const mid=M.Id.mid; return !!(mid&&M.WB._revokeByMid.has(mid)); },
+  /* Does the stable identity <mid> currently carry an editor revocation? Checks the
+     persistent rid-scoped revoke map first (survives refresh/restart/reconnect), then the
+     live roster for a current-session revocation. */
   _stableRevoked(mid){
     if(!mid) return false;
+    M.WB.ensureRevoke();
+    if(M.WB._revokeByMid.has(mid)) return true;   /* persistent revocation */
     const E=M.State.wb.editors||{};
     let revoked=false;
     M.State.peers.forEach((p,pid)=>{ if(p.midAuth===true&&p.mid===mid&&E[pid]===false) revoked=true; });
@@ -8626,6 +8675,8 @@ M.WB = {
            'perms' emit so the send-side composer gate sees the current deny state.
            _hydrateDeny validates structure and reconstructs deny flags only. */
         if(b.denyByMid&&typeof b.denyByMid==='object') M.Perms._hydrateDeny(b.denyByMid);
+        /* authoritative stable Whiteboard editor revocation map from the SIGNED snapshot */
+        if(b.wbRevokeByMid&&typeof b.wbRevokeByMid==='object') M.WB.hydrateRevoke(b.wbRevokeByMid);
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
         /* cache the EXACT signed snapshot (unmodified) for verbatim relay while the Admin
@@ -8655,7 +8706,11 @@ M.WB = {
       case 'lock': W.locked=!!b.on; M.toast(b.on?'warn':'info', M.t(b.on?'wb_locked':'wb_unlocked')); break;
       case 'images': W.images=!!b.on; break;
       case 'export': W.export=!!b.on; break;
-      case 'editors': W.editors=b.map||{}; break;
+      case 'editors': W.editors=b.map||{};
+        /* sync the persistent stable revoke map: hydrate from the carried authoritative map,
+           else fall back to roster-based sync. Revocations survive refresh/restart/reconnect. */
+        if(b.wbRevokeByMid&&typeof b.wbRevokeByMid==='object') M.WB.hydrateRevoke(b.wbRevokeByMid); else M.WB._syncRevokeFromEditors();
+        break;
       case 'clear': M.WB.clearPage(M.WB.pageId,true); M.WB.saveLocal(); M.bus.emit('sysmsg',{text:M.t('wb_cleared')}); break;   /* signed path only */
       case 'pg-add':
         if(b.pg && !M.WB.pages.find(p=>p.id===b.pg.id)){
@@ -9338,6 +9393,7 @@ M.App.restoreRoomLocal = function(){
   }
   const perms=M.App.getRoom('perms'); if(perms) M.State.perms={...M.permsDefault(),...perms};
   M.Perms._ensureDeny();   /* restore the rid-scoped stable deny index BEFORE any member is evaluated */
+  M.WB.restoreRevoke();    /* restore the rid-scoped stable Whiteboard editor revocation map */
   M.Admin.restoreSnapCache();   /* reload the cached Admin-signed snapshot so this member can still relay after a refresh */
   const bans=M.App.getRoom('bans'); if(Array.isArray(bans)) M.State.bans=bans;
   M.WB.renderPages?.(); M.bus.emit('perms'); M.bus.emit('timer');
@@ -9448,7 +9504,12 @@ M.CC = {
       if(p.status!=='online') return;
       const allowed=W.editors[p.id]!==false;
       const b=M.el('button','cc-mini'+(allowed?' on':''),p.name.replace(/</g,'&lt;')+' · '+(allowed?M.t('edit'):M.t('view')));
-      b.onclick=()=>{ const map={...W.editors,[p.id]:!allowed}; M.Admin.cmd('wbCtrl',{sub:'editors',map}); M.toast('info',p.name,(!allowed)?M.t('wb_granted',{n:''}).trim():M.t('wb_revoked',{n:''}).trim()); };
+      b.onclick=()=>{ const map={...W.editors,[p.id]:!allowed};
+        /* build the authoritative stable revoke map: keep persisted revocations, then apply
+           this change for every authenticated roster member (revoke→add mid, restore→remove) */
+        const rvk={...M.WB.revokeObj()};
+        M.State.peers.forEach((q,qid)=>{ if(q.midAuth===true&&q.mid){ if(map[qid]===false) rvk[q.mid]=true; else delete rvk[q.mid]; } });
+        M.Admin.cmd('wbCtrl',{sub:'editors',map,wbRevokeByMid:rvk}); M.toast('info',p.name,(!allowed)?M.t('wb_granted',{n:''}).trim():M.t('wb_revoked',{n:''}).trim()); };
       ed.appendChild(b);
     });
     if(ed.children.length===0) ed.appendChild(M.el('span','dim','—'));
