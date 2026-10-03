@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.81.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.82.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2685,7 +2685,7 @@ M.Admin = {
   /* current authoritative snapshot payload (shared by the hello push and the broadcast) */
   snapshotPayload(){
     const W=M.State.wb;
-    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj(),wbRevokeByMid:M.WB.revokeObj()};
+    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj(),wbRevokeByMid:M.WB.revokeObj(),ftDenyByMid:M.FT.fileDenyObj()};
   },
   /* Admin: broadcast a fresh signed snapshot so every online member holds a current,
      relayable authoritative state — permission changes then converge even if the Admin
@@ -2723,6 +2723,14 @@ M.Admin = {
             if(body.ov.dm===false) rec.dm=true; else if(body.ov.dm===true) delete rec.dm;
             if(rec.chat||rec.dm) M.Perms._denyByMid.set(tm.mid,rec); else M.Perms._denyByMid.delete(tm.mid);
             M.Perms._saveDeny();   /* persist the rid-scoped deny index → survives refresh/restart/re-entry */
+            /* stable FILE deny: the file override is a single `files` flag denying both fileRoom
+               and filePriv. Record/clear it under the authenticated member's mid (deny-only).
+               Load first (load → modify → save) so an unloaded map is not wiped on save. */
+            if(body.ov.files===false||body.ov.files===true){
+              M.FT.ensureFileDeny();
+              if(body.ov.files===false) M.FT._fileDenyByMid.set(tm.mid,true); else M.FT._fileDenyByMid.delete(tm.mid);
+              M.FT.saveFileDeny();
+            }
           }
           /* SIGNED STABLE DENY DELTA — the command carries the target's stable mid and
              resulting deny flags, so EVERY peer that verifies it updates its index, not
@@ -4486,12 +4494,71 @@ M.FT = {
   _peerFileOk(from,isRoom){
     const P=M.Perms.p();
     if(!M.State.peers.get(from)){ M.log('warn','FT_REJECTED_AUTH unknown peer '+M.fmt.idShort(from)); return false; }
+    /* stable File DENY (persistent, RID-scoped, follows the member's stable mid across a
+       reconnect/proof window) — deny-only and fail-closed; checked before any grant logic. */
+    if(M.FT._fileStableDenied(from)){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)+' (stable deny)'); return false; }
     const ov=(P.overrides&&P.overrides[from])||{};
     const has=(k,d)=> ov[k]==null ? d : ov[k];
     const ok=isRoom ? (!!P.files&&!!has('files',P.filesRoom)) : (!!P.files&&!!P.filesPriv&&!!has('files',true));
     if(!ok){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)); return false; }
     if(!M.Perms.grantsAuthorized()){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)+' (unconfirmed policy)'); return false; }
     return true;
+  },
+  /* ----- persistent, RID-scoped, DENY-ONLY stable File permission map ----------------
+     Mirrors the Whiteboard/Chat stable-deny pattern. mid is the stable cryptographic
+     identity; only midAuth===true establishes it; fp is never used; an unverified claimedMid
+     can never create an ALLOW (this map stores denials only, so a forged/claimed mid can at
+     most match an existing DENY, never inherit an ALLOW). Survives reconnect / refresh /
+     restart; persists rid-scoped via the existing room persistence model. Covers BOTH
+     fileRoom and filePriv (the Admin file override is a single `files` flag denying both). */
+  _fileDenyByMid:new Map(), _fileDenyLoadedRid:null,
+  fileDenyObj(){ M.FT.ensureFileDeny(); const o={}; M.FT._fileDenyByMid.forEach((v,mid)=>{ o[mid]=true; }); return o; },
+  saveFileDeny(){ try{ M.App.putRoom('ftDenyByMid',M.FT.fileDenyObj()); }catch(e){} },
+  ensureFileDeny(){
+    const rid=M.State.room?.rid; if(!rid) return;
+    if(M.FT._fileDenyLoadedRid===rid) return;
+    M.FT._fileDenyByMid=new Map();                       /* re-scope to this rid — never shared across instances */
+    const o=M.App.getRoom('ftDenyByMid');
+    if(o&&typeof o==='object'){ for(const mid in o){ if(/^[0-9a-f]{64}$/.test(mid)&&o[mid]===true) M.FT._fileDenyByMid.set(mid,true); } }
+    M.FT._fileDenyLoadedRid=rid;
+  },
+  restoreFileDeny(){ M.FT.ensureFileDeny(); },
+  hydrateFileDeny(obj){
+    /* authoritative rebuild from a verified Admin snapshot/command: validate structure
+       (64-hex mid, deny-only true), replace the map, persist, mark rid loaded. */
+    const map=new Map();
+    if(obj&&typeof obj==='object'){ for(const mid in obj){ if(/^[0-9a-f]{64}$/.test(mid)&&obj[mid]===true) map.set(mid,true); } }
+    M.FT._fileDenyByMid=map;
+    M.FT._fileDenyLoadedRid=M.State.room?.rid||null;
+    M.FT.saveFileDeny();
+  },
+  _syncFileDenyFromOverrides(){
+    /* additive legacy fallback (no authoritative map carried): authenticated member with an
+       explicit files===false override ADDs a stable deny; never removes one here. */
+    M.FT.ensureFileDeny();
+    const ov=(M.Perms.p().overrides)||{};
+    M.State.peers.forEach((p,pid)=>{ if(p.midAuth===true&&p.mid&&ov[pid]&&ov[pid].files===false) M.FT._fileDenyByMid.set(p.mid,true); });
+    M.FT.saveFileDeny();
+  },
+  /* Is this transport sender stably file-denied? Resolves the stable mid (proven mid, else the
+     claimed mid during the proof window) and checks the deny-only map. Never grants. */
+  _fileStableDenied(from){
+    const p=M.State.peers.get(from); if(!p) return false;
+    const stableMid=(p.midAuth===true&&p.mid)?p.mid:(p.claimedMid||null);
+    if(!stableMid) return false;
+    M.FT.ensureFileDeny();
+    return M.FT._fileDenyByMid.has(stableMid);
+  },
+  /* sender-side variant for the LOCAL member's own stable mid (deny-only, fail-closed). */
+  _fileStableDeniedSelf(){ M.FT.ensureFileDeny(); const mid=M.Id.mid; return !!(mid&&M.FT._fileDenyByMid.has(mid)); },
+  /* Per-recipient control state for a room BROADCAST send, so one recipient's ack/nack/resume/
+     result/cannot cannot implicitly become the state of every other recipient. Keyed by the
+     recipient's transport peer binding. */
+  _bcastPeer(t,from){
+    t.bcast ??= new Map();
+    let b=t.bcast.get(from);
+    if(!b){ b={ack:0,resumeOff:null,result:null,canceled:false}; t.bcast.set(from,b); }
+    return b;
   },
   /* ownership: is `from` the legitimate counterparty for this transfer?
      peerId is the transport/session identity; a reconnect takeover is recognized ONLY after the
@@ -4598,6 +4665,8 @@ M.FT = {
     /* defensive sender-side fail-closed: a file GRANT is honored only from authoritative
        (directly-confirmed) permission state, consistent with the receive-side gate. */
     if(!M.Perms.grantsAuthorized()){ M.toast('warn',M.t('perm_denied'),M.t('perms_unconfirmed')); return null; }
+    /* stable FILE deny for the local member's own identity (deny-only, fail-closed) */
+    if(M.FT._fileStableDeniedSelf()){ M.toast('warn',M.t('perm_denied'),M.t('files_disabled')); return null; }
     const id=(opts&&opts.reuseId)||M.uid(12);   /* retries keep the same id so receivers can resume */
     /* sender-side validation mirrors the receiver's hostile-offer checks */
     if(!M.FT.L.idRe.test(id) || !(file.size>0) || file.size>M.FT.L.maxFile || String(file.name).length>M.FT.L.maxName){
@@ -4723,19 +4792,27 @@ M.FT = {
         })();
         break;
       }
-      case 'ack': { const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ t.ack=Math.max(t.ack,d.seq); } break; }
+      case 'ack': {
+        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){
+          if(t.target==='*') M.FT._bcastPeer(t,from).ack=Math.max(M.FT._bcastPeer(t,from).ack,d.seq);   /* recipient-scoped record */
+          t.ack=Math.max(t.ack,d.seq);   /* broadcast send-window progress; directed: the receiver's ack */
+        }
+        break;
+      }
       case 'nack': {
-        /* receiver asked for specific missing chunks by number — resend them from the file */
+        /* receiver asked for specific missing chunks by number — resend them from the file.
+           Retransmission is TARGETED to the requesting recipient so one recipient's NACK cannot
+           manipulate another recipient's transfer path (broadcast isolation). */
         const t=M.FT.sends.get(d.id); if(!t || !M.FT.authSendPeer(t,from)) break;
         (async()=>{
           for(const seq of (d.seqs||[])){
             const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
             try{
               const b=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
-              await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},...(t.target==='*'?{}:{target:t.target})});
+              await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},target:from});
             }catch(e){}
           }
-          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.name);
+          M.log('info','retransmitted '+(d.seqs?.length||0)+' chunk(s) for '+t.name+' → '+M.fmt.idShort(from));
         })();
         break;
       }
@@ -4746,6 +4823,22 @@ M.FT = {
            An out-of-range/invalid offset must not touch t.seq/t.ack/t.sent/t.status or start the loop. */
         if(typeof d.offset!=='number' || !isFinite(d.offset) || d.offset<0 || d.offset>t.size){ M.log('warn','FT_REJECTED_STATE resume offset out of range'); return; }
         const off=Math.floor(d.offset/M.FT.CHUNK)*M.FT.CHUNK;   /* align down to the chunk boundary (≤ d.offset ≤ size) */
+        if(t.target==='*'){
+          /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
+             other recipients. Record the recipient's offset and retransmit the missed range to
+             THIS recipient only; the shared send state (t.seq/t.ack/t.sent/t.status) is untouched. */
+          const b=M.FT._bcastPeer(t,from); b.resumeOff=off;
+          (async()=>{
+            const upto=Math.max(t.sent,off);
+            for(let s2=off/M.FT.CHUNK; s2*M.FT.CHUNK<upto && s2*M.FT.CHUNK<t.size; s2++){
+              const st2=s2*M.FT.CHUNK;
+              try{ const bb=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
+                await M.Net.A.ftbin.send(bb,{metadata:{id:t.id,seq:s2},target:from}); }catch(e){}
+            }
+            M.log('info','broadcast resume for '+M.fmt.idShort(from)+' from '+M.fmt.bytes(off)+' (recipient-scoped, global state unchanged)');
+          })();
+          return;
+        }
         (async()=>{
           let p=0;
           try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); t.hash.update(new Uint8Array(b)); p+=M.FT.CHUNK; } }
@@ -4765,6 +4858,15 @@ M.FT = {
       }
       case 'result': {
         const t=M.FT.sends.get(d.id); if(!t||t.status!=='verify'||!M.FT.authSendPeer(t,from)) return;
+        if(t.target==='*'){
+          /* BROADCAST: one recipient's integrity result is THEIRS alone — it must not mark the
+             entire broadcast complete/failed for the other recipients. Record it per recipient;
+             the shared send status is not driven by a single recipient. */
+          const b=M.FT._bcastPeer(t,from); b.result=!!d.ok;
+          M.log('info','broadcast result from '+M.fmt.idShort(from)+': '+(d.ok?'ok':'integrity fail')+' (recipient-scoped)');
+          M.FT.render();
+          return;
+        }
         if(d.ok){ t.status='done'; M.Chat.updateFileCard(t.id,{statusLabel:`${M.t('st_done')} ✓`}); M.toast('ok',t.name,M.t('st_done')); M.Notify.beep('ok'); }
         else { M.FT.fail(t,M.t('integrity_fail')); }
         M.FT.render(); M.UI.badges();
@@ -4772,7 +4874,16 @@ M.FT = {
       }
       case 'cancel': {
         /* a send may only be canceled by its intended receiver; a receive only by its sender */
-        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){ if(t.target!=='*'&&t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const t=M.FT.sends.get(d.id); if(t && M.FT.authSendPeer(t,from)){
+          if(t.target==='*'){
+            /* BROADCAST: one recipient canceling withdraws THEIR reception only — it must not
+               cancel the shared broadcast for the other recipients. */
+            const b=M.FT._bcastPeer(t,from); b.canceled=true;
+            M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped; broadcast continues for others)');
+          } else {
+            if(t.target!==from) t.target=from; t.status='canceled'; M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_canceled')}); M.FT.render();
+          }
+        }
         const r=M.FT.recvs.get(d.id); if(r && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
         M.log('warn','transfer canceled '+(d.id||''));
         M.UI.badges();
@@ -8708,6 +8819,8 @@ M.WB = {
         if(b.denyByMid&&typeof b.denyByMid==='object') M.Perms._hydrateDeny(b.denyByMid);
         /* authoritative stable Whiteboard editor revocation map from the SIGNED snapshot */
         if(b.wbRevokeByMid&&typeof b.wbRevokeByMid==='object') M.WB.hydrateRevoke(b.wbRevokeByMid);
+        /* authoritative stable FILE deny map from the SIGNED snapshot */
+        if(b.ftDenyByMid&&typeof b.ftDenyByMid==='object') M.FT.hydrateFileDeny(b.ftDenyByMid); else M.FT._syncFileDenyFromOverrides();
         if(b.perms){ M.State.perms={...M.permsDefault(),...b.perms}; M.App.putRoom('perms',M.State.perms); M.bus.emit('perms'); }   /* authenticated lock/policy restored */
         if(Array.isArray(b.bans)){ M.State.bans=b.bans; M.App.putRoom('bans',M.State.bans); }
         /* cache the EXACT signed snapshot (unmodified) for verbatim relay while the Admin
@@ -9425,6 +9538,7 @@ M.App.restoreRoomLocal = function(){
   const perms=M.App.getRoom('perms'); if(perms) M.State.perms={...M.permsDefault(),...perms};
   M.Perms._ensureDeny();   /* restore the rid-scoped stable deny index BEFORE any member is evaluated */
   M.WB.restoreRevoke();    /* restore the rid-scoped stable Whiteboard editor revocation map */
+  M.FT.restoreFileDeny();  /* restore the rid-scoped stable File DENY map */
   M.Admin.restoreSnapCache();   /* reload the cached Admin-signed snapshot so this member can still relay after a refresh */
   const bans=M.App.getRoom('bans'); if(Array.isArray(bans)) M.State.bans=bans;
   M.WB.renderPages?.(); M.bus.emit('perms'); M.bus.emit('timer');
@@ -9436,7 +9550,7 @@ M.App.purgeRoom = async function(code){
       /* also purge rid-keyed authoritative data so nothing survives the instance.
          wbRevokeByMid (stable Whiteboard editor revocation) is RID-scoped and must go with
          the rest — termination leaves no Whiteboard authorization/revocation data for this rid. */
-      ['wb','timer','rname','topic','denyByMid','wbRevokeByMid'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
+      ['wb','timer','rname','topic','denyByMid','wbRevokeByMid','ftDenyByMid'].forEach(b=>{ try{ localStorage.removeItem('mj.'+b+'.'+rid); }catch(e){} });
     }
     try{ localStorage.removeItem('mj.rid.'+code); }catch(e){}
     /* remove ALL of this room's transfer chunks, including orphans tracked across refreshes */
