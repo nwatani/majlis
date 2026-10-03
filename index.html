@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.91.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.92.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3914,6 +3914,12 @@ M.Members = {
         if(M.State.perms?.overrides?.[oldId]){ M.State.perms.overrides[peerId]=M.State.perms.overrides[oldId]; delete M.State.perms.overrides[oldId]; }
         if(M.State.wb.editors[oldId]!=null){ M.State.wb.editors[peerId]=M.State.wb.editors[oldId]; delete M.State.wb.editors[oldId]; }
         try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
+        /* Legacy fp migration must NOT orphan File Transfer recipient state: rebind the
+           recipient's transport binding oldId → peerId as NON-AUTHORIZING bookkeeping and keep
+           it INACTIVE. fp is never an FT authentication factor — only a later successful
+           midAuth proof (direct-proof promotion) may promote the preserved record to the proven
+           stable mid and restore it as active. */
+        M.FT.sends.forEach(t=>{ if(t.recips){ t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=peerId; rec.active=false; } }); } });
         m=old; m.id=peerId; migrated=true;
         M.bus.emit('sysmsg',{text:M.t('sys_reconnect',{n:m.name})});
         M.log('info','legacy fp matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
@@ -4660,6 +4666,35 @@ M.FT = {
     }
     return becameActive;
   },
+  /* Reconcile an already-created broadcast recipient set against the CURRENT roster/session
+     state (called right after M.FT.sends.set, before _bcastLifecycle/pump). During the
+     offer-send await, a peer may have gone offline, reconnected, or completed identity proof;
+     this brings the recipient bindings up to date WITHOUT adding unrelated members:
+       • current peer offline/gone      → recipient preserved but inactive;
+       • online and already midAuth     → promote temporary key to the proven stable mid, bind
+                                          the current peerId, restore active when genuinely online;
+       • still unverified               → keep the temporary binding, grant no stable-identity
+                                          takeover.
+     fp is never used. Returns whether any recipient is active. */
+  _reconcileRecips(t){
+    if(!t.recips) return false;
+    let becameActive=false;
+    for(const [key,rec] of [...t.recips.entries()]){
+      const p=M.State.peers.get(rec.peerId);
+      if(!p||p.status==='offline'){ if(rec.active) rec.active=false; continue; }
+      if(p.midAuth===true&&p.mid){
+        if(key!==p.mid){
+          if(t.recips.has(p.mid)){ t.recips.delete(key); continue; }   /* collision: keep canonical stable-mid record */
+          t.recips.delete(key);
+          rec.mid=p.mid; rec.peerId=p.id;
+          t.recips.set(p.mid,rec);
+        }
+        if(p.status==='online'&&!rec.canceled){ rec.active=true; becameActive=true; }
+      }
+      /* unverified peer: temporary binding kept, no takeover; active flag left as-is */
+    }
+    return becameActive;
+  },
   /* Broadcast lifecycle after a recipient's availability changes. Recomputes the watermark
      over active participants; if NO recipient is active the sender PAUSES (safe non-success
      state, no success reported, no spinning) and resumes automatically when a recipient
@@ -4825,12 +4860,13 @@ M.FT = {
     M.FT.trackRoom(id,t.room);
     M.Chat.fileCard(M.Chat.key(isRoom?null:target),{id,name:t.name,size:t.size,dir:'up',peerName:isRoom?M.t('room'):M.Members.name(target),statusLabel:M.t('st_queued'),voice:t.voice,dur:t.dur,shot:t.shot,clip:t.clip,preview:t.preview});
     M.log('info',`file offer → ${isRoom?'room':M.fmt.idShort(target)}: ${t.name} (${M.fmt.bytes(t.size)})`);
-    /* BROADCAST STARTUP LIFECYCLE: if there are ZERO active recipients at creation, pause
-       BEFORE pump can start the send loop — no ftbin chunks are transmitted to nobody, no
-       success/completion is reported, and the state is preserved for the existing
-       lifecycle/recovery (an authenticated recipient returning resumes it). Directed/private
-       startup is untouched. */
-    if(isRoom) M.FT._bcastLifecycle(t);
+    /* BROADCAST STARTUP LIFECYCLE: reconcile the recipient set against the CURRENT roster first
+       (peers may have gone offline / reconnected / completed identity proof during the
+       offer-send await), then, if there are ZERO active recipients, pause BEFORE pump can start
+       the send loop — no ftbin chunks are transmitted to nobody, no success/completion is
+       reported, and the state is preserved for the existing lifecycle/recovery (an authenticated
+       recipient returning resumes it). Directed/private startup is untouched. */
+    if(isRoom){ M.FT._reconcileRecips(t); M.FT._bcastLifecycle(t); }
     M.FT.render(); M.FT.pump();
     return t;
   },
