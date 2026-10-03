@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.79.9';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.80.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -8450,19 +8450,19 @@ M.WB = {
       M.log('info','board auto-opened by AUTHORIZED admin board data from '+M.fmt.idShort(from));
     }
     if(d.t==='up'||d.t==='add'){
-      if(!M.WB.peerCanEdit(from,fromAdmin)){ M.log('warn','board op rejected (no edit right): '+M.fmt.idShort(from)); return; }
+      if(!M.WB._editGate(d,from,fromAdmin)) return;   /* authorization BEFORE any mutation */
       /* allowlist into state AFTER any signature verification — unknown/hostile
          object fields never enter the board; malformed objects were already rejected
          by the wbObj schema at the boundary */
       const o=M.Guard.pickWbObj(d.o); if(!o){ M.log('warn','board object rejected by schema: '+M.fmt.idShort(from)); return; }
       M.WB.applyUp(o); return;
     }
-    if(d.t==='del'){ if(!M.WB.peerCanEdit(from,fromAdmin)) return; M.WB.localDel(d.id); return; }
+    if(d.t==='del'){ if(!M.WB._editGate(d,from,fromAdmin)) return; M.WB.localDel(d.id); return; }
     /* clear/close are authoritative ops: they propagate only through SIGNED wbCtrl.
        An unsigned wb clear/close from a peer is never applied. */
     if(d.t==='clear' || d.t==='close'){ M.log('warn','ignored unsigned board '+(d.t)+' from '+M.fmt.idShort(from)); return; }
     if(d.t==='order'){
-      if(!M.WB.peerCanEdit(from,fromAdmin)) return;
+      if(!M.WB._editGate(d,from,fromAdmin)) return;   /* authorization BEFORE any mutation */
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
       const missing=M.WB.order.filter(id=>!valid.includes(id));
       M.WB.order=[...valid,...missing];
@@ -8522,11 +8522,49 @@ M.WB = {
       return;
     }
   },
+  /* Does the stable identity <mid> currently carry an explicit editor revocation?
+     Editor grants are keyed by transport peerId (which changes on reconnect), so this
+     resolves the revocation across the member's authenticated roster entries by mid.
+     Read on demand — always consistent with current state, no stale cache. */
+  _stableRevoked(mid){
+    if(!mid) return false;
+    const E=M.State.wb.editors||{};
+    let revoked=false;
+    M.State.peers.forEach((p,pid)=>{ if(p.midAuth===true&&p.mid===mid&&E[pid]===false) revoked=true; });
+    return revoked;
+  },
+  /* Canonical receive-side Whiteboard EDIT gate. Two DISTINCT paths:
+       • Admin-authored ops (fromAdmin = verified Admin signature + sender binding) are
+         always allowed and NEVER depend on member edit permission.
+       • Member collaborative editing requires: board open + unlocked, collab mode, and
+         the member not being revoked — resolved via the transport peerId's editor entry
+         plus a stable-identity revoke bridge. Payload identity fields (from/mid/fp/name)
+         are never consulted; the decision is keyed by the transport sender's roster entry. */
   peerCanEdit(pid, fromAdmin){
     if(!M.State.wb.open||M.State.wb.locked) return false;
-    if(fromAdmin) return true;   /* authenticated Admin pin, never the untrusted adm flag */
+    if(fromAdmin) return true;   /* authenticated Admin signature, never the untrusted adm flag */
     const m=M.State.peers.get(pid); if(!m) return false;
-    return M.State.wb.mode==='collab' && M.State.wb.editors[pid]!==false;
+    if(M.State.wb.mode!=='collab') return false;   /* admin/view modes: members never edit */
+    const stableMid=(m.midAuth===true&&m.mid)?m.mid:(m.claimedMid||null);
+    /* impostor guard: an UNAUTHENTICATED claim of a mid already proven by a different peer
+       is denied — a forged claimedMid cannot inherit that member's editor standing. */
+    if(stableMid&&m.midAuth!==true){
+      let ownedByOther=false;
+      M.State.peers.forEach((p2,pid2)=>{ if(pid2!==pid&&p2.midAuth===true&&p2.mid===stableMid) ownedByOther=true; });
+      if(ownedByOther) return false;
+    }
+    /* stable-identity revoke bridge: a revocation follows the member's mid across a fresh
+       transport peerId, so a revoked member cannot bypass it during the pre-proof window.
+       Only REVOCATIONS are honored via claim here — never an allow. */
+    if(stableMid&&M.WB._stableRevoked(stableMid)) return false;
+    return M.State.wb.editors[pid]!==false;   /* direct peerId grant/revoke (migrated post-proof) */
+  },
+  /* Centralized member-edit gate + safe diagnostic (no board content is logged, and the
+     peer is NOT disconnected for a single rejected op). */
+  _editGate(d, from, fromAdmin){
+    if(M.WB.peerCanEdit(from,fromAdmin)) return true;
+    M.log('warn','WB_REJECTED_PERMISSION op='+(d&&d.t)+' from '+M.fmt.idShort(from));
+    return false;
   },
   sendState(target){
     const objects=[...M.WB.objs.values()];
