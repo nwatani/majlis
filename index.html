@@ -1457,7 +1457,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.8';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
+M.Version = '1.96.9';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3016,11 +3016,14 @@ M.Guard = {
         return true;
       case 'text':
         return G.wbNum(o.x) && G.wbNum(o.y) && G.str(G.TEXT_MAX)(o.text)
-          && (!('w' in o)||G.wbNum(o.w)) && (!('align' in o)||G.en(['left','center','right'])(o.align))
+          && (!('w' in o)||G.wbNum(o.w)) && (!('align' in o)||o.align===null||G.en(['left','center','right'])(o.align))
           && (!('style' in o)||G.str(64)(o.style));
     }
     return false;
   },
+  /* Text alignment is optional: null means automatic direction-aware alignment.
+     This must be accepted on the receive path because the Admin creates new text with
+     align:null. Rejecting null here causes the text object to disappear for Members. */
   /* strict allowlist application for wb objects — called ONLY after any
      signature verification, never before (signed bytes stay intact) */
   pickWbObj(o){ if(!M.Guard.wbObj(o)) return null;
