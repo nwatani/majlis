@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.96.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3743,26 +3743,42 @@ M.Net = {
      Only the rid (and admin pin) are revealed — never rk, never authority. */
   joinDiscovery(code){
     if(M.Net.disc) return;
-    const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
-    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
+    const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() }, relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
+    let here=null;
+    const d=M.T.joinRoom(cfg, M.App.nsCode(code), { onPeerJoin: peerId=>{ if(here && M.State.room?.rid && M.State.room.code===code){ try{ here.send({rid:M.State.room.rid},{target:peerId}); }catch(e){} } } });
     M.Net.disc=d;
     /* discovery reveals ONLY the live rid — never the pin. A discovery responder must
        not be able to install itself as the trusted Admin anchor. */
-    const where=d.makeAction('where'), here=d.makeAction('here');
+    const where=d.makeAction('where');
+    here=d.makeAction('here');
     where.onMessage=(q,{peerId})=>{
       if(!M.Guard.check('where',q,peerId)) return;
       if(M.State.room?.rid && M.State.room.code===code)
         try{ here.send({rid:M.State.room.rid},{target:peerId}); }catch(e){}
     };
     here.onMessage=()=>{};   /* answers are consumed by the discovery promise, not here */
+    /* Proactively advertise the live rid to connected discovery peers. This removes
+       dependence on a single request arriving at exactly the right time. */
+    const announce=()=>{ if(!M.State.room?.rid || M.State.room.code!==code) return; try{ here.send({rid:M.State.room.rid}); }catch(e){} };
+    announce();
+    M.Net._discAnnounceT=setInterval(announce,2500);
     M.log('info','[ns] discovery namespace '+M.App.nsCode(code)+' joined');
     return d;
   },
   /* code-only join: ask the discovery namespace for the current live rid */
   async discoverRid(code){
     await M.Net.loadTrystero();
-    const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
-    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
+    const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() }, relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
+    let where=null;
+    const pendingPeers=[];
+    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {
+      /* Register this callback at joinRoom creation time. Do not depend on assigning
+         onPeerJoin after the room has already started. */
+      onPeerJoin: peerId => {
+        if(where){ try{ where.send({},{target:peerId}); }catch(e){} }
+        else pendingPeers.push(peerId);
+      }
+    });
     return await new Promise(res=>{
       let done=false, iv=null, to=null;
       const finish=(rid)=>{
@@ -3770,26 +3786,25 @@ M.Net = {
         done=true;
         if(iv) clearInterval(iv);
         if(to) clearTimeout(to);
-        try{ d.onPeerJoin=null; }catch(e){}
         try{ d.leave(); }catch(e){}
         res(rid?{rid}:null);
       };
-      const here=d.makeAction('here'), where=d.makeAction('where');
+      const here=d.makeAction('here');
+      where=d.makeAction('where');
       here.onMessage=(d2)=>{
-        if(M.Guard.check('here',d2,'discovery') && typeof d2.rid==='string' && d2.rid) finish(d2.rid);
+        if(M.Guard.check('here',d2,'discovery') && typeof d2.rid==='string' && M.Guard.str(64)(d2.rid)) finish(d2.rid);
       };
-      const askPeer=(peerId)=>{ try{ where.send({},{target:peerId}); }catch(e){} };
-      /* Trystero 0.25.x replays existing peers when onPeerJoin is assigned.
-         Use that behavior explicitly so a discovery requester cannot miss a room
-         simply because the host was already present before our handler was attached. */
-      d.onPeerJoin = peerId => askPeer(peerId);
-      /* Also broadcast periodically while the signaling membership is settling.
-         This covers delayed subscriptions and transient relay loss without relying
-         on a single packet. */
+      const askPeer=(peerId)=>{ if(!done){ try{ where.send({},{target:peerId}); }catch(e){} } };
+      pendingPeers.splice(0).forEach(askPeer);
+      /* Keep broadcasting while MQTT/WebRTC membership settles. A live host receives
+         the request as soon as the discovery data channel exists. */
       const ask=()=>{ if(!done){ try{ where.send({}); }catch(e){} } };
       ask();
-      iv=setInterval(()=>{ ask(); try{ const peers=d.getPeers?.()||{}; Object.keys(peers).forEach(askPeer); }catch(e){} },500);
-      to=setTimeout(()=>finish(null),9000);
+      iv=setInterval(()=>{
+        ask();
+        try{ const peers=d.getPeers?.()||{}; Object.keys(peers).forEach(askPeer); }catch(e){}
+      },500);
+      to=setTimeout(()=>finish(null),15000);
     });
   },
   _early:new Map(),
@@ -3904,7 +3919,7 @@ M.Net = {
     if(n) M.log('info','heal sweep: restarted '+n+' stale link(s)');
     M.Net.nudge();
   },
-  leave(){ try{ M.Net.room?.leave(); }catch(e){} try{ M.Net.disc?.leave(); }catch(e){} M.Net.disc=null; clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
+  leave(){ try{ M.Net.room?.leave(); }catch(e){} try{ M.Net.disc?.leave(); }catch(e){} M.Net.disc=null; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null; clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
 };
 
 /* ---------------- Duplicate-session guard ---------------------------------
@@ -10003,7 +10018,10 @@ M.App = {
     if(!code && /^[A-Za-z2-9]{6}$/.test(raw)) code=raw.toUpperCase();   /* manual code entry */
     if(!/^[A-Z2-9]{6}$/.test(code)){ M.lobbyMsg(M.t('invalid_code'),true); return; }
     if(!M.Rate.check()){ M.lobbyMsg(M.t('rate_limited'),true); return; }
-    if(M.App.tombstoned(code)){ M.lobbyMsg(M.t('room_not_found'),true); return; }
+    /* Local room tombstones are creator-side lifecycle markers only. They must NEVER
+       block a member from joining a currently live room that happens to reuse the same
+       six-character code on another device. Room existence is decided by live discovery;
+       room-scoped state is still isolated by the discovered rid. */
     M.lobbyMsg(M.t('joining')); M.$('#btnJoin').disabled=true;
     try{
       M.State.room={code, created:Date.now(), isCreator:false};
@@ -10038,7 +10056,10 @@ M.App = {
          must not bypass the existence check. */
       const storedRid=M.Store.get('rid.'+code);
       const knownAdmin=!!(rid && storedRid===rid && await M.KeyDB.get('admin.'+rid).catch(()=>null));
-      const bypass=knownAdmin || discovered;
+      /* Discovery only supplies the candidate rid. For a code-only join we still verify
+         that the actual room namespace is live before entering the room. A discovery peer
+         must not be able to manufacture a dead namespace and make the UI look joined. */
+      const bypass=knownAdmin;
       M.Net.onProgress=m=>M.lobbyMsg(m);
       try{ await M.Net.join(code,{isCreator:M.Perms.isAdmin()}); }finally{ M.Net.onProgress=null; }
       M.State.self.id=M.T.selfId;
