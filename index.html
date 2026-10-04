@@ -945,7 +945,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           </div>
           <div id="recChip" class="hidden">
             <span class="rec-dot"></span>
-            <span class="mono" id="recTime">0:00</span>
+            <span class="mono" id="vmRecTime">0:00</span>
             <span class="rec-lbl" data-i18n="vm_rec">Recording…</span>
             <button class="rec-x" id="recCancel" title="Discard"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button>
             <button class="rec-ok" id="recSend" title="Send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linejoin="round"/></svg></button>
@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.95.0';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.96.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1449,7 +1449,10 @@ M.detPlatform = () => { const ua=navigator.userAgent; let os='Desktop';
   return {os, br, mobile: os==='iOS'||os==='Android', ua}; };
 M.hue = s => { let h=0; for(const ch of (s||'?')) h=(h*31+ch.codePointAt(0))>>>0; return h%360; };
 M.avatarBg = s => { const h=M.hue(s); return `linear-gradient(135deg,hsl(${h} 62% 58%),hsl(${(h+40)%360} 55% 46%))`; };
-M.initials = s => (s||'?').trim().split(/\s+/).slice(0,2).map(w=>[...w][0]||'').join('').toUpperCase()||'?';
+M.initials = s => {
+  const out=(s||'?').trim().split(/\s+/).slice(0,2).map(w=>[...w][0]||'').join('').toUpperCase()||'?';
+  return [...out].map(ch=>/[<>&\"'`\u0000-\u001F\u007F]/.test(ch)?'?':ch).join('')||'?';
+};
 M.fmt = {
   bytes(n){ if(n==null||isNaN(n)) return '—'; if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(1)+' KB'; if(n<1073741824) return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; },
   speed(bps){ return M.fmt.bytes(bps)+'/s'; },
@@ -3932,27 +3935,28 @@ M.Members = {
       const dead = old && ( old.status!=='online' || !lastHb || Date.now()-lastHb>20000 );
       if(old && dead){
         M.State.peers.delete(oldId); M.Net.lastHb.delete(oldId);
-        if(M.Chat.threads.has(oldId)){ M.Chat.threads.set(peerId,M.Chat.threads.get(oldId)); M.Chat.threads.delete(oldId); }
-        if(M.Chat.unread.has(oldId)){ M.Chat.unread.set(peerId,M.Chat.unread.get(oldId)); M.Chat.unread.delete(oldId); }
-        if(M.Chat.renderKey===oldId) M.Chat.renderKey=peerId;
-        if(M.State.chatTarget===oldId) M.State.chatTarget=peerId;
-        if(M.State.perms?.overrides?.[oldId]){ M.State.perms.overrides[peerId]=M.State.perms.overrides[oldId]; delete M.State.perms.overrides[oldId]; }
-        if(M.State.wb.editors[oldId]!=null){ M.State.wb.editors[peerId]=M.State.wb.editors[oldId]; delete M.State.wb.editors[oldId]; }
-        /* Legacy fp migration must NOT orphan incoming File Transfer records: rebind the
-           transport binding r.from oldId → peerId as NON-AUTHORIZING bookkeeping (runs BEFORE
-           the onPeerGone failure pass so the preserved record is not failed). ONLY r.from
-           changes — r.smid/status/parts/etc are untouched. The binding is marked PROVISIONAL so
-           recvAuth() withholds the exact-peerId shortcut until the new peer proves its stable
-           identity; fp never authenticates, never sets r.smid/midAuth, grants no permission. */
+        /* Legacy fp is plaintext compatibility metadata, NOT identity proof. Therefore do NOT
+           migrate private chat history, unread state, permission overrides, or Whiteboard editor
+           grants based on fp. A peer can deliberately copy an observed fp; carrying these
+           identity-bound states here would turn that metadata into authorization/privacy access.
+           Modern authenticated sessions migrate those states only through stable mid proof. */
+        /* Legacy fp migration is COMPATIBILITY bookkeeping only. Incoming FT records may keep a
+           provisional transport association (handled below), but other identity-bound state is
+           NOT migrated from an fp-only match because fp is observable and non-authenticating. */
         M.FT.recvs.forEach(r=>{ if(r.from===oldId){ r.from=peerId; r.fromProvisional=true; } });
         try{ M.Call.onPeerGone(oldId); M.FT.onPeerGone(oldId); }catch(e){}
-        /* Legacy fp migration must NOT orphan File Transfer recipient state: rebind the
-           recipient's transport binding oldId → peerId as NON-AUTHORIZING bookkeeping and keep
-           it INACTIVE. fp is never an FT authentication factor — only a later successful
-           midAuth proof (direct-proof promotion) may promote the preserved record to the proven
-           stable mid and restore it as active. */
+        /* File Transfer recipient state is the one narrowly preserved across an fp-only legacy
+           migration, and it remains INACTIVE/PROVISIONAL until real stable-mid proof. */
         M.FT.sends.forEach(t=>{ if(t.recips){ t.recips.forEach(rec=>{ if(rec.peerId===oldId){ rec.peerId=peerId; rec.active=false; } }); } });
-        m=old; m.id=peerId; migrated=true;
+        /* Explicitly discard orphaned identity-bound peerId grants from the old unverified
+           session. They cannot be safely transferred without a proven stable mid. */
+        try{ if(M.State.perms?.overrides) delete M.State.perms.overrides[oldId]; }catch(e){}
+        try{ if(M.State.wb?.editors) delete M.State.wb.editors[oldId]; }catch(e){}
+        /* Carry only non-sensitive presentation/device metadata. Do not reuse the old object:
+           it may contain identity-bound or user-specific fields that must not cross an fp-only
+           reconnect boundary. Stable identity-bound state is restored later only through midAuth. */
+        m={id:peerId,name:old.name,status:'connecting',os:old.os||'?',br:old.br||'?',mobile:!!old.mobile,admHint:false,lastSeen:Date.now(),overrides:{},fp:patch.fp,v:old.v};
+        migrated=true;
         M.bus.emit('sysmsg',{text:M.t('sys_reconnect',{n:m.name})});
         M.log('info','legacy fp matched — '+m.name+' rejoined ('+M.fmt.idShort(oldId)+' → '+M.fmt.idShort(peerId)+')');
       }
@@ -4279,9 +4283,10 @@ M.Chat = {
       M.Chat.threads.forEach((th,key)=>{
         if(key==='room'||!th.length) return;
         const peer=M.State.peers.get(key);
-        const mid=peer?.mid || M.Chat._midMap.get(key);
-        const fp=peer?.fp || M.Chat._fpMap.get(key);
-        if(mid||fp) dms.push({mid:mid||undefined, fp:fp||undefined, msgs:th.slice(-M.Chat.LIM.dm).map(clean)});
+        const mid=(peer?.midAuth===true&&peer?.mid) ? peer.mid : M.Chat._midMap.get(key);
+        /* Private DM history is restored only by authenticated stable identity. Legacy fp is
+           observable network metadata and must never be a key for private-history restoration. */
+        if(mid) dms.push({mid, msgs:th.slice(-M.Chat.LIM.dm).map(clean)});
       });
       M.App.putRoom('chat',{v:1,room,dms});   /* instance-scoped; no-op until rid known */
     }catch(e){}
@@ -4309,7 +4314,9 @@ M.Chat = {
           merged=add.length;
         }
       }
-      M.Chat._pendingDms=new Map((data.dms||[]).filter(d=>d.fp||d.mid).map(d=>[d.mid||('fp:'+d.fp),d.msgs]));
+      /* Only stable-mid keyed private history is eligible for automatic restoration. Old fp-only
+         entries are intentionally ignored because fp is not an authentication factor. */
+      M.Chat._pendingDms=new Map((data.dms||[]).filter(d=>typeof d.mid==='string'&&d.mid.length===64).map(d=>[d.mid,d.msgs]));
       M.Chat._tryRestoreDms();
       if(merged && M.Chat.renderKey==='room' && M.UI.tab==='chat') M.Chat.renderAll();
       M.log('info','restored local chat cache ('+merged+' room messages merged)');
@@ -4318,13 +4325,12 @@ M.Chat = {
   _tryRestoreDms(){
     if(!M.Chat._pendingDms || M.Chat._pendingDms.size===0) return;
     M.State.peers.forEach((p,pid)=>{
-      const authMid=p.midAuth&&p.mid;
-      const pkey=authMid||('fp:'+p.fp);
-      if((authMid||p.fp) && M.Chat._pendingDms.has(pkey)){
-        const msgs=M.Chat._pendingDms.get(pkey);
-        M.Chat._pendingDms.delete(pkey);
+      const authMid=p.midAuth===true&&p.mid;
+      if(authMid && M.Chat._pendingDms.has(authMid)){
+        const msgs=M.Chat._pendingDms.get(authMid);
+        M.Chat._pendingDms.delete(authMid);
         if(!M.Chat.threads.has(pid)) M.Chat.threads.set(pid,msgs.map(m=>({...m,me:m.from===M.State.self.id})));
-        if(authMid) M.Chat._midMap.set(pid,p.mid); else M.Chat._fpMap.set(pid,p.fp);
+        M.Chat._midMap.set(pid,authMid);
         if(M.Chat.renderKey===pid) M.Chat.renderAll();
       }
     });
@@ -4527,6 +4533,15 @@ M.DB = {
     }catch(e){}
   },
   async meta(id){ try{ const db=await M.DB.open(); return await new Promise(res=>{ const rq=db.transaction('x').objectStore('x').get(id+':meta'); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>res(null); }); }catch(e){ return null; } },
+  async getChunk(id,seq){
+    try{
+      const db=await M.DB.open();
+      return await new Promise(res=>{
+        const rq=db.transaction('x').objectStore('x').get(M.DB._k(id,seq));
+        rq.onsuccess=()=>res(rq.result==null?null:rq.result); rq.onerror=()=>res(null);
+      });
+    }catch(e){ return null; }
+  },
   async chunks(id,count){
     try{
       const db=await M.DB.open();
@@ -4562,6 +4577,8 @@ M.FT = {
     maxBuf:2*1024*1024,         /* a single chunk never exceeds this */
     maxBufChunks:320,           /* out-of-order buffer: max future chunks held per transfer */
     maxBufBytes:20*1024*1024,   /* out-of-order buffer: max total bytes held per transfer */
+    maxNackJobs:8,               /* queued retransmission jobs per sender transfer */
+    maxNackSeqs:64,              /* requested chunks per NACK job */
     memWindow:64                /* bounded in-memory receive window (persisted chunks are source of truth) */
   },
   _chunkCount(size){ return Math.ceil(size/M.FT.CHUNK); },
@@ -4577,11 +4594,21 @@ M.FT = {
     /* stable File DENY (persistent, RID-scoped, follows the member's stable mid across a
        reconnect/proof window) — deny-only and fail-closed; checked before any grant logic. */
     if(M.FT._fileStableDenied(from)){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)+' (stable deny)'); return false; }
-    const ov=(P.overrides&&P.overrides[from])||{};
+    const pPeer=M.State.peers.get(from);
+    /* FT control packets are only accepted from an established live transport session. A
+       stale packet received after peerOffline/while the peer is still connecting must never
+       create or authorize a new transfer, even when the room policy itself allows files. */
+    if(!pPeer || pPeer.status!=='online'){ M.log('warn','FT_REJECTED_AUTH non-live peer '+M.fmt.idShort(from)); return false; }
+    const authenticated=!!(pPeer.midAuth===true&&pPeer.mid);
+    const ov=(authenticated&&P.overrides&&P.overrides[from])||{};
     const has=(k,d)=> ov[k]==null ? d : ov[k];
     const ok=isRoom ? (!!P.files&&!!has('files',P.filesRoom)) : (!!P.files&&!!P.filesPriv&&!!has('files',true));
     if(!ok){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)); return false; }
     if(!M.Perms.grantsAuthorized()){ M.log('warn','FT_REJECTED_PERMISSION '+M.fmt.idShort(from)+' (unconfirmed policy)'); return false; }
+    /* Before stable identity proof, only the base room policy may grant. A peer-specific
+       override ALLOW must never be inherited merely from a temporary peerId/legacy rebind.
+       Stable deny is handled above and remains deny-only. */
+    if(!authenticated && P.files!==true){ return false; }
     return true;
   },
   /* ----- persistent, RID-scoped, DENY-ONLY stable File permission map ----------------
@@ -4765,9 +4792,9 @@ M.FT = {
     t.recips.forEach(r=>{ if(!r.canceled&&r.active) anyActive=true; });
     M.FT._bcastWatermark(t);
     if(!anyActive){
-      if(t.status==='sending'||t.status==='queued'){ t.status='paused'; M.log('warn','broadcast paused — no active recipients (state preserved)'); M.FT.render(); }
+      if(t.status==='sending'||t.status==='queued'){ t._gen=(t._gen||0)+1; t.status='paused'; M.log('warn','broadcast paused — no active recipients (state preserved)'); M.FT.render(); }
     } else if(t.status==='paused'){
-      t.status='sending'; M.FT.render(); M.FT.loop(t); M.log('info','broadcast resumed — an active recipient returned');
+      t._gen=(t._gen||0)+1; t.status='sending'; M.FT.render(); M.FT.loop(t); M.log('info','broadcast resumed — an active recipient returned');
     }
   },
   /* ownership: is `from` the legitimate counterparty for this transfer?
@@ -4776,12 +4803,19 @@ M.FT = {
      is NEVER an authentication factor. Room broadcast control is isolated to authorized
      recipients via _peerFileOk, not an open "any peer" rule. */
   authSendPeer(t,from){
+    const p=M.State.peers.get(from);
+    /* sender-side control must come from a CURRENT established online session; peerId alone
+       is not sufficient after the roster marks that transport offline/connecting. */
+    if(!p || p.status!=='online') return false;
     /* broadcast control is restricted to ACTUAL recipients of this transfer — fileRoom
        permission alone is NOT sufficient to control an existing broadcast. */
     if(t.target==='*') return !!M.FT._bcastRecip(t,from);
-    if(from===t.target) return true;                          /* the exact intended receiver */
-    const p=M.State.peers.get(from);
-    return !!(t.rmid&&p&&p.midAuth===true&&p.mid===t.rmid);  /* proven same receiver mid */
+    if(from===t.target){
+      /* When the transfer was already bound to a stable receiver mid, the peerId shortcut must
+         not accept a different identity accidentally occupying/reusing that transport id. */
+      return !t.rmid || (p.midAuth===true&&p.mid===t.rmid);
+    }
+    return !!(t.rmid&&p.midAuth===true&&p.mid===t.rmid);       /* proven same receiver mid */
   },
   recvAuth(r,from){
     const p=M.State.peers.get(from);
@@ -4797,10 +4831,15 @@ M.FT = {
        proves its stable identity, the exact-peerId shortcut is withheld — control requires
        midAuth===true AND a proven r.smid that matches. Never fp/claimedMid/payload-smid/fromName. */
     if(r.fromProvisional){
-      return !!(from===r.from&&r.smid&&p&&p.midAuth===true&&p.mid===r.smid);
+      return !!(from===r.from&&r.smid&&p&&p.midAuth===true&&p.mid===r.smid&&p.status==='online');
     }
-    if(from===r.from) return true;                            /* the exact sender */
-    return !!(r.smid&&p&&p.midAuth===true&&p.mid===r.smid);  /* proven same sender mid */
+    if(!p || p.status!=='online') return false;               /* stale/connecting exact peer is not live */
+    if(from===r.from){
+      /* If this transfer already has a stable sender identity, even the current peerId must
+         represent that same proven identity. */
+      return !r.smid || (p.midAuth===true&&p.mid===r.smid);
+    }
+    return !!(r.smid&&p.midAuth===true&&p.mid===r.smid);      /* proven same sender mid */
   },
   init(){
     M.bus.on('ftIn', d=>M.FT.onCtl(d));
@@ -4821,7 +4860,10 @@ M.FT = {
       const now=Date.now();
       M.FT.recvs.forEach(r=>{
         if(r.status!=='receiving') return;
-        if((r.finHash||r.pending) && r.recv>=r.size) M.FT.finalize(r,r.finHash||r.pending,r.from);
+        if(r.finHash && r.recv>=r.size) M.FT.finalize(r,r.finHash,r.from);
+        else if(r.pending && r.recv>=r.size && now-(r._doneAt||now)>15000){
+          M.FT.fail(r,'finish marker missing');
+        }
         else if(!r.finHash && r.expected<M.FT._chunkCount(r.size) && now-(r._lastProg||r.startedAt)>3000 && now-(r._nackAt||0)>1500){
           /* stalled: ask the sender for the missing chunks by number */
           r._nackAt=now;
@@ -4952,52 +4994,101 @@ M.FT = {
     M.FT.render();
   },
   loop(t){
-    /* SINGLE-FLIGHT sender loop: at most ONE active loop per transfer. A second start request
-       while a loop is running is a no-op (the running loop re-checks status + generation each
-       iteration), so pump / UI-resume / directed-resume / broadcast-resume / repeated resume
-       packets can never create two concurrent loops mutating t.seq/t.sent/t.ack/hash together. */
-    if(t._looping) return;
+    if(!t || t.status!=='sending') return;
+    /* SINGLE-FLIGHT sender loop. Pause/resume and control handlers invalidate the generation;
+       only one current generation may mutate t.seq/t.sent/t.hash at a time. If a resume arrives
+       while a stale loop is still unwinding, remember the request and start exactly one fresh loop
+       from the finally handler. */
+    if(t._looping){ t._loopRequested=true; return; }
     const gen=(t._gen=(t._gen||0)+1);
-    t._looping=true;
-    M.FT._runLoop(t,gen).catch(e=>{ M.log('err','sender loop error: '+(e&&e.message||e)); }).finally(()=>{ t._looping=false; });
+    t._looping=true; t._loopRequested=false;
+    M.FT._runLoop(t,gen).catch(e=>{ M.log('err','sender loop error: '+(e&&e.message||e)); M.FT.fail(t,'sender loop error'); })
+      .finally(()=>{ t._looping=false; if(t._loopRequested){ t._loopRequested=false; if(t.status==='sending') M.FT.loop(t); } });
   },
   async _runLoop(t,gen){
-    const isRoom=t.target==='*';
-    while(t.status==='sending' && t._gen===gen){
-      if(t.seq - t.ack >= M.FT.WINDOW){ await new Promise(r=>setTimeout(r,60)); if(t.status!=='sending'||t._gen!==gen) return; continue; }
-      const end=Math.min(t.seq*M.FT.CHUNK + M.FT.CHUNK, t.size);
-      const start=t.seq*M.FT.CHUNK;
-      let buf; try{ buf=await t.file.slice(start,end).arrayBuffer(); }catch(e){ M.FT.fail(t,'read error'); return; }
-      if(t.status!=='sending'||t._gen!==gen) return;
-      const u8=new Uint8Array(buf);
-      t.hash.update(u8);
-      /* confirmed delivery: await the relay's acceptance and retry — a silently dropped
-         chunk is what used to corrupt big transfers */
-      const meta={ metadata:{id:t.id,seq:t.seq}, ...(isRoom?{}:{target:t.target}) };
-      let ok=false;
-      for(let att=0; att<3 && !ok; att++){
-        try{ await M.Net.A.ftbin.send(buf,meta); ok=true; }
-        catch(e){
-          M.log('warn','chunk '+t.seq+' send attempt '+(att+1)+' failed: '+(e.message||e));
-          await new Promise(r=>setTimeout(r,300*(att+1)));
-        }
-        if(t.status!=='sending'||t._gen!==gen) return;
-      }
-      if(!ok){ M.FT.fail(t,'send failed at chunk '+t.seq); return; }
-      t.seq++; t.sent=end;
-      M.FT.tickUI(t);
-      if(end>=t.size){
+    const isRoom=t.target==='*'; const cc=M.FT._chunkCount(t.size);
+    const valid=()=>t.status==='sending'&&t._gen===gen;
+    while(valid()){
+      if(t.seq>=cc){
+        /* Resume at exactly file size: send only FIN, never an empty data chunk. */
+        if(t.sent<t.size) t.sent=t.size;
         t.status='verify'; M.FT.render();
         const hex=t.hash.hex();
-        /* finish marker rides the SAME ordered channel as the chunks → guaranteed to arrive last */
-        try{ M.Net.A.ftbin.send(new ArrayBuffer(0),{ metadata:{id:t.id,seq:t.seq,fin:1,hash:hex}, ...(isRoom?{}:{target:t.target}) }); }catch(e){ M.log('err','fin marker failed: '+e.message); }
-        M.Net.sendEnc('ft',{t:'done',id:t.id,hash:hex},isRoom?undefined:t.target);
+        let finOk=false;
+        for(let att=0;att<3&&!finOk;att++) {
+          if(!valid()&&t.status!=='verify') return;
+          try{ await M.Net.A.ftbin.send(new ArrayBuffer(0),{metadata:{id:t.id,seq:cc,fin:1,hash:hex},...(isRoom?{}:{target:t.target})}); finOk=true; }
+          catch(e){ if(att<2) await new Promise(r=>setTimeout(r,250*(att+1))); }
+        }
+        if(!finOk){ M.FT.fail(t,'finish marker failed'); return; }
+        const doneSent=await M.Net.sendEnc('ft',{t:'done',id:t.id,hash:hex},isRoom?undefined:t.target);
+        if(!doneSent){ M.FT.fail(t,'completion signal failed'); return; }
+        M.log('info','file sent, awaiting verify: '+t.name);
+        return;
+      }
+      if(t.seq - t.ack >= M.FT.WINDOW){
+        await new Promise(r=>setTimeout(r,60));
+        if(!valid()) return;
+        continue;
+      }
+      const seq=t.seq;
+      const start=seq*M.FT.CHUNK; const end=Math.min(start+M.FT.CHUNK,t.size);
+      let buf; try{ buf=await t.file.slice(start,end).arrayBuffer(); }catch(e){ M.FT.fail(t,'read error'); return; }
+      if(!valid() || seq!==t.seq) return;
+      let sentOk=false;
+      for(let att=0;att<3&&!sentOk;att++){
+        if(!valid() || seq!==t.seq) return;
+        try{ await M.Net.A.ftbin.send(buf,{metadata:{id:t.id,seq},...(isRoom?{}:{target:t.target})}); sentOk=true; }
+        catch(e){
+          M.log('warn','chunk '+seq+' send attempt '+(att+1)+' failed: '+(e.message||e));
+          if(att<2) await new Promise(r=>setTimeout(r,300*(att+1)));
+        }
+      }
+      if(!sentOk){ M.FT.fail(t,'send failed at chunk '+seq); return; }
+      /* The chunk was actually accepted by the send action. Only now mutate the streaming
+         hash and sender progress. If the generation changed during send, leave the chunk
+         uncommitted so a new valid generation can deliberately retry from the same point. */
+      if(!valid() || seq!==t.seq) return;
+      t.hash.update(new Uint8Array(buf));
+      t.seq=seq+1; t.sent=end;
+      M.FT.tickUI(t);
+      if(t.seq>=cc){
+        if(!valid()) return;
+        t.status='verify'; M.FT.render();
+        const hex=t.hash.hex();
+        let finOk=false;
+        for(let att=0;att<3&&!finOk;att++) {
+          try{ await M.Net.A.ftbin.send(new ArrayBuffer(0),{metadata:{id:t.id,seq:cc,fin:1,hash:hex},...(isRoom?{}:{target:t.target})}); finOk=true; }
+          catch(e){ if(att<2) await new Promise(r=>setTimeout(r,250*(att+1))); }
+          if(t.status==='canceled'||t.status==='failed'||t.status==='done'||t._gen!==gen) return;
+        }
+        if(!finOk){ M.FT.fail(t,'finish marker failed'); return; }
+        const doneSent=await M.Net.sendEnc('ft',{t:'done',id:t.id,hash:hex},isRoom?undefined:t.target);
+        if(!doneSent){ M.FT.fail(t,'completion signal failed'); return; }
         M.log('info','file sent, awaiting verify: '+t.name);
         return;
       }
     }
   },
   tickUI: M.throttle? null : null,
+  _queueResume(t,fn){
+    /* One state transition at a time. Newer resume requests supersede older pending requests;
+       the current transition may finish, but it cannot be followed by overlapping hash/seq writes. */
+    const token=(t._resumeToken=(t._resumeToken||0)+1);
+    t._resumePending={token,fn};
+    if(t._resumeRunning) return;
+    t._resumeRunning=true;
+    (async()=>{
+      try{
+        while(t._resumePending){
+          const job=t._resumePending; t._resumePending=null;
+          if(['done','failed','canceled'].includes(t.status)) continue;
+          await job.fn(job.token);
+        }
+      } finally { t._resumeRunning=false; }
+    })().catch(e=>{ M.log('err','resume queue error: '+(e&&e.message||e)); M.FT.fail(t,'resume processing error'); });
+  },
+  _bumpResumeToken(t){ t._resumeToken=(t._resumeToken||0)+1; t._resumePending=null; },
   onCtl(d){
     if(!d||!d.t) return;
     const from=d.peerId;
@@ -5032,28 +5123,33 @@ M.FT = {
           let resumeOff=0;
           try{
             const meta=await M.DB.meta(d.id);
-            if(meta && meta.size===d.size && meta.recv>0){
+            if(meta && meta.size===d.size && Number.isInteger(meta.recv) && meta.recv>0 && meta.recv<=d.size){
               const aligned=Math.floor(meta.recv/M.FT.CHUNK)*M.FT.CHUNK;
-              if(aligned>0 && aligned<d.size){
-                const bufs=await M.DB.chunks(d.id, aligned/M.FT.CHUNK);
-                if(bufs.length*M.FT.CHUNK===aligned){
-                  r.recv=aligned; r.expected=aligned/M.FT.CHUNK;
-                  bufs.forEach(b=>r.hash.update(new Uint8Array(b)));
-                  /* keep the in-memory window bounded — the persisted chunks stay the source of
-                     truth for final assembly (avoids holding a large prefix in memory twice) */
-                  r.parts=bufs.slice(-M.FT.L.memWindow);
-                  resumeOff=aligned;
-                  M.log('info','resuming receive '+d.name+' from '+M.fmt.bytes(aligned)+' ('+Math.round(aligned/d.size*100)+'%)');
-                }
+              const targetChunks=aligned/M.FT.CHUNK;
+              const tail=[]; let good=true;
+              for(let i=0;i<targetChunks;i++){
+                const raw=await M.DB.getChunk(d.id,i);
+                if(raw==null){ good=false; break; }
+                const u=new Uint8Array(raw);
+                const expected=(i===M.FT._chunkCount(d.size)-1)?(d.size-i*M.FT.CHUNK):M.FT.CHUNK;
+                if(u.byteLength!==expected){ good=false; break; }
+                r.hash.update(u); if(i>=Math.max(0,targetChunks-M.FT.L.memWindow)) tail.push(u);
               }
+              if(good && aligned>0){
+                r.recv=aligned; r.expected=targetChunks; r.parts=tail; resumeOff=aligned;
+                M.log('info','resuming receive '+d.name+' from '+M.fmt.bytes(aligned)+' ('+Math.round(aligned/d.size*100)+'%)');
+              } else if(!good){
+                M.log('warn','discarding invalid persisted resume state for '+d.name+'; sender will restart safely');
+              }
+              if(good && aligned===d.size){ resumeOff=aligned; }
             }
-          }catch(e){}
+          }catch(e){ M.log('warn','persisted resume restore failed: '+(e&&e.message||e)); }
           M.FT._pending.delete(d.id);   /* convert the reservation into the real receive record */
           M.FT.recvs.set(r.id,r);
           M.FT.trackRoom(r.id,M.State.room?.code);
           M.Chat.fileCard(M.Chat.key(isRoom?null:from),{id:r.id,name:r.name,size:r.size,dir:'down',peerName:M.Members.name(from),statusLabel:resumeOff?('⟳ '+Math.round(resumeOff/d.size*100)+'%'):M.t('st_receiving'),voice:r.voice,dur:r.dur,shot:r.shot,clip:r.clip});
           if(resumeOff){ try{ M.Net.sendEnc('ft',{t:'resume',id:d.id,offset:resumeOff},from); }catch(e){} }
-          M.DB.putMeta(d.id,{size:d.size,name:d.name,recv:resumeOff});
+          if(!(await M.DB.putMetaWait(d.id,{size:d.size,name:d.name,recv:resumeOff}))) M.log('warn','FT metadata persistence unavailable; keeping conservative in-memory state');
           M.toast('info',M.t(resumeOff?'file_resuming':'file_offer',{n:M.Members.name(from),f:r.name}),M.fmt.bytes(r.size));
           M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
           M.log('info','incoming file '+r.name+' from '+M.fmt.idShort(from));
@@ -5104,81 +5200,98 @@ M.FT = {
           if(s>=t.seq) continue;                                     /* unissued/future chunk: never retransmit */
           if(seen.has(s)) continue;
           seen.add(s); seqs.push(s);
-          if(seqs.length>=M.FT.L.maxBufChunks) break;
+          if(seqs.length>=M.FT.L.maxNackSeqs) break;
         }
         if(!seqs.length) break;
         /* serialize retransmission per transfer so repeated NACKs cannot create unbounded
            concurrent retransmission jobs. */
         M.FT._nackQ(t, async ()=>{
           for(const seq of seqs){
-            if(['done','canceled','failed'].includes(t.status)) return;   /* went terminal mid-pass */
-            const st2=seq*M.FT.CHUNK; if(st2>=t.size) continue;
+            if(['done','canceled','failed'].includes(t.status)) return;
+            if(t.target==='*'){
+              const rr=M.FT._bcastRecip(t,from); if(!rr) return;
+            } else {
+              const pp=M.State.peers.get(from); if(!M.FT.authSendPeer(t,from)||!pp||pp.status!=='online') return;
+            }
+            const st2=seq*M.FT.CHUNK; if(st2>=t.size || seq>=t.seq) continue;
             try{
               const b=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
+              if(['done','canceled','failed'].includes(t.status)) return;
               await M.Net.A.ftbin.send(b,{metadata:{id:t.id,seq},target:from});
-            }catch(e){}
+            }catch(e){ return; }
           }
           M.log('info','retransmitted '+seqs.length+' chunk(s) for '+t.name+' → '+M.fmt.idShort(from));
         });
         break;
       }
       case 'resume': {
-        /* receiver came back with persisted chunks — re-hash the prefix and continue from the offset */
         const t=M.FT.sends.get(d.id); if(!t) return;
-        /* terminal transfers (done/failed/canceled) ignore resume — never revived (both modes) */
         if(['done','canceled','failed'].includes(t.status)){ M.log('warn','FT_REJECTED_STATE resume on terminal transfer'); return; }
         let brec=null;
         if(t.target==='*'){
-          /* BROADCAST: only an ACTUAL, non-canceled recipient may resume; a terminal broadcast
-             cannot be resumed. A canceled recipient cannot reactivate itself via resume. */
           brec=M.FT._bcastRecip(t,from);
           if(!brec){ M.log('warn','FT_REJECTED_AUTH broadcast resume from non-recipient/canceled '+M.fmt.idShort(from)); return; }
+        } else if(!M.FT.authSendPeer(t,from)) return;
+        if(typeof d.offset!=='number'||!isFinite(d.offset)||!Number.isInteger(d.offset)||d.offset<0||d.offset>t.size||
+           (d.offset%M.FT.CHUNK!==0&&d.offset!==t.size)){
+          M.log('warn','FT_REJECTED_STATE resume offset invalid'); return;
         }
-        else if(!M.FT.authSendPeer(t,from)) return;
-        /* validate the offset BEFORE any state mutation: an integer, ≥0, ≤ t.size, and
-           CHUNK-aligned (offset===t.size preserved as the valid end-of-transfer). An invalid
-           offset is REJECTED — never rounded — and touches no sender state / starts no loop. */
-        if(typeof d.offset!=='number' || !isFinite(d.offset) || !Number.isInteger(d.offset) || d.offset<0 || d.offset>t.size || (d.offset%M.FT.CHUNK!==0 && d.offset!==t.size)){
-          M.log('warn','FT_REJECTED_STATE resume offset invalid (must be chunk-aligned, within [0,size])'); return;
-        }
-        const off=d.offset;   /* validated aligned (or end-of-transfer) — no rounding */
-        /* BOTH directed and broadcast: a receiver must not resume from beyond what the sender
-           has actually transmitted. offset===t.size is only valid once the sender reached it. */
+        const off=d.offset;
         if(off>t.sent){ M.log('warn','FT_REJECTED_STATE resume offset beyond actual send progress'); return; }
         if(t.target==='*'){
-          /* BROADCAST: a recipient's resume must NOT rewind the sender's global state for the
-             other recipients. Record the recipient's offset and retransmit the missed range to
-             THIS recipient only; the shared send state (t.seq/t.ack/t.sent/t.status) is untouched. */
-          const b=brec; b.resumeOff=off;
+          const b=brec;
+          b._resumeToken=(b._resumeToken||0)+1; const token=b._resumeToken; b.resumeOff=off;
           (async()=>{
-            const upto=Math.max(t.sent,off);
-            for(let s2=off/M.FT.CHUNK; s2*M.FT.CHUNK<upto && s2*M.FT.CHUNK<t.size; s2++){
+            const upto=Math.min(t.sent,t.size);
+            for(let s2=off/M.FT.CHUNK; s2*M.FT.CHUNK<upto; s2++){
+              if(token!==b._resumeToken||['done','failed','canceled'].includes(t.status)||b.canceled||!b.active) return;
+              const current=M.State.peers.get(from);
+              if(!current||current.status!=='online'||!M.FT._bcastRecip(t,from)) return;
               const st2=s2*M.FT.CHUNK;
-              try{ const bb=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
-                await M.Net.A.ftbin.send(bb,{metadata:{id:t.id,seq:s2},target:from}); }catch(e){}
+              try{
+                const bb=await t.file.slice(st2,Math.min(st2+M.FT.CHUNK,t.size)).arrayBuffer();
+                if(token!==b._resumeToken||['done','failed','canceled'].includes(t.status)||b.canceled||!b.active) return;
+                const live=M.State.peers.get(from); if(!live||live.status!=='online') return;
+                await M.Net.A.ftbin.send(bb,{metadata:{id:t.id,seq:s2},target:from});
+              }catch(e){ return; }
             }
             M.log('info','broadcast resume for '+M.fmt.idShort(from)+' from '+M.fmt.bytes(off)+' (recipient-scoped, global state unchanged)');
           })();
           return;
         }
-        (async()=>{
-          /* FRESH hash object — rebuild the prefix digest from scratch so the prefix is never
-             hashed twice onto the previous hash state. */
-          t.hash=M.SHA.create();
-          let p=0;
-          try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); t.hash.update(new Uint8Array(b)); p+=M.FT.CHUNK; } }
+        M.FT._queueResume(t, async token=>{
+          if(['done','failed','canceled'].includes(t.status)) return;
+          if(!M.FT.authSendPeer(t,from)) return;
+          const pp=M.State.peers.get(from); if(!pp||pp.status!=='online') return;
+          const actual=Math.min(t.sent,t.size);
+          if(off>actual) return;
+          /* The send progress is authoritative; rebuild hash only from the requested persisted
+             source file prefix. A newer resume request supersedes this job before mutation. */
+          const h=M.SHA.create(); let p=0;
+          try{ while(p<off){ const b=await t.file.slice(p,Math.min(p+M.FT.CHUNK,off)).arrayBuffer(); h.update(new Uint8Array(b)); p+=M.FT.CHUNK; if(token!==t._resumeToken) return; } }
           catch(e){ M.FT.fail(t,'resume read failed'); return; }
-          t.seq=off/M.FT.CHUNK; t.ack=t.seq; t.sent=off; t.status='sending'; t.startedAt=t.startedAt||Date.now();
+          if(token!==t._resumeToken||['done','failed','canceled'].includes(t.status)) return;
+          t.hash=h; t.seq=off/M.FT.CHUNK; t.ack=t.seq; t.sent=off;
+          if(t.seq>=M.FT._chunkCount(t.size)){
+            t.status='sending'; t.startedAt=t.startedAt||Date.now(); M.FT.render(); M.FT.loop(t); return;
+          }
+          t.status='sending'; t.startedAt=t.startedAt||Date.now();
           M.log('info','resuming send '+t.name+' from '+M.fmt.bytes(off));
           M.FT.render(); M.FT.loop(t);
-        })();
+        });
         break;
       }
       case 'done': {
-        const r=M.FT.recvs.get(d.id); if(!r || !M.FT.recvAuth(r,from)) return;   /* only the transfer's sender (or its reconnected device) may complete it */
-        if(r.from!==from) r.from=from;   /* sender reconnected under a new peerId */
-        if(r.recv>=r.size){ M.FT.finalize(r,d.hash,from); }
-        else { r.pending=d.hash; M.log('warn','done arrived before final chunks — deferring verify for '+r.name); }
+        const r=M.FT.recvs.get(d.id); if(!r || ['done','failed','canceled'].includes(r.status) || !M.FT.recvAuth(r,from)) return;
+        if(r.from!==from){
+          if(r.smid){ const pp=M.State.peers.get(from); if(!(pp&&pp.midAuth===true&&pp.mid===r.smid&&pp.status==='online')) return; }
+          r.from=from; r.fromOffline=false; r.fromProvisional=false;
+        }
+        const dh=String(d.hash||'').toLowerCase(); if(!/^[0-9a-f]{64}$/.test(dh)) return;
+        if(r.finHash&&r.finHash!==dh) return;
+        if(r.pending&&r.pending!==dh) return;
+        if(r.recv>=r.size){ M.FT.finalize(r,dh,from); }
+        else { r.pending=dh; r._doneAt=Date.now(); M.log('warn','done arrived before final chunks/FIN — deferring verify for '+r.name); }
         break;
       }
       case 'result': {
@@ -5191,6 +5304,7 @@ M.FT = {
           if(!b){ M.log('warn','FT_REJECTED_AUTH broadcast result from non-recipient/canceled'); return; }
           b.result=!!d.ok;   /* recipient-scoped; shared send status not driven by one recipient */
           M.log('info','broadcast result from '+M.fmt.idShort(from)+': '+(d.ok?'ok':'integrity fail')+' (recipient-scoped)');
+          M.FT._bcastMaybeComplete(t);
           M.FT.render();
           return;
         }
@@ -5210,7 +5324,7 @@ M.FT = {
                canceled recipient stays canceled (no rejoin op), so re-cancel is a no-op. */
             const b=M.FT._bcastRecip(t,from);
             if(b){
-              b.canceled=true;
+              b.canceled=true; b.active=false; b._resumeToken=(b._resumeToken||0)+1;
               M.log('info','broadcast cancel from '+M.fmt.idShort(from)+' (recipient-scoped)');
               /* An ACTIVE recipient is exactly r.active && !r.canceled. Offline/inactive
                  recipients are NOT active merely because they are not canceled, and must not
@@ -5249,7 +5363,7 @@ M.FT = {
             }
           }
         }
-        const r=M.FT.recvs.get(d.id); if(r && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r.parts=null; M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
+        const r=M.FT.recvs.get(d.id); if(r && !['done','failed','canceled'].includes(r.status) && M.FT.recvAuth(r,from)){ if(r.from!==from) r.from=from; r.status='canceled'; r._finalizing=false; r.parts=null; r._bumpResumeToken?.(); M.Chat.updateFileCard(r.id,{statusLabel:M.t('st_canceled')}); M.FT.render(); }
         M.log('warn','transfer canceled '+(d.id||''));
         M.UI.badges();
         break;
@@ -5274,10 +5388,16 @@ M.FT = {
      size is enforced by the caller; the queue keeps at most one retransmission pass running at a
      time per transfer. Unrelated transfers keep their own queues. */
   _nackQ(t,fn){
+    const used=t._nqCount||0;
+    if(used>=M.FT.L.maxNackJobs){ M.log('warn','FT_REJECTED_STATE too many queued NACK jobs for '+t.id); return Promise.resolve(false); }
+    t._nqCount=used+1;
     const prev=t._nq||Promise.resolve();
-    const next=prev.then(()=>{ if(['done','canceled','failed'].includes(t.status)) return; return fn(); })
-      .catch(e=>{ M.log('err','retransmission error: '+(e&&e.message||e)); });
-    t._nq=next;
+    const next=prev.then(()=>{
+      if(['done','canceled','failed'].includes(t.status)) return false;
+      return fn();
+    }).catch(e=>{ M.log('err','retransmission error: '+(e&&e.message||e)); return false; })
+      .finally(()=>{ t._nqCount=Math.max(0,(t._nqCount||1)-1); });
+    t._nq=next.catch(()=>false);
     return next;
   },
   onChunk({peerId,metadata,buf}){
@@ -5286,7 +5406,8 @@ M.FT = {
     /* AUTHORIZATION: respect the same identity state as recvAuth. A fromOffline or
        fromProvisional record rejects chunks until a successful same-mid proof re-establishes
        the sender; fp never authorizes binary data and payload identity is never consulted. */
-    if(!M.FT.recvAuth(r,peerId)){ M.log('warn','FT_REJECTED_AUTH chunk from unauthorized peer '+M.fmt.idShort(peerId)); return; }
+    const cp=M.State.peers.get(peerId);
+    if(!cp || cp.status!=='online' || !M.FT.recvAuth(r,peerId)){ M.log('warn','FT_REJECTED_AUTH chunk from unauthorized/non-live peer '+M.fmt.idShort(peerId)); return; }
     if(typeof metadata.seq!=='number' || !isFinite(metadata.seq) || metadata.seq<0 || (metadata.seq|0)!==metadata.seq) return;
     if(r.status!=='receiving') return;
     const cc=M.FT._chunkCount(r.size);
@@ -5301,8 +5422,11 @@ M.FT = {
       /* a conflicting FIN hash cannot replace an already-accepted FIN; a duplicate with the same
          hash is idempotent. A terminal transfer ignores stale FIN markers. */
       if(r.finHash && r.finHash!==metadata.hash) return;
+      if(r.pending && r.pending!==metadata.hash) return; /* done and FIN hashes must agree */
       if(['done','failed','canceled'].includes(r.status)) return;
-      r.finHash=metadata.hash; r.finAt=Date.now();
+      r.finHash=metadata.hash; r.pending=null; r.finAt=Date.now();
+      /* FIN is the authoritative binary completion marker. A control-plane `done` may arrive
+         earlier, but it must not by itself finalize the receive transfer without the FIN marker. */
       if(r.recv>=r.size) M.FT.finalize(r,r.finHash,peerId);
       return;
     }
@@ -5353,57 +5477,87 @@ M.FT = {
      NEVER fabricates a zero-filled file and NEVER uses partial r.parts as a large-file success.
      Small files fully held in the bounded in-memory window are used directly; large files are
      read once from IndexedDB (a single working copy, not a second full in-memory duplicate). */
-  _assemble(r){
+  async _assemble(r,expectedHash){
     const cc=M.FT._chunkCount(r.size);
-    const check=(parts)=>{
-      if(!parts || parts.length!==cc) return null;
-      let total=0;
+    const expectedLen=(i)=>(i===cc-1)?(r.size-i*M.FT.CHUNK):M.FT.CHUNK;
+    const h=M.SHA.create(); let total=0;
+    /* For small transfers, the bounded in-memory window may contain every chunk. Verify it from
+       scratch so the final integrity check is independent of the earlier receive hash object. */
+    if(r.parts && r.parts.length===cc && cc<=M.FT.L.memWindow){
+      const parts=[];
       for(let i=0;i<cc;i++){
-        const p=parts[i]; if(p==null) return null;
-        const len=p.length; if(typeof len!=='number') return null;
-        const exp=(i===cc-1)?(r.size-i*M.FT.CHUNK):M.FT.CHUNK;
-        if(len!==exp) return null;
-        total+=len;
+        const u=r.parts[i] instanceof Uint8Array?r.parts[i]:new Uint8Array(r.parts[i]||0);
+        if(u.byteLength!==expectedLen(i)) throw new Error('invalid in-memory chunk');
+        h.update(u); total+=u.byteLength; parts.push(u);
       }
-      return total===r.size ? parts : null;
-    };
-    if(r.parts && r.parts.length===cc){
-      const ok=check(r.parts);
-      return ok ? Promise.resolve(new Blob(ok,{type:r.type})) : Promise.reject(new Error('incomplete in-memory chunks'));
+      if(total!==r.size || h.hex()!==expectedHash) throw new Error('final integrity mismatch');
+      return new Blob(parts,{type:r.type});
     }
-    return M.DB.chunks(r.id,cc).then(bufs=>{
-      const parts=(bufs||[]).map(b=>b instanceof Uint8Array?b:new Uint8Array(b));
-      const ok=check(parts);
-      if(!ok) throw new Error('incomplete persisted chunks');
-      return new Blob(ok,{type:r.type});
+    if(typeof ReadableStream==='undefined' || typeof Response==='undefined') throw new Error('streaming assembly unavailable');
+    let idx=0, closed=false, finalDigest=null;
+    const stream=new ReadableStream({
+      async pull(controller){
+        try{
+          if(idx>=cc){
+            if(closed) return; closed=true;
+            finalDigest=h.hex();
+            if(total!==r.size || finalDigest!==expectedHash) { controller.error(new Error('final persisted-data integrity mismatch')); return; }
+            controller.close(); return;
+          }
+          const raw=await M.DB.getChunk(r.id,idx);
+          if(raw==null){ controller.error(new Error('missing persisted chunk')); return; }
+          const u=raw instanceof Uint8Array?raw:new Uint8Array(raw);
+          const exp=expectedLen(idx);
+          if(u.byteLength!==exp){ controller.error(new Error('invalid persisted chunk length')); return; }
+          h.update(u); total+=u.byteLength; idx++; controller.enqueue(u);
+        }catch(e){ controller.error(e); }
+      },
+      cancel(){}
     });
+    const blob=await new Response(stream).blob();
+    if(total!==r.size || finalDigest!==expectedHash) throw new Error('final persisted-data integrity mismatch');
+    return blob;
   },
   finalize(r,hashHex,from){
-    if(r.status==='done'||r.status==='failed'||r.status==='canceled') return;
-    if(r.buf){ r.buf.clear(); r.buf=null; }
+    if(['done','failed','canceled'].includes(r.status) || r._finalizing) return;
+    if(!/^[0-9a-f]{64}$/.test(String(hashHex||''))) return M.FT.fail(r,'invalid final hash');
+    r._finalizing=true;
+    if(r.buf){ r.buf.clear(); r.buf=null; r._bufBytes=0; }
     r.status='verify'; M.FT.render();
     const local=r.hash.hex();
-    const ok=(local===hashHex) && r.recv===r.size;
-    if(ok){
-      M.FT._assemble(r).then(blob=>{
-        if(r.status!=='verify') return;   /* canceled/failed while assembling */
-        r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null;
-        M.DB.del(r.id);   /* verified complete — free the persisted chunks */
+    const localOk=(local===String(hashHex).toLowerCase()) && r.recv===r.size && r.expected===M.FT._chunkCount(r.size);
+    if(!localOk){
+      r._finalizing=false; M.FT.fail(r,M.t('integrity_fail'));
+      return;
+    }
+    (async()=>{
+      try{
+        const blob=await M.FT._assemble(r,String(hashHex).toLowerCase());
+        if(r.status!=='verify') return;
+        r.url=URL.createObjectURL(blob); r.status='done'; r.parts=null; r._finalizing=false;
+        await M.DB.del(r.id);
         M.FT.untrack(r.id,r.room);
         M.Chat.updateFileCard(r.id,{statusLabel:`${M.t('st_done')} ✓ ${M.fmt.bytes(r.size)}`,url:r.url,name:r.name});
         M.toast('ok',M.t('file_done',{f:r.name}),M.fmt.bytes(r.size),{action:{label:M.t('download'),fn:()=>{ const a=M.el('a'); a.href=r.url; a.download=r.name; a.click(); }}});
         M.Notify.beep('ok'); M.Notify.push('Majlis',M.t('notif_file',{f:r.name}));
-        M.log('info','file verified ✓ '+r.name);
-        M.FT.render(); M.UI.badges();
-      }).catch(e=>{ M.FT.fail(r,'assembly failed'); });
-    } else {
-      r.status='failed'; r.err=M.t('integrity_fail');
-      M.Chat.updateFileCard(r.id,{statusLabel:'✗ '+M.t('integrity_fail')});
-      M.toast('err',M.t('integrity_fail'),r.name+' · '+M.fmt.bytes(r.recv)+'/'+M.fmt.bytes(r.size)); M.Notify.beep('err');
-      M.log('err','integrity mismatch '+r.name+' recv '+r.recv+'/'+r.size+' local '+local.slice(0,10)+' vs '+String(hashHex).slice(0,10));
+        M.log('info','file verified ✓ '+r.name); M.FT.render(); M.UI.badges();
+        if(!r._resultSent){ r._resultSent=true; await M.Net.sendEnc('ft',{t:'result',id:r.id,ok:true},r.from); }
+      }catch(e){
+        r._finalizing=false; M.FT.fail(r,'assembly failed: '+(e&&e.message||e));
+      }
+    })();
+  },
+  _bcastMaybeComplete(t){
+    if(!t.recips || t.status!=='verify') return;
+    let any=false, all=true;
+    t.recips.forEach(r=>{
+      if(r.canceled) return;
+      any=true; if(r.result!==true) all=false;
+    });
+    if(any&&all){
+      t.status='done'; M.Chat.updateFileCard(t.id,{statusLabel:`${M.t('st_done')} ✓`}); M.FT.untrack(t.id,t.room); M.FT.render(); M.UI.badges();
+      M.Notify.beep('ok'); M.toast('ok',t.name,M.t('st_done')); M.log('info','broadcast verified for all active recipients: '+t.name);
     }
-    try{ M.Net.sendEnc('ft',{t:'result',id:r.id,ok},from); }catch(e){}
-    M.FT.render(); M.UI.badges();
   },
   tickSend(t){
     const now=Date.now(); const dt=(now-t._lastT)/1000;
@@ -5415,9 +5569,15 @@ M.FT = {
     if(dt>=0.5){ r.speed=r.speed*0.5 + ((r.recv-r._lastB)/dt)*0.5; r._lastT=now; r._lastB=r.recv; }
     M.FT._renderThrottled();
   },
-  fail(t,why){ t.status='failed'; t.err=why; M.FT.untrack(t.id,t.room); M.Chat.updateFileCard(t.id,{statusLabel:'✗ '+why}); M.toast('err',t.name,why); M.Notify.beep('err'); M.FT.render(); M.FT.pump(); },
-  cancelSend(id){ const t=M.FT.sends.get(id); if(!t) return; t.status='canceled'; M.FT.untrack(id,t.room); M.DB.del(id); M.Net.sendEnc('ft',{t:'cancel',id},t.target==='*'?undefined:t.target); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); M.FT.pump(); M.log('info','sender canceled '+t.name); },
-  cancelRecv(id){ const r=M.FT.recvs.get(id); if(!r) return; r.status='canceled'; r.parts=null; M.FT.untrack(id,r.room); M.DB.del(id); M.Net.sendEnc('ft',{t:'cancel',id},r.from); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); },
+  fail(t,why){
+    if(!t || ['done','failed','canceled'].includes(t.status)) return;
+    t._gen=(t._gen||0)+1; M.FT._bumpResumeToken(t);
+    t.status='failed'; t.err=why; M.FT.untrack(t.id,t.room); M.Chat.updateFileCard(t.id,{statusLabel:'✗ '+why}); M.toast('err',t.name,why); M.Notify.beep('err'); M.FT.render();
+    if(t.dir==='down' && !t._resultSent){ t._resultSent=true; try{ M.Net.sendEnc('ft',{t:'result',id:t.id,ok:false},t.from); }catch(e){} }
+    M.FT.pump();
+  },
+  cancelSend(id){ const t=M.FT.sends.get(id); if(!t||['done','failed','canceled'].includes(t.status)) return; t._gen=(t._gen||0)+1; M.FT._bumpResumeToken(t); t.status='canceled'; M.FT.untrack(id,t.room); M.DB.del(id); M.Net.sendEnc('ft',{t:'cancel',id},t.target==='*'?undefined:t.target); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); M.FT.pump(); M.log('info','sender canceled '+t.name); },
+  cancelRecv(id){ const r=M.FT.recvs.get(id); if(!r||['done','failed','canceled'].includes(r.status)) return; r.status='canceled'; r._finalizing=false; r.parts=null; if(r.buf){r.buf.clear();r.buf=null;} M.FT.untrack(id,r.room); M.DB.del(id); M.Net.sendEnc('ft',{t:'cancel',id},r.from); M.Chat.updateFileCard(id,{statusLabel:M.t('st_canceled')}); M.FT.render(); },
   retry(id){
     const t=M.FT.sends.get(id); if(!t) return;
     M.FT.sends.delete(id);
@@ -5431,7 +5591,7 @@ M.FT = {
            canceled and NOT marked complete, and it no longer holds the sender watermark. */
         if(t.recips){
           let changed=false;
-          t.recips.forEach(rec=>{ if(rec.peerId===pid && !rec.canceled && rec.active){ rec.active=false; changed=true; } });
+          t.recips.forEach(rec=>{ if(rec.peerId===pid && !rec.canceled && rec.active){ rec.active=false; rec._resumeToken=(rec._resumeToken||0)+1; changed=true; } });
           if(changed){ M.log('info','broadcast recipient offline '+M.fmt.idShort(pid)+' (inactive, state preserved)'); M.FT._bcastLifecycle(t); }
         }
       } else if(t.target===pid && (t.status==='sending'||t.status==='queued'||t.status==='verify')){
@@ -5444,7 +5604,7 @@ M.FT = {
          so a legitimate authenticated reconnect can resume from the existing offset. Only the
          sender binding is marked offline. While offline, stale control packets are rejected by
          recvAuth (see fromOffline guard). */
-      if(r.from===pid && r.status==='receiving'){ r.fromOffline=true; M.Chat.updateFileCard(r.id,{statusLabel:'⏸ '+M.t('st_paused')}); M.FT.render(); }
+      if(r.from===pid && r.status==='receiving'){ r.fromOffline=true; r._finalizing=false; M.Chat.updateFileCard(r.id,{statusLabel:'⏸ '+M.t('st_paused')}); M.FT.render(); }
     });
   },
   activeCount(){ let n=0; M.FT.sends.forEach(t=>{ if(['queued','sending','verify'].includes(t.status)) n++; }); M.FT.recvs.forEach(r=>{ if(r.status==='receiving') n++; }); return n; },
@@ -5474,8 +5634,8 @@ M.FT = {
       mid.append(nm,meta); top.appendChild(mid);
       const acts=M.el('div','x-acts');
       if(t._kind==='send'){
-        if(t.status==='sending'){ const b=M.el('button','btn btn-sm',M.t('pause')); b.onclick=()=>{ t.status='paused'; M.FT.render(); M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_paused')}); }; acts.appendChild(b); }
-        if(t.status==='paused'){ const b=M.el('button','btn btn-sm btn-teal',M.t('resume')); b.onclick=()=>{ t.status='sending'; M.FT.render(); M.FT.loop(t); M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_sending')}); }; acts.appendChild(b); }
+        if(t.status==='sending'){ const b=M.el('button','btn btn-sm',M.t('pause')); b.onclick=()=>{ t._gen=(t._gen||0)+1; t.status='paused'; M.FT.render(); M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_paused')}); }; acts.appendChild(b); }
+        if(t.status==='paused'){ const b=M.el('button','btn btn-sm btn-teal',M.t('resume')); b.onclick=()=>{ if(['done','failed','canceled'].includes(t.status)) return; t._gen=(t._gen||0)+1; t.status='sending'; M.FT.render(); M.FT.loop(t); M.Chat.updateFileCard(t.id,{statusLabel:M.t('st_sending')}); }; acts.appendChild(b); }
         if(['failed','canceled'].includes(t.status)){ const b=M.el('button','btn btn-sm',M.t('retry')); b.onclick=()=>M.FT.retry(t.id); acts.appendChild(b); }
         if(['queued','sending','paused','verify'].includes(t.status)){ const b=M.el('button','btn btn-sm btn-danger',M.t('cancel')); b.onclick=()=>M.FT.cancelSend(t.id); acts.appendChild(b); }
       } else {
@@ -5641,7 +5801,7 @@ M.UI = {
     const peers=[...M.State.peers.values()]
       .filter(p=>!((M.Id.mid&&p.midAuth&&p.mid===M.Id.mid)||(p.fp&&p.fp===M.State.self.fp)))   /* my own authenticated tabs/devices never crowd the roster */
       .sort((a,b)=>(a.status==='online'?-1:1)-(b.status==='online'?-1:1)||a.name.localeCompare(b.name));
-    const onCount=peers.filter(p=>p.status!=='offline').length;
+    const onCount=peers.filter(p=>p.status==='online').length;
     const cnt=M.$('#memberCount'); if(cnt){ cnt.textContent=peers.length? onCount+' / '+peers.length : '0'; cnt.title=onCount+' '+M.t('online')+' / '+peers.length+' '+M.t('members_s'); }
     if(peers.length===0){ list.appendChild(M.el('div','dim',`<div style="padding:18px 10px;font-size:12.5px">${M.t('no_members')}</div>`)); }
     let sepDone=false;
@@ -5798,8 +5958,8 @@ M.Voice = {
     M.Voice.rec.onstop=()=>M.Voice._finish();
     M.Voice.rec.start(250);
     M.Voice._ui(true);
-    M.$('#recTime').textContent='0:00';
-    M.Voice._iv=setInterval(()=>{ const el=M.$('#recTime'); if(el) el.textContent=M.fmt.dur((Date.now()-M.Voice.t0)/1000); },250);
+    M.$('#vmRecTime').textContent='0:00';
+    M.Voice._iv=setInterval(()=>{ const el=M.$('#vmRecTime'); if(el) el.textContent=M.fmt.dur((Date.now()-M.Voice.t0)/1000); },250);
     M.log('info','voice recording started');
   },
   stop(send){
@@ -9382,7 +9542,7 @@ M.WB = {
     if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit','wbDbg'].includes(b.id)) return; b.disabled = open? !edit : true; });
-    M.$('#wbColor').disabled=!edit||!open; M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
+    { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; } M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
     M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
     M.$('#wbExport').disabled = !open || !M.Perms.can('wbExport').ok;
