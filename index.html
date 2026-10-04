@@ -639,8 +639,6 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #boardBar .btool b,#boardBar .btool i{line-height:1;font-family:Georgia,'IBM Plex Sans',serif}
 #boardBar .btool.on b,#boardBar .btool.on i{color:var(--amber2)}
 #wbColorDot{width:17px;height:17px;border-radius:50%;border:2px solid var(--line2);display:block;transition:background .15s}
-#wbFillDot{width:16px;height:16px;border-radius:4px;border:2px solid var(--line2);display:block;transition:background .15s,border-color .15s}
-#wbFillDot.none{background:repeating-linear-gradient(135deg,transparent 0 3px,var(--line2) 3px 4px);}
 #wbFontN{width:52px;padding:5px 6px;border:1px solid var(--line2);border-radius:7px;background:var(--bg1);color:var(--ink);font-family:var(--mono);font-size:12px;flex:none}
 #wbFontN:focus{outline:none;border-color:var(--amber)}
 /* Whiteboard diagnostics panel — guaranteed contrast on both themes */
@@ -1014,7 +1012,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="image" title="Insert image (I)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
           <button class="btool" id="wbColorBtn" title="Stroke color palette" aria-label="Stroke color palette"><span id="wbColorDot" style="background:#111111"></span></button>
-          <button class="btool" id="wbFillBtn" data-ctx="fill" title="Fill with color — تعبئة الشكل" aria-label="Fill with color"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3l9 9-5 5-9-9 5-5z" stroke-linejoin="round"/><path d="M3 13l5 5M14 8l3-3 4 4-3 3M12 21h9" stroke-linecap="round"/><path d="M18.5 15.5c0 2-2 2.5-2.5 3.5 2 .2 4-.6 4-2.2 0-.6-.7-1-1.5-1.3z" stroke-linejoin="round"/></svg><span id="wbFillDot" class="none"></span></button>
+          <button class="btool" data-tool="fill" title="Fill with color — Paint bucket (F)" aria-label="Fill with color — Paint bucket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4h8l5 5-8 8H4l-2-2 8-8" stroke-linejoin="round"/><path d="M9 6l9 9" stroke-linecap="round"/><path d="M17.5 17.5c0-1.5 1.5-2 2.5-2 .9 0 1.7.5 1.7 1.4 0 .9-.7 1.6-1.7 1.6-.9 0-1.7-.4-2.5-1z" stroke-linejoin="round"/></svg></button>
           <label class="brange" data-ctx="stroke" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <span class="bsep"></span>
           <label class="brange" data-ctx="text" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
@@ -1457,7 +1455,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.97.1';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
+M.Version = '1.97.2';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1693,7 +1691,7 @@ en:{
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
- wb_custom:'Custom color', wb_no_fill:'No fill', wb_fill_custom:'Custom fill color', wb_fill_help:'Fill with color — choose the default fill for new shapes or apply it to the selected shape',
+ wb_custom:'Custom color', wb_fill_tool:'Fill with color (Paint bucket)', wb_fill_tip:'Click inside a closed area to fill it with the current color.',
  wb_copy:'Copy', wb_paste:'Paste', wb_duplicate:'Duplicate', wb_front:'Bring to Front', wb_back:'Send to Back', wb_delete:'Delete',
  wb_copied_short:'{n} copied',
  wb_copy_latest:'No selection — copied your latest object',
@@ -1895,7 +1893,7 @@ ar:{
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
- wb_custom:'لون مخصّص', wb_no_fill:'بدون تعبئة', wb_fill_custom:'لون تعبئة مخصّص', wb_fill_help:'تعبئة باللون — اختر لوناً افتراضياً للأشكال الجديدة أو طبّقه على الشكل المحدد',
+ wb_custom:'لون مخصّص', wb_fill_tool:'تعبئة باللون (دلو الطلاء)', wb_fill_tip:'انقر داخل مساحة مغلقة لتعبئتها باللون الحالي.',
  wb_copy:'نسخ', wb_paste:'لصق', wb_duplicate:'تكرار', wb_front:'تقديم للأمام', wb_back:'إرسال للخلف', wb_delete:'حذف',
  wb_copied_short:'نُسخ {n}',
  wb_copy_latest:'لا يوجد تحديد — نُسخ آخر عنصر لمسته',
@@ -2987,12 +2985,13 @@ M.Guard = {
      pts ≤ 8000 points · text ≤ TEXT_MAX · image src ≤ 10 MB dataURL ·
      unknown types and unknown fields rejected / picked away.
      Arabic text and embedded images remain fully supported. */
-  wbTypes:['pen','hi','line','arrow','rect','ellipse','text','note','image'],
+  wbTypes:['pen','hi','line','arrow','rect','ellipse','text','note','image','fill'],
   WB_OBJ_KEYS:{ pen:['color','size','pts'], hi:['color','size','pts'],
     line:['color','size','x1','y1','x2','y2'], arrow:['color','size','x1','y1','x2','y2'],
-    rect:['color','fill','size','x','y','w','h'], ellipse:['color','fill','size','x','y','w','h'],
+    rect:['color','size','x','y','w','h'], ellipse:['color','size','x','y','w','h'],
     text:['x','y','w','text','size','color','align','style'],
-    note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'] },
+    note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'],
+    fill:['x','y','w','h','src'] },
   wbNum(v){ return typeof v==='number' && isFinite(v) && Math.abs(v)<=1e6; },
   wbPt(p){ return Array.isArray(p) && p.length===2 && M.Guard.wbNum(p[0]) && M.Guard.wbNum(p[1]); },
   wbObj(o){
@@ -3000,8 +2999,7 @@ M.Guard = {
     if(!G.isObj(o)||!G.str(32)(o.id)||!G.en(G.wbTypes)(o.type)) return false;
     if('alpha' in o && !G.num(0,1)(o.alpha)) return false;
     if('color' in o && !G.str(32)(o.color)) return false;
-    if('fill' in o && !(o.fill==='transparent' || G.str(32)(o.fill))) return false;
-    if('size' in o && !G.num(0.5,500)(o.size)) return false;
+        if('size' in o && !G.num(0.5,500)(o.size)) return false;
     if('pg' in o && !G.str(32)(o.pg)) return false;
     if('by' in o && !G.str(64)(o.by)) return false;
     switch(o.type){
@@ -3009,9 +3007,9 @@ M.Guard = {
         return Array.isArray(o.pts) && o.pts.length>0 && o.pts.length<=8000 && o.pts.every(G.wbPt);
       case 'line': case 'arrow':
         return ['x1','y1','x2','y2'].every(k=>G.wbNum(o[k]));
-      case 'rect': case 'ellipse': case 'image': case 'note':
+      case 'rect': case 'ellipse': case 'image': case 'note': case 'fill':
         if(!['x','y','w','h'].every(k=>G.wbNum(o[k]))) return false;
-        if(o.type==='image') return typeof o.src==='string' && o.src.length<=10*1024*1024 && o.src.indexOf('data:image/')===0;
+        if(o.type==='image' || o.type==='fill') return typeof o.src==='string' && o.src.length<=10*1024*1024 && o.src.indexOf('data:image/')===0;
         if(o.type==='note') return G.str(G.TEXT_MAX)(o.text||'') && (!('bg' in o)||G.str(32)(o.bg));
         return true;
       case 'text':
@@ -8139,7 +8137,7 @@ M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
   mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default — ideal for PDF export; admin can switch to free canvas */
-  tool:'pen', color:'#111111', fill:'transparent', size:4, font:22, align:null, bold:false, italic:false,
+  tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
   init(){
@@ -8156,21 +8154,18 @@ M.WB = {
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
-    /* ---- stroke/fill palettes ---- */
-    const openPalette=(kind,anchor,e)=>{
+    /* ---- drawing color palette ---- */
+    M.$('#wbColorBtn').onclick=e=>{
       e.stopPropagation();
       const pal=M.$('#wbPalette');
-      if(!pal.classList.contains('hidden') && M.WB._palKind===kind){ pal.classList.add('hidden'); return; }
-      const r=anchor.getBoundingClientRect();
+      if(!pal.classList.contains('hidden')){ pal.classList.add('hidden'); return; }
+      const r=e.currentTarget.getBoundingClientRect();
       pal.style.top=(r.bottom+8)+'px';
       pal.style.left=Math.max(8,Math.min(r.left,innerWidth-230))+'px';
-      M.WB._palKind=kind;
-      M.WB.renderPal(kind);
+      M.WB.renderPal();
       pal.classList.remove('hidden');
     };
-    M.$('#wbColorBtn').onclick=e=>openPalette('stroke',e.currentTarget,e);
-    M.$('#wbFillBtn').onclick=e=>openPalette('fill',e.currentTarget,e);
-    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn,#wbFillBtn')) M.$('#wbPalette').classList.add('hidden'); });
+    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn')) M.$('#wbPalette').classList.add('hidden'); });
     /* ---- stroke width (drawings & shapes) ---- */
     M.$('#wbSize').oninput=e=>{
       M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value;
@@ -8327,7 +8322,7 @@ M.WB = {
         return;
       }
       const k=e.key.toLowerCase();
-    const map={v:'select',p:'pen',h:'hi',e:'eraser',g:'pan',l:'line',a:'arrow',r:'rect',o:'ellipse',t:'text',n:'note',i:'image'};
+    const map={v:'select',p:'pen',h:'hi',e:'eraser',g:'pan',l:'line',a:'arrow',r:'rect',o:'ellipse',t:'text',n:'note',i:'image',f:'fill'};
     if(map[k]) M.WB.setTool(map[k]);
     else if(k==='delete'||k==='backspace') M.WB.deleteSel();
     else if(k==='0'){ M.WB.view={x:80,y:60,s:1}; M.WB.dirty=true; M.WB.zoomLbl(); }
@@ -8396,7 +8391,7 @@ M.WB = {
     switch(o.type){
       case 'pen': case 'hi': { let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; for(const [x,y] of o.pts){ x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x);y2=Math.max(y2,y);} const p=o.type==='hi'?(o.size||2)*1.5:(o.size||2)/2; return [x1-p,y1-p,x2-x1+p*2,y2-y1+p*2]; }
       case 'line': case 'arrow': { const m=o.type==='arrow'?12+(o.size||2)*2.2:6; const x=Math.min(o.x1,o.x2),y=Math.min(o.y1,o.y2); return [x-m,y-m,Math.abs(o.x2-o.x1)+m*2,Math.abs(o.y2-o.y1)+m*2]; }
-      case 'rect': case 'ellipse': case 'image': case 'note': return [o.x,o.y,o.w,o.h];
+      case 'rect': case 'ellipse': case 'image': case 'note': case 'fill': return [o.x,o.y,o.w,o.h];
       case 'text': {
         const L=M.WB._textLayout(o);
         return [o.x-4,o.y-4,L.W+8,L.H+8];
@@ -8446,9 +8441,10 @@ M.WB = {
     if(t!=='select'){ M.WB.sel=null; M.WB.dirty=true; }
     const hint=M.$('#wbToolHint');
     if(hint){
-      hint.classList.toggle('hidden',!(t==='text'||t==='note'));
+      hint.classList.toggle('hidden',!(t==='text'||t==='note'||t==='fill'));
       if(t==='text') hint.textContent=M.t('wb_hint_text');
       if(t==='note') hint.textContent=M.t('wb_hint_note');
+      if(t==='fill') hint.textContent=M.t('wb_fill_tip');
     }
   },
   styleStr(){ return (M.WB.bold?'bold':'')+(M.WB.italic?'italic':'')||'regular'; },
@@ -8481,68 +8477,9 @@ M.WB = {
        with a compatible shape selected it also updates that shape immediately. */
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
-    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display='');
     const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
     M.WB.syncFillDot();
     M.WB.syncChip();
-  },
-  syncFillDot(){
-    const d=M.$('#wbFillDot'); if(!d) return;
-    const none=M.WB.fill==='transparent'||!M.WB.fill;
-    d.classList.toggle('none',none);
-    d.style.background=none?'':'var(--wb-fill-current)';
-    if(!none) d.style.background=M.WB.fill;
-  },
-  renderPal(kind){
-    kind=kind||M.WB._palKind||'stroke'; M.WB._palKind=kind;
-    const pal=M.$('#wbPalette'); if(!pal) return; pal.innerHTML='';
-    const colors=['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
-      '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'];
-    const current=kind==='fill'?M.WB.fill:M.WB.color;
-    if(kind==='fill'){
-      const none=M.el('button'); none.title=M.t('wb_no_fill'); none.setAttribute('aria-label',M.t('wb_no_fill'));
-      none.style.background='repeating-linear-gradient(135deg,transparent 0 5px,var(--line2) 5px 6px)';
-      none.classList.toggle('on',current==='transparent');
-      none.onclick=()=>M.WB.setFill('transparent'); pal.appendChild(none);
-    }
-    colors.forEach(c=>{
-      const b=M.el('button'); b.style.background=c; b.title=c; b.setAttribute('aria-label',c);
-      b.classList.toggle('on',String(current||'').toLowerCase()===c.toLowerCase());
-      b.onclick=()=>kind==='fill'?M.WB.setFill(c):M.WB.setColor(c);
-      pal.appendChild(b);
-    });
-    const row=M.el('div','wb-pal-row');
-    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(String(current||''))?current:'#111111';
-    ci.oninput=()=>kind==='fill'?M.WB.setFill(ci.value):M.WB.setColor(ci.value);
-    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=kind==='fill'?M.t('wb_fill_custom'):M.t('wb_custom');
-    row.append(ci,lbl); pal.appendChild(row);
-  },
-  setColor(c){
-    M.WB.color=c; M.WB._colorTouched=true;
-    const dot=M.$('#wbColorDot'); if(dot) dot.style.background=c;
-    if(M.WB.selSet.size && M.WB.canEdit()){
-      M.WB.selSet.forEach(id=>{
-        const o=M.WB.objs.get(id); if(!o) return;
-        if(o.type==='note') o.bg=c; else o.color=c;
-        M.WB.send({t:'up',o});
-      });
-      M.WB.dirty=true;
-    }
-    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal(M.WB._palKind);
-  },
-  setFill(c){
-    c=(c==='transparent'||!c)?'transparent':String(c).slice(0,32);
-    M.WB.fill=c;
-    M.WB.syncFillDot();
-    if(M.WB.selSet.size && M.WB.canEdit()){
-      M.WB.selSet.forEach(id=>{
-        const o=M.WB.objs.get(id); if(!o||!['rect','ellipse'].includes(o.type)) return;
-        o.fill=c;
-        M.WB.send({t:'up',o});
-      });
-      M.WB.dirty=true;
-    }
-    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('fill');
   },
   _fontApply(){
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8615,8 +8552,13 @@ M.WB = {
         M.WB.drawing={id:M.uid(9), type:tool, x1:wx,y1:wy,x2:wx,y2:wy, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'rect': case 'ellipse':
-        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, fill:M.WB.fill, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
+      case 'fill':
+        M.WB.bucketFill(wx,wy);
+        M.WB.pointers.delete(e.pointerId);
+        M.WB.cv.releasePointerCapture?.(e.pointerId);
+        return;
       case 'text': M.WB.openText(wx,wy,null); break;
       case 'note': {
         const o={id:M.uid(9), type:'note', x:wx-90,y:wy-60,w:190,h:125, text:'', bg:'#F5D76E', pg:M.WB.pageId, by:M.State.self.id};   /* classic sticky yellow — notes keep their own palette, independent of the pen color */
@@ -9006,7 +8948,7 @@ M.WB = {
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-      M.WB._flash={ids:new Set([o.id]),t:Date.now()};
+      M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
       M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
       M.log('info','image pasted ('+Math.round(w)+'×'+Math.round(h)+')');
     };
@@ -9022,7 +8964,7 @@ M.WB = {
     M.WB.send({t:'up',o}); M.WB.applyUp(o);
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-    M.WB._flash={ids:new Set([o.id]),t:Date.now()};
+    M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
     M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
     M.log('info','external text pasted as whiteboard text ('+String(text).length+' chars)');
   },
@@ -9260,6 +9202,102 @@ M.WB = {
     clearTimeout(M.WB._bnT);
     M.WB._bnT=setTimeout(()=>b.classList.add('hidden'),2600);
   },
+  /* ---------- Paint-style fill bucket ---------------------------------
+     Rasterize the current visible page, flood-fill the clicked region, then
+     store ONLY the changed pixels as a transparent image object. This gives
+     the whiteboard true Paint-style bucket behavior for arbitrary closed areas
+     made from pen/line/shape drawings while keeping the result synchronized. */
+  bucketFill(wx,wy){
+    if(!M.WB.canEdit()) return;
+    const color=M.WB.color||'#111111';
+    const pg=M.WB.pageId;
+    let minX=0,minY=0,maxX=0,maxY=0;
+    if(M.WB.inA4()){
+      minX=0; minY=0; maxX=M.WB.A4.w; maxY=M.WB.A4.h;
+    } else {
+      const cv=M.WB.cv;
+      const cw=cv.clientWidth||600, ch=cv.clientHeight||400;
+      const a=M.WB.s2w(0,0), b=M.WB.s2w(cw,ch);
+      minX=Math.min(a[0],b[0]); minY=Math.min(a[1],b[1]);
+      maxX=Math.max(a[0],b[0]); maxY=Math.max(a[1],b[1]);
+    }
+    if(wx<minX-1||wx>maxX+1||wy<minY-1||wy>maxY+1) return;
+    const scale=M.WB.inA4()?1:Math.min(1.5,Math.max(1,devicePixelRatio||1));
+    const W=Math.max(1,Math.ceil((maxX-minX)*scale));
+    const H=Math.max(1,Math.ceil((maxY-minY)*scale));
+    if(W*H>5000000){
+      M.WB.banner(M.t('wb_fill_too_large'),'warn');
+      return;
+    }
+    const base=document.createElement('canvas'); base.width=W; base.height=H;
+    const ctx=base.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle=M.WB.inA4()?'#FFFFFF':(M.WB._bg||'#0D171C'); ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.scale(scale,scale); ctx.translate(-minX,-minY);
+    M.WB.order.forEach(id=>{
+      const o=M.WB.objs.get(id); if(!o||M.WB.pgOf(o)!==pg||o.type==='fill') return;
+      try{ M.WB.paintObj(ctx,o,1); }catch(e){}
+    });
+    ctx.restore();
+    const sx=Math.floor((wx-minX)*scale), sy=Math.floor((wy-minY)*scale);
+    if(sx<0||sy<0||sx>=W||sy>=H) return;
+    const img=ctx.getImageData(0,0,W,H);
+    const data=img.data;
+    const idx0=(sy*W+sx)*4;
+    const sr=data[idx0], sg=data[idx0+1], sb=data[idx0+2], sa=data[idx0+3];
+    const parse=(c)=>{
+      const m=String(c).match(/^#([0-9a-f]{6})$/i); if(!m) return [17,17,17];
+      const n=parseInt(m[1],16); return [n>>16,(n>>8)&255,n&255];
+    };
+    const [tr,tg,tb]=parse(color);
+    const close=(i)=>{
+      const a=data[i+3], r=data[i],g=data[i+1],b=data[i+2];
+      return Math.abs(r-sr)+Math.abs(g-sg)+Math.abs(b-sb)+Math.abs(a-sa)<=36;
+    };
+    if(Math.abs(sr-tr)+Math.abs(sg-tg)+Math.abs(sb-tb)<3 && sa===255){ M.WB.banner(M.t('wb_fill_same'),'warn'); return; }
+    const seen=new Uint8Array(W*H), qx=new Int32Array(W*H), qy=new Int32Array(W*H);
+    let head=0,tail=0; qx[tail]=sx; qy[tail]=sy; seen[sy*W+sx]=1; tail++;
+    let minPX=sx,maxPX=sx,minPY=sy,maxPY=sy,count=0;
+    const enqueue=(x,y)=>{
+      if(x<0||x>=W||y<0||y>=H) return;
+      const qi=y*W+x; if(seen[qi]) return;
+      if(!close(qi*4)) return;
+      seen[qi]=1; qx[tail]=x; qy[tail]=y; tail++;
+    };
+    while(head<tail){
+      const x=qx[head],y=qy[head]; head++;
+      const qi=y*W+x, di=qi*4;
+      data[di]=tr; data[di+1]=tg; data[di+2]=tb; data[di+3]=255; count++;
+      if(x<minPX)minPX=x; if(x>maxPX)maxPX=x; if(y<minPY)minPY=y; if(y>maxPY)maxPY=y;
+      enqueue(x-1,y); enqueue(x+1,y); enqueue(x,y-1); enqueue(x,y+1);
+    }
+    if(count<4){ M.WB.banner(M.t('wb_fill_not_found'),'warn'); return; }
+    const pad=2;
+    minPX=Math.max(0,minPX-pad); minPY=Math.max(0,minPY-pad);
+    maxPX=Math.min(W-1,maxPX+pad); maxPY=Math.min(H-1,maxPY+pad);
+    const cw=maxPX-minPX+1, ch=maxPY-minPY+1;
+    const crop=document.createElement('canvas'); crop.width=cw; crop.height=ch;
+    const cctx=crop.getContext('2d'); cctx.putImageData(ctx.createImageData(cw,ch),0,0);
+    cctx.clearRect(0,0,cw,ch);
+    const cropData=cctx.createImageData(cw,ch), srcData=data;
+    for(let y=0;y<ch;y++){
+      const sy0=minPY+y;
+      for(let x=0;x<cw;x++){
+        const sx0=minPX+x, si=(sy0*W+sx0)*4, di=(y*cw+x)*4;
+        if(seen[sy0*W+sx0]){
+          cropData.data[di]=srcData[si]; cropData.data[di+1]=srcData[si+1]; cropData.data[di+2]=srcData[si+2]; cropData.data[di+3]=255;
+        }
+      }
+    }
+    crop.getContext('2d').putImageData(cropData,0,0);
+    const src=crop.toDataURL('image/png');
+    if(src.length>9.5*1024*1024){ M.WB.banner(M.t('wb_fill_too_large'),'warn'); return; }
+    const o={id:M.uid(9),type:'fill',x:minX+minPX/scale,y:minY+minPY/scale,w:cw/scale,h:ch/scale,src,pg:pg,by:M.State.self.id};
+    M.WB.send({t:'up',o}); M.WB.applyUp(o);
+    M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+    M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB._flash={ids:new Set([o.id]),t:Date.now()};
+    M.WB.dirty=true; M.WB.banner(M.t('wb_fill_done'));
+    M.log('info','Paint bucket fill applied to '+count+' pixels');
+  },
   async paste(at){
     try{
       if(!M.WB.canEdit()){ M.WB.banner(M.t('perm_denied'),'err'); return; }
@@ -9342,7 +9380,7 @@ M.WB = {
     try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
     M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
     M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
-    M.log('info','pasted '+fresh.size+' object(s); viewport preserved — no auto-zoom');
+    M.log('info','pasted '+fresh.size+' object(s); viewport preserved');
   },
   eraseObj(id){
     const o=M.WB.objs.get(id); if(!o) return;
@@ -9685,7 +9723,6 @@ M.WB = {
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit','wbDbg'].includes(b.id)) return; b.disabled = open? !edit : true; });
     { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; }
-    { const f=M.$('#wbFillBtn'); if(f){ f.disabled=!edit||!open; f.title=M.t('wb_fill_help'); f.setAttribute('aria-label',M.t('wb_fill_help')); } }
     M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
     M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
@@ -10053,14 +10090,10 @@ M.WB = {
       }
       case 'rect': {
         const x=Math.min(o.x,o.x+o.w),y=Math.min(o.y,o.y+o.h),w=Math.abs(o.w),h=Math.abs(o.h);
-        const fill=o.fill;
-        if(fill && fill!=='transparent'){ ctx.fillStyle=fill; ctx.fillRect(x,y,w,h); }
         ctx.strokeStyle=o.color||'#E9F3F4'; ctx.strokeRect(x,y,w,h); break;
       }
       case 'ellipse': {
         ctx.beginPath(); ctx.ellipse(o.x+o.w/2,o.y+o.h/2,Math.abs(o.w/2),Math.abs(o.h/2),0,0,Math.PI*2);
-        const fill=o.fill;
-        if(fill && fill!=='transparent'){ ctx.fillStyle=fill; ctx.fill(); }
         ctx.strokeStyle=o.color||'#E9F3F4'; ctx.stroke(); break;
       }
       case 'text': {
@@ -10105,6 +10138,11 @@ M.WB = {
         ctx.save(); ctx.beginPath(); ctx.rect(o.x+2,o.y+2,o.w-4,Math.max(0,o.h-18)); ctx.clip();   /* text stays inside the note */
         lines.forEach(ln=>{ ctx.fillText(ln,ax,y); y+=nSize*1.45; });
         ctx.restore();
+        break;
+      }
+      case 'fill': {
+        if(!o._img){ o._img=new Image(); o._img.src=o.src; o._img.onload=()=>{ M.WB.dirty=true; }; }
+        if(o._img.complete && o._img.naturalWidth) ctx.drawImage(o._img,o.x,o.y,o.w,o.h);
         break;
       }
       case 'image': {
@@ -10375,7 +10413,7 @@ M.App = {
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.WB._asRev=-1; M.WB._asRid=null;   /* authoritative-state watermark reset with the board */
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
-    M.WB.mode='a4'; M.WB.fill='transparent'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
+    M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
