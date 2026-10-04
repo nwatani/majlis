@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.1';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.96.2';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2026,7 +2026,7 @@ M.Id = {
     M.Id._rate.set(peerId,now);
     const chal={nonce:M.Id.newNonce(), rid:M.State.room?.rid||'', from:M.State.self.id, to:peerId, ts:now};
     M.Id._chal.set(peerId,chal);
-    try{ M.Net.A.idc.send(chal,peerId); }catch(e){}
+    try{ M.Net.A.idc.send(chal,{target:peerId}); }catch(e){}
   },
   /* centralized nonce cleanup so the consumed-nonce map stays bounded over long sessions */
   pruneNonces(){
@@ -2575,7 +2575,7 @@ M.Admin = {
     try{ const aid=M.Admin.selfAdminId(); if(aid){ Object.assign(M.Admin._maxSeq,M.App.getRoom('maxseq')||{}); M.Admin._maxSeq[aid]=M.Admin.seq; M.App.putRoom('maxseq',M.Admin._maxSeq); } }catch(e){}
     const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},M.Admin.priv,M.te.encode(JSON.stringify(body)));
     const signed={...body, sig:M.b64(raw), pub:M.Admin.pubJwk};
-    const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,target); else M.Net.A.adm.send(signed); }catch(e){ M.log('err','cmd '+name+' send failed: '+e.message); } };
+    const fire=()=>{ try{ if(target!=null) M.Net.A.adm.send(signed,{target}); else M.Net.A.adm.send(signed); }catch(e){ M.log('err','cmd '+name+' send failed: '+e.message); } };
     /* termination is the one command that must not be lost — triple retransmit */
     (name==='end' ? [0,1200,2600] : [0,1200]).forEach(d=>setTimeout(fire,d));
     M.log(name==='end'?'warn':'info','admin cmd → '+name+(target?' → '+M.fmt.idShort(target):''));
@@ -3347,7 +3347,7 @@ M.Net = {
       if(chal.rid && chal.rid!==(M.State.room?.rid||'')) return;
       if(!/^[0-9a-f]{32}$/.test(chal.nonce)) return;
       if(typeof chal.ts!=='number'||Math.abs(Date.now()-chal.ts)>M.Net.HB_FRESH) return;
-      try{ const proof=await M.Id.prove(chal); M.Net.A.idp.send(proof,peerId); }catch(e){}
+      try{ const proof=await M.Id.prove(chal); M.Net.A.idp.send(proof,{target:peerId}); }catch(e){}
     };
     M.Net.A.idp.onMessage=async (proof,{peerId})=>{
       if(!M.Guard.check('idp',proof,peerId)) return;
@@ -3752,7 +3752,7 @@ M.Net = {
     where.onMessage=(q,{peerId})=>{
       if(!M.Guard.check('where',q,peerId)) return;
       if(M.State.room?.rid && M.State.room.code===code)
-        try{ here.send({rid:M.State.room.rid},peerId); }catch(e){}
+        try{ here.send({rid:M.State.room.rid},{target:peerId}); }catch(e){}
     };
     here.onMessage=()=>{};   /* answers are consumed by the discovery promise, not here */
     M.log('info','[ns] discovery namespace '+M.App.nsCode(code)+' joined');
@@ -3764,12 +3764,32 @@ M.Net = {
     const cfg={ appId:'majlis-meet-v1', relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
     const d=M.T.joinRoom(cfg, M.App.nsCode(code), {});
     return await new Promise(res=>{
-      let done=false;
-      const finish=(rid)=>{ if(done)return; done=true; try{ d.leave(); }catch(e){} res(rid?{rid}:null); };
+      let done=false, iv=null, to=null;
+      const finish=(rid)=>{
+        if(done)return;
+        done=true;
+        if(iv) clearInterval(iv);
+        if(to) clearTimeout(to);
+        try{ d.onPeerJoin=null; }catch(e){}
+        try{ d.leave(); }catch(e){}
+        res(rid?{rid}:null);
+      };
       const here=d.makeAction('here'), where=d.makeAction('where');
-      here.onMessage=(d2)=>{ if(M.Guard.check('here',d2,'discovery')) finish(d2.rid); };
-      where.send({}); setTimeout(()=>{ try{ where.send({}); }catch(e){} },1200);
-      setTimeout(()=>finish(null),5000);
+      here.onMessage=(d2)=>{
+        if(M.Guard.check('here',d2,'discovery') && typeof d2.rid==='string' && d2.rid) finish(d2.rid);
+      };
+      const askPeer=(peerId)=>{ try{ where.send({},{target:peerId}); }catch(e){} };
+      /* Trystero 0.25.x replays existing peers when onPeerJoin is assigned.
+         Use that behavior explicitly so a discovery requester cannot miss a room
+         simply because the host was already present before our handler was attached. */
+      d.onPeerJoin = peerId => askPeer(peerId);
+      /* Also broadcast periodically while the signaling membership is settling.
+         This covers delayed subscriptions and transient relay loss without relying
+         on a single packet. */
+      const ask=()=>{ if(!done){ try{ where.send({}); }catch(e){} } };
+      ask();
+      iv=setInterval(()=>{ ask(); try{ const peers=d.getPeers?.()||{}; Object.keys(peers).forEach(askPeer); }catch(e){} },500);
+      to=setTimeout(()=>finish(null),9000);
     });
   },
   _early:new Map(),
@@ -3857,7 +3877,7 @@ M.Net = {
   /* restart the transport toward one peer and re-announce ourselves to them directly */
   healPeer(pid){
     try{ const pc=M.Net.room?.getPeers?.()?.[pid]; if(pc) pc.restartIce?.(); M.log('info','ICE restart toward '+M.fmt.idShort(pid)); }catch(e){}
-    try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:M.Perms.isAdmin(),v:M.Version},pid); }catch(e){}
+    try{ M.Net.A.hb.send({ts:Date.now(),n:M.State.self.name,fp:M.State.self.fp,adm:M.Perms.isAdmin(),v:M.Version},{target:pid}); }catch(e){}
   },
   /* ask the namespace "is anyone home?" — the question is RETRIED until a
      transport actually exists, and any ack (or any peer simply appearing)
