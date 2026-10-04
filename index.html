@@ -681,6 +681,10 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #wbModeBadge.lock{background:rgba(255,97,87,.15);color:var(--red);border:1px solid rgba(255,97,87,.5)}
 #boardWrap{flex:1;position:relative;min-height:0;background:var(--board-bg);touch-action:none;overflow:hidden}
 #boardCanvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+#wbTextLayer{position:absolute;inset:0;z-index:4;pointer-events:none;overflow:hidden;user-select:none}
+.wb-text-node{position:absolute;display:block;margin:0;padding:0;border:0;background:transparent;white-space:pre-wrap;overflow:visible;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;font-family:"IBM Plex Sans Arabic","IBM Plex Sans",Arial,Tahoma,"Segoe UI",sans-serif;letter-spacing:0;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+.wb-text-node[data-stroke="dark"]{-webkit-text-stroke:.45px rgba(0,0,0,.72);text-shadow:0 1px 2px rgba(0,0,0,.28)}
+.wb-text-node[data-stroke="light"]{-webkit-text-stroke:.45px rgba(255,255,255,.78);text-shadow:0 1px 2px rgba(255,255,255,.24)}
 #wbTextWrap{position:absolute;z-index:6;display:flex;flex-direction:column;gap:6px;max-width:min(452px,86%);animation:msgIn .16s ease both}
 #wbText{min-width:216px;min-height:66px;background:var(--bg1);border:2px solid var(--amber);border-radius:8px;color:var(--ink);padding:8px 11px;outline:none;font-family:var(--body);resize:both;overflow:auto;box-shadow:var(--sh);line-height:1.45}
 #wbText:focus{box-shadow:0 0 0 4px rgba(245,168,60,.16),var(--sh)}
@@ -1033,6 +1037,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         </div>
         <div id="boardWrap">
           <canvas id="boardCanvas"></canvas>
+          <div id="wbTextLayer" aria-hidden="true"></div>
           <div id="wbTextWrap" class="hidden">
             <textarea id="wbText" dir="auto" data-i18n-ph="wb_ph"></textarea>
             <div class="wb-tw-row">
@@ -1452,7 +1457,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.6';  /* build stamp — board presentation sync, shape fills, text-render reliability and mobile UI refinement */
+M.Version = '1.96.8';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -8136,13 +8141,15 @@ M.WB = {
   activePeers:new Map(), editorsNote:null,
   init(){
     const cv=M.$('#boardCanvas'); M.WB.cv=cv; M.WB.ctx=cv.getContext('2d');
+    M.WB.textLayer=M.$('#wbTextLayer'); M.WB._textNodes=new Map();
     M.WB.pointers=new Map();
     /* bus */
     M.bus.on('wbIn', d=>M.WB.onNet(d));
     M.bus.on('wbCtrl', b=>M.WB.applyCtrl(b));
     M.bus.on('boardShown', ()=>{ M.WB.resize(); if(M.WB.inA4()) M.WB.fitSheet(); M.WB.dirty=true; M.WB.maybeReqState(); M.WB.refreshUI(); });
-    M.bus.on('resize', ()=>M.WB.resize());
+    M.bus.on('resize', ()=>{ M.WB.resize(); M.WB.dirty=true; });
     M.bus.on('nudge', ()=>M.WB.maybeReqState());
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ M.WB._mctx=document.createElement('canvas').getContext('2d'); M.WB.dirty=true; } });
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
@@ -8350,10 +8357,10 @@ M.WB = {
     /* Canvas text can be painted once before webfonts finish loading.  Redraw after
        the font set settles so Arabic/Latin text never remains missing or clipped. */
     try{
-      const redrawFonts=()=>{ M.WB.dirty=true; };
-      if(document.fonts?.ready) document.fonts.ready.then(redrawFonts).catch(()=>{});
+      const redrawFonts=()=>{ M.WB._mctx=document.createElement('canvas').getContext('2d'); M.WB.dirty=true; };
+      if(document.fonts?.ready) document.fonts.ready.then(redrawFonts).catch(()=>{ M.WB.dirty=true; });
       document.fonts?.addEventListener?.('loadingdone',redrawFonts);
-    }catch(e){}
+    }catch(e){ M.WB.dirty=true; }
     M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
     M.WB.resize();
     M.WB.setTool('select');   /* the highlighted tool and the active tool must agree from the first frame */
@@ -8387,11 +8394,10 @@ M.WB = {
       case 'pen': case 'hi': { let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; for(const [x,y] of o.pts){ x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x);y2=Math.max(y2,y);} const p=o.type==='hi'?(o.size||2)*1.5:(o.size||2)/2; return [x1-p,y1-p,x2-x1+p*2,y2-y1+p*2]; }
       case 'line': case 'arrow': { const m=o.type==='arrow'?12+(o.size||2)*2.2:6; const x=Math.min(o.x1,o.x2),y=Math.min(o.y1,o.y2); return [x-m,y-m,Math.abs(o.x2-o.x1)+m*2,Math.abs(o.y2-o.y1)+m*2]; }
       case 'rect': case 'ellipse': case 'image': case 'note': return [o.x,o.y,o.w,o.h];
-      case 'text': { const s=o.size||22; const wrapW=(o.w&&o.w>4)?Math.max(o.w,s*6):null;
-        M.WB._mctx.font=`${(o.style||'').includes('italic')?'italic ':''}${(o.style||'').includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-        const text=String(o.text??''); const lines=wrapW? M.WB._wrap(M.WB._mctx,text,wrapW):text.split('\n');
-        let mw=0; lines.forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
-        const w=Math.max(mw,(o.w&&o.w>4)?o.w:0,40); return [o.x-4,o.y-4,w+8,lines.length*s*1.35+8]; }
+      case 'text': {
+        const L=M.WB._textLayout(o);
+        return [o.x-4,o.y-4,L.W+8,L.H+8];
+      }
       default: return [o.x||0,o.y||0,40,40];
     }
   },
@@ -9020,20 +9026,30 @@ M.WB = {
     const hm=M.$('#wbHudMsg');
     if(hm && msg){ hm.textContent='· '+msg; hm.classList.add('show'); clearTimeout(M.WB._hmT); M.WB._hmT=setTimeout(()=>hm.classList.remove('show'),2600); }
   },
-  /* exact rendered width of a text object, measured with the same font the painter uses */
-  _textW(o){
-    const s=o.size||22, st=o.style||'';
-    M.WB._mctx ??= document.createElement('canvas').getContext('2d');
-    M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-    let max=0;
-    String(o.text??'').split('\n').forEach(l=>{ const w=M.WB._mctx.measureText(l).width; if(w>max) max=w; });
-    return max;
+  /* exact font descriptor shared by measurement and painting */
+  _textFont(size,style){
+    const s=Math.max(1,Number(size)||22), st=typeof style==='string'?style:'';
+    return `${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",Arial,Tahoma,"Segoe UI",sans-serif`;
   },
-  /* the single source of truth for a text block's column width — used by first
-     placement, re-edits, and pastes alike so they can never disagree */
+  /* Stable text-box geometry. x/y are always the TOP-LEFT of the object. RTL
+     and alignment change where each line begins inside that box, never the box anchor. */
+  _textLayout(o){
+    M.WB._mctx ??= document.createElement('canvas').getContext('2d');
+    const c=M.WB._mctx, size=Math.max(1,Number(o?.size)||22), text=String(o?.text??'');
+    c.font=M.WB._textFont(size,o?.style||'');
+    const dir=M.dirOf(text), align=(o?.align==='left'||o?.align==='center'||o?.align==='right')?o.align:(dir==='rtl'?'right':'left');
+    const col=(Number(o?.w)>4)?Math.max(Number(o.w),size*6):null;
+    const lines=col?M.WB._wrap(c,text,col):text.replace(/\r\n?/g,'\n').split('\n');
+    const widths=lines.map(line=>c.measureText(line).width);
+    const W=Math.max(col||0,...widths,40);
+    const H=Math.max(size*1.35,lines.length*size*1.35);
+    return {c,size,text,dir,align,lines,widths,W,H};
+  },
+  /* exact rendered width of a text object, measured with the same font the painter uses */
+  _textW(o){ return M.WB._textLayout(o).widths.reduce((m,w)=>Math.max(m,w),0); },
   _measureCol(text,size,style){
     const st=style||'';
-    M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
+    M.WB._mctx.font=M.WB._textFont(size,st);
     let mw=0; String(text??'').split('\n').forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
     return Math.min(420,Math.max(mw+16,140));
   },
@@ -9865,6 +9881,54 @@ M.WB = {
   },
 
   /* ---------- drawing ---------- */
+  _textStroke(color){
+    const m=String(color||'').match(/^#([0-9a-f]{6})$/i);
+    if(!m) return '';
+    const n=parseInt(m[1],16),r=n>>16,g=(n>>8)&255,b=n&255;
+    const lum=(0.2126*(r/255<=0.03928?r/3294.6:((r/255+0.055)/1.055)**2.4))+
+      (0.7152*(g/255<=0.03928?g/3294.6:((g/255+0.055)/1.055)**2.4))+
+      (0.0722*(b/255<=0.03928?b/3294.6:((b/255+0.055)/1.055)**2.4));
+    /* On a light A4 sheet, white/light text needs a dark edge; on a dark board,
+       black/dark text needs a light edge. This preserves the user's actual color. */
+    const bgDark=!M.WB.inA4() && document.documentElement.dataset.theme==='dark';
+    if(M.WB.inA4()) return lum>0.70?'dark':(lum<0.16?'light':'');
+    if(bgDark) return lum<0.16?'light':'';
+    return lum>0.70?'dark':'';
+  },
+  _renderTextLayer(){
+    const layer=M.WB.textLayer; if(!layer) return;
+    const live=new Set();
+    const v=M.WB.view;
+    M.WB.order.forEach(id=>{
+      const o=M.WB.objs.get(id); if(!o||o.type!=='text'||!M.WB.onPg(o)||!String(o.text??'')) return;
+      live.add(id);
+      let el=M.WB._textNodes.get(id);
+      if(!el){ el=M.el('div','wb-text-node'); M.WB._textNodes.set(id,el); layer.appendChild(el); }
+      const L=M.WB._textLayout(o);
+      const [sx,sy]=M.WB.w2s(o.x,o.y);
+      const w=L.W*v.s;
+      el.textContent=L.text;
+      el.dir=L.dir;
+      el.lang=L.dir==='rtl'?'ar':'en';
+      el.style.left=sx+'px'; el.style.top=sy+'px';
+      el.style.width=Math.max(1,w)+'px';
+      el.style.fontSize=(L.size*v.s)+'px';
+      el.style.lineHeight='1.35';
+      el.style.fontWeight=L.c.font.includes('700')?'700':'400';
+      el.style.fontStyle=(typeof o.style==='string'&&o.style.includes('italic'))?'italic':'normal';
+      el.style.textAlign=L.align;
+      el.style.direction=L.dir;
+      el.style.color=o.color||'#E9F3F4';
+      const stroke=M.WB._textStroke(o.color); if(stroke) el.dataset.stroke=stroke; else el.removeAttribute('data-stroke');
+      el.style.visibility='visible';
+    });
+    for(const [id,el] of M.WB._textNodes){ if(!live.has(id)){ el.remove(); M.WB._textNodes.delete(id); } }
+  },
+  _clearTextLayer(){
+    if(!M.WB._textNodes) return;
+    for(const el of M.WB._textNodes.values()) el.remove();
+    M.WB._textNodes.clear();
+  },
   draw(){
     const ctx=M.WB.ctx, cv=M.WB.cv; if(!ctx) return;
     /* ---- canvas self-heal ----
@@ -9900,8 +9964,11 @@ M.WB = {
     ctx.fillStyle=M.WB._grid||'rgba(140,166,174,.13)';
     const gd=Math.max(2,1.6/v.s);
     for(let gx=sx0; gx<bx1; gx+=step) for(let gy=sy0; gy<by1; gy+=step) ctx.fillRect(gx-gd/2,gy-gd/2,gd,gd);
-    /* objects — each paint is isolated: one bad object can never blank the board */
-    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return; try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } });
+    /* objects — each paint is isolated: one bad object can never blank the board.
+       Persistent text is rendered by #wbTextLayer for reliable browser Arabic/RTL
+       shaping; paintObj still renders text for PNG/PDF/off-screen export canvases. */
+    M.WB.order.forEach(id=>{ const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)||o.type==='text') return; try{ M.WB.paintObj(ctx,o,v.s); }catch(e){ if(!M.WB._paintErrs) M.WB._paintErrs={}; if(!M.WB._paintErrs[id]){ M.WB._paintErrs[id]=1; M.log('err','[render] object '+o.type+' '+id+' failed to paint: '+(e.message||e)); } } });
+    M.WB._renderTextLayer();
     /* selection outlines — every captured object wears one */
     M.WB.selSet.forEach(id=>{
       const o=M.WB.objs.get(id); if(!o||!M.WB.onPg(o)) return;
@@ -9991,28 +10058,25 @@ M.WB = {
         ctx.strokeStyle=o.color||'#E9F3F4'; ctx.stroke(); break;
       }
       case 'text': {
-        /* Text is deliberately painted as an isolated operation. Coercing the payload
-           and re-establishing every canvas text state prevents intermittent blanks caused
-           by malformed/legacy values or state inherited from another object. */
-        const text=String(o.text??''); if(!text) break;
-        const size=Math.max(1,Number(o.size)||22);
-        const stT=typeof o.style==='string'?o.style:'';
-        const dir=M.dirOf(text);
-        const align=(o.align==='left'||o.align==='center'||o.align==='right')?o.align:(dir==='rtl'?'right':'left');
+        /* Paint against the same top-left box used by hit-testing/selection.
+           Manual alignment avoids Canvas RTL anchor ambiguity and prevents Arabic
+           text from being pushed beyond the right edge of the board. */
+        const L=M.WB._textLayout(o);
+        if(!L.text) break;
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=o.alpha!=null?o.alpha:1;
-        ctx.font=`${stT.includes('italic')?'italic ':''}${stT.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-        ctx.direction=dir;
+        ctx.font=M.WB._textFont(L.size,o.style||'');
+        ctx.direction=L.dir;
         ctx.textBaseline='top';
-        ctx.textAlign=align;
+        ctx.textAlign='left';
         ctx.fillStyle=o.color||'#E9F3F4';
-        /* wrap at the editor's own width so the posted text breaks exactly where it did while typing */
-        const wrapW=(Number(o.w)>4)?Math.max(Number(o.w),(size)*6):null;
-        const lines=wrapW?M.WB._wrap(ctx,text,wrapW):text.split('\n');
-        let maxW=0; for(const ln of lines){ const wdt=ctx.measureText(ln).width; if(wdt>maxW) maxW=wdt; }
-        const W=Math.max(maxW,Number(o.w)>4?Number(o.w):0,40);
-        const ax=align==='center'?o.x+W/2:align==='right'?o.x+W:o.x;
-        lines.forEach((ln,i)=>ctx.fillText(ln,ax,o.y+i*size*1.35));
+        L.lines.forEach((ln,i)=>{
+          const lw=L.widths[i]||0;
+          let x=o.x;
+          if(L.align==='center') x=o.x+(L.W-lw)/2;
+          else if(L.align==='right') x=o.x+L.W-lw;
+          ctx.fillText(ln,x,o.y+i*L.size*1.35);
+        });
         break;
       }
       case 'note': {
