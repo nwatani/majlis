@@ -1430,7 +1430,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.4';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.96.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3769,42 +3769,34 @@ M.Net = {
   async discoverRid(code){
     await M.Net.loadTrystero();
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() }, relayConfig:{ urls:[M.Store.get('broker'),'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) } };
-    let where=null;
-    const pendingPeers=[];
-    const d=M.T.joinRoom(cfg, M.App.nsCode(code), {
-      /* Register this callback at joinRoom creation time. Do not depend on assigning
-         onPeerJoin after the room has already started. */
-      onPeerJoin: peerId => {
-        if(where){ try{ where.send({},{target:peerId}); }catch(e){} }
-        else pendingPeers.push(peerId);
-      }
-    });
+    /* Discovery is deliberately retry-friendly. Return the first live candidate, but keep
+       the attempt bounded; the caller may repeat discovery after a failed main-room probe. */
     return await new Promise(res=>{
-      let done=false, iv=null, to=null;
-      const finish=(rid)=>{
-        if(done)return;
-        done=true;
-        if(iv) clearInterval(iv);
-        if(to) clearTimeout(to);
-        try{ d.leave(); }catch(e){}
-        res(rid?{rid}:null);
-      };
+      let done=false, iv=null, to=null, where=null;
+      const seen=new Set();
+      const finish=(rid)=>{ if(done) return; done=true; if(iv)clearInterval(iv); if(to)clearTimeout(to); try{ d.leave(); }catch(e){} res(rid?{rid}:null); };
+      const d=M.T.joinRoom(cfg, M.App.nsCode(code), {
+        onPeerJoin: peerId => { if(where){ try{ where.send({},{target:peerId}); }catch(e){} } }
+      });
       const here=d.makeAction('here');
       where=d.makeAction('where');
       here.onMessage=(d2)=>{
-        if(M.Guard.check('here',d2,'discovery') && typeof d2.rid==='string' && M.Guard.str(64)(d2.rid)) finish(d2.rid);
+        if(!M.Guard.check('here',d2,'discovery') || typeof d2.rid!=='string' || !M.Guard.str(64)(d2.rid)) return;
+        if(seen.has(d2.rid)) return;
+        seen.add(d2.rid);
+        /* First valid candidate wins; a later main-room probe failure causes the caller to
+           perform a fresh discovery attempt rather than trusting one transient answer. */
+        finish(d2.rid);
       };
       const askPeer=(peerId)=>{ if(!done){ try{ where.send({},{target:peerId}); }catch(e){} } };
-      pendingPeers.splice(0).forEach(askPeer);
-      /* Keep broadcasting while MQTT/WebRTC membership settles. A live host receives
-         the request as soon as the discovery data channel exists. */
-      const ask=()=>{ if(!done){ try{ where.send({}); }catch(e){} } };
-      ask();
-      iv=setInterval(()=>{
-        ask();
+      const ask=()=>{
+        if(done) return;
+        try{ where.send({}); }catch(e){}
         try{ const peers=d.getPeers?.()||{}; Object.keys(peers).forEach(askPeer); }catch(e){}
-      },500);
-      to=setTimeout(()=>finish(null),15000);
+      };
+      ask();
+      iv=setInterval(ask,450);
+      to=setTimeout(()=>finish(null),9000);
     });
   },
   _early:new Map(),
@@ -10036,7 +10028,14 @@ M.App = {
       let discovered=false;
       if(!rid){
         M.lobbyMsg(M.t('joining'));
-        const disc=await M.Net.discoverRid(code);
+        let disc=null;
+        /* Discovery can miss a transient broker/WebRTC window. Retry internally so a
+           genuine live room is not reported as absent after one missed signaling attempt. */
+        for(let da=1; da<=3 && !disc; da++){
+          try{ M.log('info','[discovery] code lookup attempt '+da+'/3 for '+code); disc=await M.Net.discoverRid(code); }
+          catch(e){ M.log('warn','[discovery] lookup attempt '+da+' failed: '+(e?.message||e)); }
+          if(!disc && da<3) await new Promise(r=>setTimeout(r,700));
+        }
         if(!disc){
           if(M.Recovery._lastOk===false){ M.lobbyMsg(M.t('join_failed'),true); M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500}); }
           else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
@@ -10061,21 +10060,47 @@ M.App = {
          must not be able to manufacture a dead namespace and make the UI look joined. */
       const bypass=knownAdmin;
       M.Net.onProgress=m=>M.lobbyMsg(m);
-      try{ await M.Net.join(code,{isCreator:M.Perms.isAdmin()}); }finally{ M.Net.onProgress=null; }
-      M.State.self.id=M.T.selfId;
-      if(!bypass){
-        M.log('info','[discovery] probing namespace '+M.App.nsRoom(rid)+' — waiting for a participant to answer');
-        const found=await M.Net.probeRoom(6000);
-        M.log('info','[discovery] probe result: '+(found?'FOUND':'no answer')+' · relay ok='+M.Recovery._lastOk);
-        if(!found){
-          try{ M.Net.leave(); }catch(e){}
-          M.App.resetState();
-          safeDel(localStorage,'mj.grace.'+rid);
-          if(M.Recovery._lastOk===false){ M.lobbyMsg(M.t('join_failed'),true); M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500}); }
-          else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
-          M.$('#btnJoin').disabled=false;
-          return;
+      let found=false;
+      /* A manual-code join is inherently multi-stage (discover rid → join WebRTC room →
+         establish at least one live peer). Any single signaling/ICE miss must not be shown
+         as "Room not found". Retry both discovery and the actual room connection. */
+      const maxAttempts=bypass?1:4;
+      for(let attempt=1; attempt<=maxAttempts && !found; attempt++){
+        try{
+          if(!bypass && attempt>1){
+            const fresh=await M.Net.discoverRid(code);
+            if(fresh?.rid) rid=fresh.rid;
+            else throw new Error('discovery attempt returned no live room');
+            M.State.room.rid=rid;
+          }
+          M.log('info','[join] room transport attempt '+attempt+'/'+maxAttempts+' for '+M.App.nsRoom(rid));
+          await M.Net.join(code,{isCreator:false});
+          M.State.self.id=M.T.selfId;
+          if(bypass){ found=true; break; }
+          /* Give WebRTC enough time to complete ICE/handshake. Later attempts are longer. */
+          const probeMs=[9000,11000,13000,15000][attempt-1]||15000;
+          const ok=await M.Net.probeRoom(probeMs);
+          M.log('info','[join] namespace probe '+attempt+'/'+maxAttempts+': '+(ok?'FOUND':'no answer')+' · relay ok='+M.Recovery._lastOk);
+          if(ok){ found=true; break; }
+        }catch(e){
+          M.log('warn','[join] attempt '+attempt+' failed: '+(e?.message||e));
         }
+        if(!found && attempt<maxAttempts){
+          try{ M.Net.leave(); }catch(e){}
+          M.Net.room=null; M.Net.A={}; M.Net.connected=false;
+          await new Promise(r=>setTimeout(r,700));
+        }
+      }
+      M.Net.onProgress=null;
+      if(!found){
+        try{ M.Net.leave(); }catch(e){}
+        M.Net.room=null; M.Net.A={}; M.Net.connected=false;
+        M.App.resetState();
+        safeDel(localStorage,'mj.grace.'+rid);
+        if(M.Recovery._lastOk===false){ M.lobbyMsg(M.t('join_failed'),true); M.toast('warn',M.t('link_title'),M.t('reconnect_lost'),{ms:6500}); }
+        else { M.lobbyMsg(M.t('room_not_found'),true); M.toast('err',M.t('room'),M.t('room_not_found'),{ms:6500}); }
+        M.$('#btnJoin').disabled=false;
+        return;
       }
       history.replaceState(null,'',M.App.inviteUrl());
       await M.App.enter(code,M.Perms.isAdmin());
@@ -10150,7 +10175,7 @@ M.App = {
     },500);
   },
   resetState(){
-    M.Net.room=null; M.Net.disc=null; M.Net.A={}; M.Net.connected=false; M.Net._early=new Map(); M.Net._encBlocked=false;
+    M.Net.room=null; M.Net.disc=null; M.Net.A={}; M.Net.connected=false; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null; M.Net._early=new Map(); M.Net._encBlocked=false;
     M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
