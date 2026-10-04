@@ -1455,7 +1455,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.97.2';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
+M.Version = '1.97.3';  /* build stamp — restored board rendering/color palette + Paint bucket */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -8472,14 +8472,39 @@ M.WB = {
     const isStrokeSel=!!o&&!isTextSel;
     const showStroke=['pen','hi','line','arrow','rect','ellipse'].includes(M.WB.tool)||isStrokeSel;
     const showText=['text','note'].includes(M.WB.tool)||isTextSel;
-    /* Fill is intentionally always visible in edit mode so the feature is discoverable.
-       With no shape selected it controls the default fill for newly drawn rectangles/ellipses;
-       with a compatible shape selected it also updates that shape immediately. */
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
     const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
-    M.WB.syncFillDot();
     M.WB.syncChip();
+  },
+  renderPal(){
+    const pal=M.$('#wbPalette'); if(!pal) return; pal.innerHTML='';
+    const colors=['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
+      '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'];
+    colors.forEach(c=>{
+      const b=M.el('button'); b.style.background=c; b.title=c; b.setAttribute('aria-label',c);
+      b.classList.toggle('on',String(M.WB.color||'').toLowerCase()===c.toLowerCase());
+      b.onclick=()=>M.WB.setColor(c);
+      pal.appendChild(b);
+    });
+    const row=M.el('div','wb-pal-row');
+    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(String(M.WB.color||''))?M.WB.color:'#111111';
+    ci.oninput=()=>M.WB.setColor(ci.value);
+    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=M.t('wb_custom');
+    row.append(ci,lbl); pal.appendChild(row);
+  },
+  setColor(c){
+    M.WB.color=c; M.WB._colorTouched=true;
+    const dot=M.$('#wbColorDot'); if(dot) dot.style.background=c;
+    if(M.WB.selSet.size && M.WB.canEdit()){
+      M.WB.selSet.forEach(id=>{
+        const o=M.WB.objs.get(id); if(!o) return;
+        if(o.type==='note') o.bg=c; else o.color=c;
+        M.WB.send({t:'up',o});
+      });
+      M.WB.dirty=true;
+    }
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal(M.WB._palKind);
   },
   _fontApply(){
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8948,7 +8973,7 @@ M.WB = {
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-      M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+      M.WB._flash={ids:new Set([o.id]),t:Date.now()};
       M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
       M.log('info','image pasted ('+Math.round(w)+'×'+Math.round(h)+')');
     };
@@ -8964,7 +8989,7 @@ M.WB = {
     M.WB.send({t:'up',o}); M.WB.applyUp(o);
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-    M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+    M.WB._flash={ids:new Set([o.id]),t:Date.now()};
     M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
     M.log('info','external text pasted as whiteboard text ('+String(text).length+' chars)');
   },
