@@ -242,19 +242,37 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   .btn{gap:5px}
 }
 @media (max-width:640px){
-  /* the four tabs share the row on phones; labels stay whole (v1.31.7 look) */
+  /* the four tabs share the row on phones; labels stay whole */
   #tabs{padding:0 5px;gap:1px}
   .tabbtn{padding:11px 5px;font-size:11.5px;gap:4px;flex:1 1 0;min-width:0;justify-content:center}
   .tabbtn svg{width:14px;height:14px;flex:none}
   .tabbtn span[data-i18n]{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-  /* the whiteboard toolbar uses the full width by wrapping — no sideways scroll */
-  #boardBar{flex-wrap:wrap;overflow:visible;row-gap:2px;padding:6px 8px}
-  #boardBar .btool{width:34px;height:32px}
-  #boardBar .btool svg{width:16px;height:16px}
+
+  /* Whiteboard: one compact horizontal toolbar instead of a multi-row wrap.
+     The canvas keeps almost all of the vertical workspace; secondary controls
+     remain available by horizontal touch scrolling. */
+  #boardBar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;gap:3px;padding:5px 7px;min-height:42px;max-height:44px}
+  #boardBar::-webkit-scrollbar{display:none}
+  #boardBar .btool{width:31px;height:30px;border-radius:7px}
+  #boardBar .btool svg{width:15px;height:15px}
   #boardBar .bsep{display:none}
-  #boardBar .brange{gap:4px}
-  #boardBar .brange input{width:54px}
-  #wbFontN{width:44px}
+  #boardBar .brange{gap:3px}
+  #boardBar .brange input{width:48px}
+  #boardBar #wbFontN{width:41px;height:30px;padding:4px 5px}
+
+  /* Keep the lower board controls compact too. */
+  #boardFoot{gap:4px;padding:5px 7px;min-height:40px}
+  #boardFoot .btool{width:30px;height:30px;border-radius:7px}
+  #boardFoot #wbZl{min-width:36px}
+
+  /* Chat composer: preserve every action while giving the message field the
+     maximum practical width on narrow screens. */
+  #composer{gap:4px;padding:8px 8px}
+  #composer > .icon-btn{width:30px;height:30px;min-width:30px;border-radius:8px;padding:0}
+  #composer > .icon-btn svg{width:15px;height:15px}
+  #composer > #btnSend{width:32px;height:32px;min-width:32px}
+  #composer > #btnSend svg{width:16px;height:16px}
+  #composer #msgInput{min-width:0;padding:8px 10px;font-size:14px;line-height:1.35}
 }
 @media (max-width:440px){
   /* on the narrowest phones, presence moves to the sidebar; the bar keeps only actions */
@@ -621,6 +639,8 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #boardBar .btool b,#boardBar .btool i{line-height:1;font-family:Georgia,'IBM Plex Sans',serif}
 #boardBar .btool.on b,#boardBar .btool.on i{color:var(--amber2)}
 #wbColorDot{width:17px;height:17px;border-radius:50%;border:2px solid var(--line2);display:block;transition:background .15s}
+#wbFillDot{width:16px;height:16px;border-radius:4px;border:2px solid var(--line2);display:block;transition:background .15s,border-color .15s}
+#wbFillDot.none{background:repeating-linear-gradient(135deg,transparent 0 3px,var(--line2) 3px 4px);}
 #wbFontN{width:52px;padding:5px 6px;border:1px solid var(--line2);border-radius:7px;background:var(--bg1);color:var(--ink);font-family:var(--mono);font-size:12px;flex:none}
 #wbFontN:focus{outline:none;border-color:var(--amber)}
 /* Whiteboard diagnostics panel — guaranteed contrast on both themes */
@@ -642,6 +662,7 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 .wb-pg-x{display:none;width:15px;height:15px;border-radius:50%;background:var(--bg4);color:var(--mut);font-size:11px;line-height:14px;text-align:center;flex:none}
 .wb-pg:hover .wb-pg-x{display:block}
 .wb-pg-x:hover{background:var(--err);color:#fff}
+.wb-pg:disabled{cursor:default;opacity:.9}
 .wb-pg-add{border-style:dashed;color:var(--teal)}
 .wb-pg-add:hover{border-color:var(--teal);background:rgba(56,207,182,.1)}
 /* canvas format switch */
@@ -988,7 +1009,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="note" title="Sticky note (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v10l-6 6H4V4z" stroke-linejoin="round"/><path d="M14 20v-6h6"/></svg></button>
           <button class="btool" data-tool="image" title="Insert image (I)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
-          <button class="btool" id="wbColorBtn" title="Color palette"><span id="wbColorDot" style="background:#111111"></span></button>
+          <button class="btool" id="wbColorBtn" title="Stroke color palette" aria-label="Stroke color palette"><span id="wbColorDot" style="background:#111111"></span></button>
+          <button class="btool" id="wbFillBtn" data-ctx="fill" title="Fill color — تعبئة الشكل" aria-label="Fill color"><span id="wbFillDot" class="none"></span></button>
           <label class="brange" data-ctx="stroke" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <span class="bsep"></span>
           <label class="brange" data-ctx="text" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
@@ -1430,7 +1452,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.5';  /* build stamp — broadcast in every hello/heartbeat so stale clients are visible in the roster */
+M.Version = '1.96.6';  /* build stamp — board presentation sync, shape fills, text-render reliability and mobile UI refinement */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1576,7 +1598,7 @@ en:{
  term_room:'Terminate', term_q:'Terminate this room?', term_q_body:'Every participant will be notified and disconnected, and the session closed. This cannot be undone.',
  timer_lbl:'Session timer', timer_sub:'Optional countdown. When it reaches zero the room terminates for everyone and all participants are notified.',
  timer_set:'Start countdown', timer_stop:'Stop', timer_started:'Session countdown started', timer_need:'Set a duration first', session_ended:'Session time is up — the room has ended',
- grace_lbl:'The Admin left — this room closes in', grace_title:'Room closing',
+ grace_lbl:'The Admin left — this room closes in', grace_title:'Room closing', grace_restored_title:'Room status has been restored',
  grace_started:'The Admin left — this room closes automatically in 10 minutes',
  grace_back:'The Admin returned — the room continues',
  grace_ended:'Closed automatically: the Admin was away for 10 minutes',
@@ -1666,7 +1688,7 @@ en:{
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
- wb_custom:'Custom color',
+ wb_custom:'Custom color', wb_no_fill:'No fill', wb_fill_custom:'Custom fill color',
  wb_copy:'Copy', wb_paste:'Paste', wb_duplicate:'Duplicate', wb_front:'Bring to Front', wb_back:'Send to Back', wb_delete:'Delete',
  wb_copied_short:'{n} copied',
  wb_copy_latest:'No selection — copied your latest object',
@@ -1776,7 +1798,7 @@ ar:{
  term_room:'إنهاء', term_q:'إنهاء هذه الغرفة؟', term_q_body:'سيتم إشعار جميع المشاركين وفصلهم وإغلاق الجلسة. لا يمكن التراجع.',
  timer_lbl:'مؤقت الجلسة', timer_sub:'عدّ تنازلي اختياري. عند بلوغ الصفر تُنهى الغرفة للجميع ويُخطَر جميع المشاركين.',
  timer_set:'بدء العدّ', timer_stop:'إيقاف', timer_started:'بدأ عدّ الجلسة التنازلي', timer_need:'حدّد مدة أولاً', session_ended:'انتهى وقت الجلسة — أُغلقت الغرفة',
- grace_lbl:'غادر المشرف — تُغلق هذه الغرفة خلال', grace_title:'إغلاق الغرفة',
+ grace_lbl:'غادر المشرف — تُغلق هذه الغرفة خلال', grace_title:'إغلاق الغرفة', grace_restored_title:'تمت استعادة حالة الغرفة',
  grace_started:'غادر المشرف — تُغلق الغرفة تلقائياً خلال 10 دقائق',
  grace_back:'عاد المشرف — تستمر الغرفة',
  grace_ended:'أُغلقت تلقائياً: غياب المشرف لمدة 10 دقائق',
@@ -1868,7 +1890,7 @@ ar:{
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
- wb_custom:'لون مخصّص',
+ wb_custom:'لون مخصّص', wb_no_fill:'بدون تعبئة', wb_fill_custom:'لون تعبئة مخصّص',
  wb_copy:'نسخ', wb_paste:'لصق', wb_duplicate:'تكرار', wb_front:'تقديم للأمام', wb_back:'إرسال للخلف', wb_delete:'حذف',
  wb_copied_short:'نُسخ {n}',
  wb_copy_latest:'لا يوجد تحديد — نُسخ آخر عنصر لمسته',
@@ -2142,7 +2164,7 @@ M.State = {
      establish the trusted permission state. Grants therefore require this flag (or isAdmin). */
   permsConfirmed: false,
   bans: [],
-  wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{} },
+  wb: { open:false, mode:'admin', locked:false, images:true, export:true, editors:{}, pageId:'pg1' },
   chatTarget: null,      // null = room, else peerId
   selfInCallCount: 0
 };
@@ -2688,7 +2710,7 @@ M.Admin = {
   /* current authoritative snapshot payload (shared by the hello push and the broadcast) */
   snapshotPayload(){
     const W=M.State.wb;
-    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors},pages:M.WB.pages,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj(),wbRevokeByMid:M.WB.revokeObj(),ftDenyByMid:M.FT.fileDenyObj()};
+    return {sub:'snapshot',wb:{open:W.open,mode:W.mode,locked:W.locked,images:W.images,export:W.export,editors:W.editors,pageId:M.WB.pageId},pages:M.WB.pages,pageId:M.WB.pageId,cvm:M.WB.mode,timer:M.State.timerUntil||0,rn:M.State.room?.name||'',tp:M.State.room?.topic||'',rid:M.State.room?.rid||undefined,perms:M.State.perms,bans:M.State.bans,denyByMid:M.Perms._denyObj(),wbRevokeByMid:M.WB.revokeObj(),ftDenyByMid:M.FT.fileDenyObj()};
   },
   /* Admin: broadcast a fresh signed snapshot so every online member holds a current,
      relayable authoritative state — permission changes then converge even if the Admin
@@ -2778,7 +2800,7 @@ M.Admin = {
       case 'wbCtrl':
         M.bus.emit('wbCtrl',body);
         if(M.Perms.isAdmin() && M.State.room && body.sub!=='snapshot')   /* persist the session so an admin refresh restores it */
-          M.App.putRoom('wb',{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,cvm:M.WB.mode});
+          M.App.putRoom('wb',{open:M.State.wb.open,mode:M.State.wb.mode,locked:M.State.wb.locked,images:M.State.wb.images,export:M.State.wb.export,editors:M.State.wb.editors,pageId:M.WB.pageId,cvm:M.WB.mode});
         break;
     }
     B.emit('ccRefresh');
@@ -2963,7 +2985,7 @@ M.Guard = {
   wbTypes:['pen','hi','line','arrow','rect','ellipse','text','note','image'],
   WB_OBJ_KEYS:{ pen:['color','size','pts'], hi:['color','size','pts'],
     line:['color','size','x1','y1','x2','y2'], arrow:['color','size','x1','y1','x2','y2'],
-    rect:['color','size','x','y','w','h'], ellipse:['color','size','x','y','w','h'],
+    rect:['color','fill','size','x','y','w','h'], ellipse:['color','fill','size','x','y','w','h'],
     text:['x','y','w','text','size','color','align','style'],
     note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'] },
   wbNum(v){ return typeof v==='number' && isFinite(v) && Math.abs(v)<=1e6; },
@@ -2973,6 +2995,7 @@ M.Guard = {
     if(!G.isObj(o)||!G.str(32)(o.id)||!G.en(G.wbTypes)(o.type)) return false;
     if('alpha' in o && !G.num(0,1)(o.alpha)) return false;
     if('color' in o && !G.str(32)(o.color)) return false;
+    if('fill' in o && !(o.fill==='transparent' || G.str(32)(o.fill))) return false;
     if('size' in o && !G.num(0.5,500)(o.size)) return false;
     if('pg' in o && !G.str(32)(o.pg)) return false;
     if('by' in o && !G.str(64)(o.by)) return false;
@@ -5736,10 +5759,10 @@ M.UI = {
     el.classList.toggle('hidden', M.Crypto.has());
   },
   encBadge(){
-    /* every room is Private/E2EE; show the badge only when the key is present */
+    /* All rooms are encrypted by design. Keep the implementation and diagnostics intact,
+       but remove the redundant visible E2EE badge from the room header. */
     const b=M.$('#roomEncBadge'); if(!b) return;
-    if(M.Crypto.has()){ b.classList.remove('hidden'); b.classList.add('e2ee'); b.classList.remove('open'); b.textContent='E2EE'; b.title=M.t('enc_e2ee_tip'); }
-    else { b.classList.add('hidden'); }
+    b.textContent=''; b.classList.add('hidden'); b.classList.remove('e2ee','open'); b.removeAttribute('title');
   },
   roomName(){
     const n=(M.State.room?.name||'').trim();
@@ -8088,6 +8111,7 @@ M.WBDbg = {
     const rid=M.State.room?.rid;
     return 'rid: '+(rid?('known '+M.fmt.idShort(rid)):'unknown')+'\n'
       +'adminVerified: '+(M.WB.adminOnline()?'yes':'no')+'   wb.open: '+M.State.wb.open+'\n'
+      +'board page: '+(M.WB.pages.find(p=>p.id===M.WB.pageId)?.name||M.WB.pageId)+'\n'
       +'board objects: '+M.WB.objs.size+'   state requests: '+this.reqN+'\n'
       +'last rejection: '+(this.lastReject||'—')+'\n\n'
       +this.ring.map(i=>i.t+'  '+i.msg).join('\n');
@@ -8107,7 +8131,7 @@ M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
   mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default — ideal for PDF export; admin can switch to free canvas */
-  tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
+  tool:'pen', color:'#111111', fill:'transparent', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
   activePeers:new Map(), editorsNote:null,
   init(){
@@ -8122,18 +8146,21 @@ M.WB = {
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
-    /* ---- color palette ---- */
-    M.$('#wbColorBtn').onclick=e=>{
+    /* ---- stroke/fill palettes ---- */
+    const openPalette=(kind,anchor,e)=>{
       e.stopPropagation();
       const pal=M.$('#wbPalette');
-      if(!pal.classList.contains('hidden')){ pal.classList.add('hidden'); return; }
-      const r=e.currentTarget.getBoundingClientRect();
+      if(!pal.classList.contains('hidden') && M.WB._palKind===kind){ pal.classList.add('hidden'); return; }
+      const r=anchor.getBoundingClientRect();
       pal.style.top=(r.bottom+8)+'px';
       pal.style.left=Math.max(8,Math.min(r.left,innerWidth-230))+'px';
-      M.WB.renderPal();
+      M.WB._palKind=kind;
+      M.WB.renderPal(kind);
       pal.classList.remove('hidden');
     };
-    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn')) M.$('#wbPalette').classList.add('hidden'); });
+    M.$('#wbColorBtn').onclick=e=>openPalette('stroke',e.currentTarget,e);
+    M.$('#wbFillBtn').onclick=e=>openPalette('fill',e.currentTarget,e);
+    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn,#wbFillBtn')) M.$('#wbPalette').classList.add('hidden'); });
     /* ---- stroke width (drawings & shapes) ---- */
     M.$('#wbSize').oninput=e=>{
       M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value;
@@ -8320,6 +8347,13 @@ M.WB = {
     requestAnimationFrame(loop);
     M.WB.readTheme();
     M.WB._mctx=document.createElement('canvas').getContext('2d');   /* scratch context for text metrics — must exist before any hit-test */
+    /* Canvas text can be painted once before webfonts finish loading.  Redraw after
+       the font set settles so Arabic/Latin text never remains missing or clipped. */
+    try{
+      const redrawFonts=()=>{ M.WB.dirty=true; };
+      if(document.fonts?.ready) document.fonts.ready.then(redrawFonts).catch(()=>{});
+      document.fonts?.addEventListener?.('loadingdone',redrawFonts);
+    }catch(e){}
     M.bus.on('theme',()=>{ M.WB.readTheme(); M.WB.dirty=true; });
     M.WB.resize();
     M.WB.setTool('select');   /* the highlighted tool and the active tool must agree from the first frame */
@@ -8355,7 +8389,7 @@ M.WB = {
       case 'rect': case 'ellipse': case 'image': case 'note': return [o.x,o.y,o.w,o.h];
       case 'text': { const s=o.size||22; const wrapW=(o.w&&o.w>4)?Math.max(o.w,s*6):null;
         M.WB._mctx.font=`${(o.style||'').includes('italic')?'italic ':''}${(o.style||'').includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-        const lines=wrapW? M.WB._wrap(M.WB._mctx,o.text,wrapW):String(o.text||'').split('\n');
+        const text=String(o.text??''); const lines=wrapW? M.WB._wrap(M.WB._mctx,text,wrapW):text.split('\n');
         let mw=0; lines.forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
         const w=Math.max(mw,(o.w&&o.w>4)?o.w:0,40); return [o.x-4,o.y-4,w+8,lines.length*s*1.35+8]; }
       default: return [o.x||0,o.y||0,40,40];
@@ -8433,29 +8467,48 @@ M.WB = {
     const isStrokeSel=!!o&&!isTextSel;
     const showStroke=['pen','hi','line','arrow','rect','ellipse'].includes(M.WB.tool)||isStrokeSel;
     const showText=['text','note'].includes(M.WB.tool)||isTextSel;
+    const showFill=['rect','ellipse'].includes(M.WB.tool)||!!o&&(o.type==='rect'||o.type==='ellipse');
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
+    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display=showFill?'':'none');
     const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
+    M.WB.syncFillDot();
     M.WB.syncChip();
   },
-  renderPal(){
-    const pal=M.$('#wbPalette'); pal.innerHTML='';
-    ['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
-     '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'].forEach(c=>{
-      const b=M.el('button'); b.style.background=c; b.title=c;
-      b.classList.toggle('on',M.WB.color.toLowerCase()===c);
-      b.onclick=()=>M.WB.setColor(c);
+  syncFillDot(){
+    const d=M.$('#wbFillDot'); if(!d) return;
+    const none=M.WB.fill==='transparent'||!M.WB.fill;
+    d.classList.toggle('none',none);
+    d.style.background=none?'':'var(--wb-fill-current)';
+    if(!none) d.style.background=M.WB.fill;
+  },
+  renderPal(kind){
+    kind=kind||M.WB._palKind||'stroke'; M.WB._palKind=kind;
+    const pal=M.$('#wbPalette'); if(!pal) return; pal.innerHTML='';
+    const colors=['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
+      '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'];
+    const current=kind==='fill'?M.WB.fill:M.WB.color;
+    if(kind==='fill'){
+      const none=M.el('button'); none.title=M.t('wb_no_fill'); none.setAttribute('aria-label',M.t('wb_no_fill'));
+      none.style.background='repeating-linear-gradient(135deg,transparent 0 5px,var(--line2) 5px 6px)';
+      none.classList.toggle('on',current==='transparent');
+      none.onclick=()=>M.WB.setFill('transparent'); pal.appendChild(none);
+    }
+    colors.forEach(c=>{
+      const b=M.el('button'); b.style.background=c; b.title=c; b.setAttribute('aria-label',c);
+      b.classList.toggle('on',String(current||'').toLowerCase()===c.toLowerCase());
+      b.onclick=()=>kind==='fill'?M.WB.setFill(c):M.WB.setColor(c);
       pal.appendChild(b);
     });
     const row=M.el('div','wb-pal-row');
-    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(M.WB.color)?M.WB.color:'#111111';
-    ci.oninput=()=>M.WB.setColor(ci.value);
-    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=M.t('wb_custom');
+    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(String(current||''))?current:'#111111';
+    ci.oninput=()=>kind==='fill'?M.WB.setFill(ci.value):M.WB.setColor(ci.value);
+    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=kind==='fill'?M.t('wb_fill_custom'):M.t('wb_custom');
     row.append(ci,lbl); pal.appendChild(row);
   },
   setColor(c){
     M.WB.color=c; M.WB._colorTouched=true;
-    M.$('#wbColorDot').style.background=c;
+    const dot=M.$('#wbColorDot'); if(dot) dot.style.background=c;
     if(M.WB.selSet.size && M.WB.canEdit()){
       M.WB.selSet.forEach(id=>{
         const o=M.WB.objs.get(id); if(!o) return;
@@ -8464,7 +8517,21 @@ M.WB = {
       });
       M.WB.dirty=true;
     }
-    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal();
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal(M.WB._palKind);
+  },
+  setFill(c){
+    c=(c==='transparent'||!c)?'transparent':String(c).slice(0,32);
+    M.WB.fill=c;
+    M.WB.syncFillDot();
+    if(M.WB.selSet.size && M.WB.canEdit()){
+      M.WB.selSet.forEach(id=>{
+        const o=M.WB.objs.get(id); if(!o||!['rect','ellipse'].includes(o.type)) return;
+        o.fill=c;
+        M.WB.send({t:'up',o});
+      });
+      M.WB.dirty=true;
+    }
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('fill');
   },
   _fontApply(){
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8537,7 +8604,7 @@ M.WB = {
         M.WB.drawing={id:M.uid(9), type:tool, x1:wx,y1:wy,x2:wx,y2:wy, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'rect': case 'ellipse':
-        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, fill:M.WB.fill, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'text': M.WB.openText(wx,wy,null); break;
       case 'note': {
@@ -8959,7 +9026,7 @@ M.WB = {
     M.WB._mctx ??= document.createElement('canvas').getContext('2d');
     M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${s}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
     let max=0;
-    String(o.text||'').split('\n').forEach(l=>{ const w=M.WB._mctx.measureText(l).width; if(w>max) max=w; });
+    String(o.text??'').split('\n').forEach(l=>{ const w=M.WB._mctx.measureText(l).width; if(w>max) max=w; });
     return max;
   },
   /* the single source of truth for a text block's column width — used by first
@@ -8967,7 +9034,7 @@ M.WB = {
   _measureCol(text,size,style){
     const st=style||'';
     M.WB._mctx.font=`${st.includes('italic')?'italic ':''}${st.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-    let mw=0; String(text).split('\n').forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
+    let mw=0; String(text??'').split('\n').forEach(l=>{ const wd=M.WB._mctx.measureText(l).width; if(wd>mw) mw=wd; });
     return Math.min(420,Math.max(mw+16,140));
   },
   /* real word-wrapping for any canvas context (sticky notes) — splits long lines
@@ -9013,7 +9080,9 @@ M.WB = {
     if(!d) return;
     if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
     if(d.mode) M.WB.mode=d.mode;
+    if(d.pageId && M.WB.pages.some(p=>p.id===d.pageId)) M.WB.pageId=d.pageId;
     if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+    if(M.State.wb) M.State.wb.pageId=M.WB.pageId;
     let n=0;
     (d.objs||[]).forEach(o=>{ if(!M.WB.objs.has(o.id)){ if(!o.pg) o.pg=M.WB.pages[0].id; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); n++; } });
     M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
@@ -9068,6 +9137,22 @@ M.WB = {
     M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave();
   },
   /* ---- multi-page management (admin-authored, signed via wbCtrl) ---- */
+  navigatePage(id){
+    if(!M.Perms.isAdmin()) return;                    /* Admin owns presentation page state */
+    const p=M.WB.pages.find(x=>x.id===id); if(!p || id===M.WB.pageId) return;
+    M.Admin.cmd('wbCtrl',{sub:'pg-view',pg:id});      /* signed + rid-bound + replay-protected */
+  },
+  _applyPageView(id,source){
+    const p=M.WB.pages.find(x=>x.id===id); if(!p) return false;
+    if(M.WB.pageId===id) return true;
+    M.WB.pageId=id;
+    if(M.State.wb) M.State.wb.pageId=id;
+    M.WB.selSet.clear(); M.WB.sel=null;
+    M.WB.renderPages(); M.WB.dirty=true;
+    M.WB.scheduleSave();
+    if(source) M.log('info','board presentation page → '+p.name+(source==='admin'?' (Admin)':''));
+    return true;
+  },
   renderPages(){
     const box=M.$('#wbPages'); if(!box) return;
     box.innerHTML='';
@@ -9075,7 +9160,9 @@ M.WB = {
     M.WB.pages.forEach(p=>{
       const c=M.el('button','wb-pg'+(p.id===M.WB.pageId?' on':''));
       c.appendChild(document.createTextNode(p.name));
-      c.onclick=()=>{ if(M.WB.pageId===p.id) return; M.WB.pageId=p.id; M.WB.selSet.clear(); M.WB.sel=null; M.WB.renderPages(); M.WB.dirty=true; M.log('info','viewing board page: '+p.name); };
+      c.disabled=!isAdmin;              /* Members follow Admin presentation; they cannot change the shared page */
+      if(!isAdmin) c.title='The Admin controls the current page';
+      c.onclick=()=>{ if(!isAdmin) return; M.WB.navigatePage(p.id); };
       if(isAdmin && M.WB.pages.length>1){
         const x=M.el('span','wb-pg-x','×');
         x.title=M.t('wb_del_page');
@@ -9100,8 +9187,7 @@ M.WB = {
   },
   addPage(){
     const pg={id:M.uid(6),name:M.t('wb_page',{n:M.WB.pages.length+1})};
-    M.Admin.cmd('wbCtrl',{sub:'pg-add',pg});   /* signed: broadcast + local dispatch adds it */
-    M.WB.pageId=pg.id; M.WB.renderPages(); M.WB.dirty=true;
+    M.Admin.cmd('wbCtrl',{sub:'pg-add',pg});   /* signed: broadcast + local dispatch adds/selects it for everyone */
     M.toast('ok',M.t('tab_board'),pg.name);
   },
   askDelPage(p){
@@ -9321,6 +9407,7 @@ M.WB = {
       if(Array.isArray(d.pages)&&d.pages.length)
         M.WB.pages=d.pages.map(p=>M.Guard.pick(p,['id','name'])).filter(p=>M.Guard.str(32)(p.id));
       if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+      if(M.State.wb) M.State.wb.pageId=M.WB.pageId;
       M.WB.renderPages(); M.WB.hud();
       /* advance the watermark ONLY now that the state was actually applied */
       M.WB._asRev=d.rev;
@@ -9472,7 +9559,9 @@ M.WB = {
         if(b.wb) Object.assign(W,b.wb);
         if(Array.isArray(b.pages)&&b.pages.length){
           M.WB.pages=b.pages;
-          if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
+          const wanted=b.pageId||b.wb?.pageId;
+          if(wanted && M.WB.pages.some(p=>p.id===wanted)) M.WB.pageId=wanted;
+          else if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
           M.WB.renderPages();
         }
         if(b.cvm){ M.WB.mode=b.cvm; }
@@ -9529,9 +9618,13 @@ M.WB = {
           if(at>=0) M.WB.pages.splice(at,0,{id:b.pg.id,name:b.pg.name});   /* undo restores the page where it used to sit */
           else M.WB.pages.push({id:b.pg.id,name:b.pg.name});                /* manual + still appends */
           M.WB.pages.forEach((p,i)=>{ p.name=M.t('wb_page',{n:i+1}); });   /* keep numbering contiguous */
-          if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=b.pg.id;
-          M.WB.renderPages(); M.WB.dirty=true; M.log('info','board page added: '+b.pg.name+(at>=0?' at position '+(at+1):''));
+          M.WB._applyPageView(b.pg.id,'admin');       /* adding a new presentation page also moves everyone to it */
+          M.WB.renderPages(); M.WB.dirty=true; M.WB.scheduleSave();
+          M.log('info','board page added: '+b.pg.name+(at>=0?' at position '+(at+1):''));
         }
+        break;
+      case 'pg-view':
+        if(typeof b.pg==='string') M.WB._applyPageView(b.pg,'admin');
         break;
       case 'pg-del': {
         const id=b.pg;
@@ -9569,7 +9662,9 @@ M.WB = {
     if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit','wbDbg'].includes(b.id)) return; b.disabled = open? !edit : true; });
-    { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; } M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
+    { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; }
+    { const f=M.$('#wbFillBtn'); if(f) f.disabled=!edit||!open; }
+    M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
     M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
     M.$('#wbExport').disabled = !open || !M.Perms.can('wbExport').ok;
@@ -9883,23 +9978,40 @@ M.WB = {
         }
         break;
       }
-      case 'rect': { const x=Math.min(o.x,o.x+o.w),y=Math.min(o.y,o.y+o.h); ctx.strokeRect(x,y,Math.abs(o.w),Math.abs(o.h)); break; }
-      case 'ellipse': { ctx.beginPath(); ctx.ellipse(o.x+o.w/2,o.y+o.h/2,Math.abs(o.w/2),Math.abs(o.h/2),0,0,7); ctx.stroke(); break; }
+      case 'rect': {
+        const x=Math.min(o.x,o.x+o.w),y=Math.min(o.y,o.y+o.h),w=Math.abs(o.w),h=Math.abs(o.h);
+        const fill=o.fill;
+        if(fill && fill!=='transparent'){ ctx.fillStyle=fill; ctx.fillRect(x,y,w,h); }
+        ctx.strokeStyle=o.color||'#E9F3F4'; ctx.strokeRect(x,y,w,h); break;
+      }
+      case 'ellipse': {
+        ctx.beginPath(); ctx.ellipse(o.x+o.w/2,o.y+o.h/2,Math.abs(o.w/2),Math.abs(o.h/2),0,0,Math.PI*2);
+        const fill=o.fill;
+        if(fill && fill!=='transparent'){ ctx.fillStyle=fill; ctx.fill(); }
+        ctx.strokeStyle=o.color||'#E9F3F4'; ctx.stroke(); break;
+      }
       case 'text': {
-        const size=o.size||22;
-        const stT=o.style||'';
+        /* Text is deliberately painted as an isolated operation. Coercing the payload
+           and re-establishing every canvas text state prevents intermittent blanks caused
+           by malformed/legacy values or state inherited from another object. */
+        const text=String(o.text??''); if(!text) break;
+        const size=Math.max(1,Number(o.size)||22);
+        const stT=typeof o.style==='string'?o.style:'';
+        const dir=M.dirOf(text);
+        const align=(o.align==='left'||o.align==='center'||o.align==='right')?o.align:(dir==='rtl'?'right':'left');
+        ctx.globalCompositeOperation='source-over';
+        ctx.globalAlpha=o.alpha!=null?o.alpha:1;
         ctx.font=`${stT.includes('italic')?'italic ':''}${stT.includes('bold')?'700 ':'400 '}${size}px "IBM Plex Sans Arabic","IBM Plex Sans",sans-serif`;
-        const dir=M.dirOf(o.text);
         ctx.direction=dir;
         ctx.textBaseline='top';
-        const align=o.align||(dir==='rtl'?'right':'left');
         ctx.textAlign=align;
+        ctx.fillStyle=o.color||'#E9F3F4';
         /* wrap at the editor's own width so the posted text breaks exactly where it did while typing */
-        const wrapW=(o.w&&o.w>4)?Math.max(o.w,(o.size||22)*6):null;
-        const lines=wrapW? M.WB._wrap(ctx,o.text,wrapW):String(o.text||'').split('\n');
+        const wrapW=(Number(o.w)>4)?Math.max(Number(o.w),(size)*6):null;
+        const lines=wrapW?M.WB._wrap(ctx,text,wrapW):text.split('\n');
         let maxW=0; for(const ln of lines){ const wdt=ctx.measureText(ln).width; if(wdt>maxW) maxW=wdt; }
-        const W=Math.max(maxW,(o.w&&o.w>4)?o.w:0,40);   /* same width the selection box uses → text and box always agree, both directions */
-        const ax= align==='center'? o.x+W/2 : align==='right'? o.x+W : o.x;
+        const W=Math.max(maxW,Number(o.w)>4?Number(o.w):0,40);
+        const ax=align==='center'?o.x+W/2:align==='right'?o.x+W:o.x;
         lines.forEach((ln,i)=>ctx.fillText(ln,ax,o.y+i*size*1.35));
         break;
       }
@@ -9918,7 +10030,7 @@ M.WB = {
         const nAlign=o.align||(dir==='rtl'?'right':'left');
         ctx.textAlign=nAlign;
         const ax= nAlign==='center'? o.x+o.w/2 : nAlign==='right'? o.x+o.w-10 : o.x+10;
-        const lines=M.WB._wrap(ctx,o.text,o.w-20);
+        const lines=M.WB._wrap(ctx,String(o.text??''),Math.max(1,o.w-20));
         let y=o.y+10;
         ctx.save(); ctx.beginPath(); ctx.rect(o.x+2,o.y+2,o.w-4,Math.max(0,o.h-18)); ctx.clip();   /* text stays inside the note */
         lines.forEach(ln=>{ ctx.fillText(ln,ax,y); y+=nSize*1.45; });
@@ -10182,7 +10294,7 @@ M.App = {
     M.State.peers.clear(); M.State.perms=null; M.State.permsConfirmed=false; M.State.chatTarget=null;
     M.Net.keyPeers=null;   /* key-possession is per transport session */
     M.State.roomPub=null; M.State.roomPubStr=null; M.State.roomPubPin=null; M.State.bans=[];
-    M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{}};
+    M.State.wb={open:false,mode:'admin',locked:false,images:true,export:true,editors:{},pageId:'pg1'};
     M.State.self.admin=false;
     M.Admin.priv=null; M.Admin.pubJwk=null; M.Admin.rid=null; M.Admin.seq=0; M.Admin._maxSeq={}; M.Admin._seqReady=null;   /* persisted maxseq/adminseq stay: instance-scoped, not refresh-scoped */
     M.Crypto.key=null;
@@ -10193,7 +10305,7 @@ M.App = {
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.WB._asRev=-1; M.WB._asRid=null;   /* authoritative-state watermark reset with the board */
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
-    M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
+    M.WB.mode='a4'; M.WB.fill='transparent'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
     M.Grace.until=0; M.Grace.settle=0;   /* note: stored room deadline is intentionally kept */
@@ -10236,7 +10348,7 @@ M.App.restoreRoomLocal = function(){
   M.Chat.restoreLocal();
   M.WB.restoreLocal();
   if(M.Admin.priv||M.Admin.legacy){
-    const ws=M.App.getRoom('wb'); if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; }
+    const ws=M.App.getRoom('wb'); if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; if(ws.pageId && M.WB.pages.some(p=>p.id===ws.pageId)) M.WB.pageId=ws.pageId; }
     const tu=M.App.getRoom('timer'); if(tu && tu>Date.now()) M.State.timerUntil=tu;
     const rn=M.App.getRoom('rname'); if(rn) M.State.room.name=rn;
     const tp=M.App.getRoom('topic'); if(tp!=null) M.State.room.topic=tp;
@@ -10669,7 +10781,7 @@ M.Grace = {
     }
     M.$('#graceBanner').classList.add('hidden');
     M.$('#adminOffPill').classList.add('hidden');
-    if(announce){ M.toast('ok',M.t('grace_title'),M.t('grace_back')); M.log('info','admin returned — auto-termination canceled'); }
+    if(announce){ M.toast('ok',M.t('grace_restored_title'),M.t('grace_back')); M.log('info','admin returned — auto-termination canceled'); }
   },
   onTick(){
     if(!M.Grace.until) return;
