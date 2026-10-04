@@ -1014,7 +1014,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="image" title="Insert image (I)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
           <button class="btool" id="wbColorBtn" title="Stroke color palette" aria-label="Stroke color palette"><span id="wbColorDot" style="background:#111111"></span></button>
-          <button class="btool" id="wbFillBtn" data-ctx="fill" title="Fill color — تعبئة الشكل" aria-label="Fill color"><span id="wbFillDot" class="none"></span></button>
+          <button class="btool" id="wbFillBtn" data-ctx="fill" title="Fill with color — تعبئة الشكل" aria-label="Fill with color"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3l9 9-5 5-9-9 5-5z" stroke-linejoin="round"/><path d="M3 13l5 5M14 8l3-3 4 4-3 3M12 21h9" stroke-linecap="round"/><path d="M18.5 15.5c0 2-2 2.5-2.5 3.5 2 .2 4-.6 4-2.2 0-.6-.7-1-1.5-1.3z" stroke-linejoin="round"/></svg><span id="wbFillDot" class="none"></span></button>
           <label class="brange" data-ctx="stroke" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <span class="bsep"></span>
           <label class="brange" data-ctx="text" title="Text size"><span style="font-size:13px">A</span><input type="range" id="wbFont" min="12" max="72" value="22"></label>
@@ -1457,7 +1457,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.96.9';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
+M.Version = '1.97.1';  /* build stamp — DOM-backed whiteboard text rendering for reliable EN/AR display */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1693,7 +1693,7 @@ en:{
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
- wb_custom:'Custom color', wb_no_fill:'No fill', wb_fill_custom:'Custom fill color',
+ wb_custom:'Custom color', wb_no_fill:'No fill', wb_fill_custom:'Custom fill color', wb_fill_help:'Fill with color — choose the default fill for new shapes or apply it to the selected shape',
  wb_copy:'Copy', wb_paste:'Paste', wb_duplicate:'Duplicate', wb_front:'Bring to Front', wb_back:'Send to Back', wb_delete:'Delete',
  wb_copied_short:'{n} copied',
  wb_copy_latest:'No selection — copied your latest object',
@@ -1895,7 +1895,7 @@ ar:{
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
- wb_custom:'لون مخصّص', wb_no_fill:'بدون تعبئة', wb_fill_custom:'لون تعبئة مخصّص',
+ wb_custom:'لون مخصّص', wb_no_fill:'بدون تعبئة', wb_fill_custom:'لون تعبئة مخصّص', wb_fill_help:'تعبئة باللون — اختر لوناً افتراضياً للأشكال الجديدة أو طبّقه على الشكل المحدد',
  wb_copy:'نسخ', wb_paste:'لصق', wb_duplicate:'تكرار', wb_front:'تقديم للأمام', wb_back:'إرسال للخلف', wb_delete:'حذف',
  wb_copied_short:'نُسخ {n}',
  wb_copy_latest:'لا يوجد تحديد — نُسخ آخر عنصر لمسته',
@@ -8476,10 +8476,12 @@ M.WB = {
     const isStrokeSel=!!o&&!isTextSel;
     const showStroke=['pen','hi','line','arrow','rect','ellipse'].includes(M.WB.tool)||isStrokeSel;
     const showText=['text','note'].includes(M.WB.tool)||isTextSel;
-    const showFill=['rect','ellipse'].includes(M.WB.tool)||!!o&&(o.type==='rect'||o.type==='ellipse');
+    /* Fill is intentionally always visible in edit mode so the feature is discoverable.
+       With no shape selected it controls the default fill for newly drawn rectangles/ellipses;
+       with a compatible shape selected it also updates that shape immediately. */
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
-    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display=showFill?'':'none');
+    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display='');
     const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
     M.WB.syncFillDot();
     M.WB.syncChip();
@@ -9004,7 +9006,7 @@ M.WB = {
       M.WB.send({t:'up',o}); M.WB.applyUp(o);
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-      M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+      M.WB._flash={ids:new Set([o.id]),t:Date.now()};
       M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
       M.log('info','image pasted ('+Math.round(w)+'×'+Math.round(h)+')');
     };
@@ -9020,7 +9022,7 @@ M.WB = {
     M.WB.send({t:'up',o}); M.WB.applyUp(o);
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
-    M.WB._flash={ids:new Set([o.id]),t:Date.now()}; M.WB.focusGroup([o.id]);
+    M.WB._flash={ids:new Set([o.id]),t:Date.now()};
     M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
     M.log('info','external text pasted as whiteboard text ('+String(text).length+' chars)');
   },
@@ -9322,8 +9324,9 @@ M.WB = {
     M.WB.pushUndo(u,r);
     M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
     M.WB._flash={ids:fresh,t:Date.now()};
-    /* the camera zooms to a comfortable level AND centers on the pasted group — never a speck, never off-screen */
-    M.WB.focusGroup(fresh);
+    /* Preserve the user's current viewport. Paste must never unexpectedly zoom or
+       recenter the whiteboard; the pasted objects are positioned at the requested
+       landing point (or the current view center) and remain selected for immediate use. */
     /* a plain HTML marker at the landing spot — proof that survives any canvas repaint bug */
     let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
     fresh.forEach(id=>{ const o=M.WB.objs.get(id); if(!o) return; const [x,y,w,h]=M.WB.bbox(o); gx1=Math.min(gx1,x);gy1=Math.min(gy1,y);gx2=Math.max(gx2,x+w);gy2=Math.max(gy2,y+h); });
@@ -9339,7 +9342,7 @@ M.WB = {
     try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
     M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
     M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
-    M.log('info','pasted '+fresh.size+' object(s); view focused on group');
+    M.log('info','pasted '+fresh.size+' object(s); viewport preserved — no auto-zoom');
   },
   eraseObj(id){
     const o=M.WB.objs.get(id); if(!o) return;
@@ -9682,7 +9685,7 @@ M.WB = {
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit','wbDbg'].includes(b.id)) return; b.disabled = open? !edit : true; });
     { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; }
-    { const f=M.$('#wbFillBtn'); if(f) f.disabled=!edit||!open; }
+    { const f=M.$('#wbFillBtn'); if(f){ f.disabled=!edit||!open; f.title=M.t('wb_fill_help'); f.setAttribute('aria-label',M.t('wb_fill_help')); } }
     M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
     M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
