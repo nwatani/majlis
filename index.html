@@ -406,10 +406,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   #mobileActionsMenu{position:absolute;inset-inline-start:8px;bottom:calc(100% + 8px);display:flex;flex-direction:column;gap:4px;width:min(250px,calc(100vw - 24px));padding:7px;border:1px solid var(--line2);border-radius:16px;background:var(--panel-bg);box-shadow:0 18px 48px -16px rgba(0,0,0,.65);backdrop-filter:blur(12px);opacity:0;transform:translateY(8px) scale(.98);transform-origin:bottom left;pointer-events:none;visibility:hidden;transition:opacity .16s ease,transform .16s ease,visibility .16s}
   [dir="rtl"] #mobileActionsMenu{transform-origin:bottom right}
   #composer.more-open #mobileActionsMenu{opacity:1;transform:none;pointer-events:auto;visibility:visible}
-  .mobile-action{display:flex;align-items:center;gap:10px;width:100%;min-height:42px;padding:7px 9px;border:0;border-radius:11px;background:transparent;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
+  .mobile-action{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:7px 9px;border:0;border-radius:11px;background:transparent;color:var(--ink);text-align:start;cursor:pointer;font:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   .mobile-action:hover,.mobile-action:active{background:var(--bg3)}
-  .mobile-action .ma-ico{width:31px;height:31px;display:grid;place-items:center;border-radius:9px;background:var(--bg3);color:var(--teal);flex:none}
-  .mobile-action .ma-ico svg{width:17px;height:17px}
+  .mobile-action .ma-ico{width:28px;height:28px;display:grid;place-items:center;border-radius:9px;background:var(--bg3);color:var(--teal);flex:none}
+  .mobile-action .ma-ico svg{width:16px;height:16px}
   .mobile-action .ma-txt{font-size:12.5px;font-weight:600;line-height:1.2}
 }
 /* voice message bubbles + recording chip */
@@ -1011,13 +1011,13 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="icon-btn" id="btnShot" title="Capture a screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><circle cx="12" cy="11" r="3.2"/><circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"/><path d="M8 21h8" stroke-linecap="round"/></svg></button>
           <button class="icon-btn" id="btnScrRec" title="Record your screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3" stroke-linejoin="round"/><circle cx="9" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></button>
           <div id="mobileActionsMenu" class="mobile-actions" role="menu" aria-label="Chat actions">
-            <button class="mobile-action" id="mobileFileAction" type="button" role="menuitem">            <button class="mobile-action" id="mobilePollAction" type="button" role="menuitem">
-              <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5h14M5 12h10M5 19h14" stroke-linecap="round"/><circle cx="18" cy="12" r="2"/></svg></span>
-              <span class="ma-txt" data-i18n="create_poll">Create poll</span>
-            </button>
-
+            <button class="mobile-action" id="mobileFileAction" type="button" role="menuitem">
               <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke-linecap="round"/></svg></span>
               <span class="ma-txt" data-i18n="send_file">Send file</span>
+            </button>
+            <button class="mobile-action" id="mobilePollAction" type="button" role="menuitem">
+              <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5h14M5 12h10M5 19h14" stroke-linecap="round"/><circle cx="18" cy="12" r="2"/></svg></span>
+              <span class="ma-txt" data-i18n="create_poll">Create poll</span>
             </button>
             <button class="mobile-action" id="mobileShotAction" type="button" role="menuitem">
               <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><circle cx="12" cy="11" r="3.2"/><path d="M8 21h8" stroke-linecap="round"/></svg></span>
@@ -1539,7 +1539,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.98.0';  /* Admin-authoritative encrypted polls + hardened persistence/synchronization */
+M.Version = '1.98.1';  /* mobile attachment composer fix + Admin-authoritative encrypted polls */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
