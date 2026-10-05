@@ -1,2 +1,2 @@
 # majlis
-Majlis a serverless, single-file WebRTC collaboration platform. Create a room, share one link, and get realtime chat, private messages, P2P file transfers with SHA-256 integrity, independent voice/video/group calls, and a collaborative whiteboard with full Arabic RTL support — all under complete admin control, on PC, Android, and iOS.
+Secure, serverless WebRTC collaboration platform for chat, private messaging, file sharing, voice/video calls, screen sharing, remote assistance, and a interactive whiteboard. Responsive for desktop and mobile, with end-to-end encryption, Admin controls, reliable synchronization, and automatic connection recovery.
