@@ -265,14 +265,22 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   #boardFoot .btool{width:30px;height:30px;border-radius:7px}
   #boardFoot #wbZl{min-width:36px}
 
-  /* Chat composer: preserve every action while giving the message field the
-     maximum practical width on narrow screens. */
-  #composer{gap:4px;padding:8px 8px}
-  #composer > .icon-btn{width:30px;height:30px;min-width:30px;border-radius:8px;padding:0}
-  #composer > .icon-btn svg{width:15px;height:15px}
-  #composer > #btnSend{width:32px;height:32px;min-width:32px}
-  #composer > #btnSend svg{width:16px;height:16px}
-  #composer #msgInput{min-width:0;padding:8px 10px;font-size:14px;line-height:1.35}
+  /* Mobile chat composer: WhatsApp-style priority — compact actions,
+     large message field, and a single mic/send action at the far edge. */
+  #composer{gap:6px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));position:relative}
+  #composer > .icon-btn{width:34px;height:34px;min-width:34px;border-radius:50%;padding:0}
+  #composer > .icon-btn svg{width:17px;height:17px}
+  #composer #btnMoreActions{display:inline-flex;background:var(--bg3);border-color:var(--line2);flex:none;transition:transform .18s ease,background .18s ease}
+  #composer.more-open #btnMoreActions{transform:rotate(45deg);background:var(--bg2)}
+  #composer #msgInput{min-width:0;min-height:36px;padding:8px 12px;font-size:15px;line-height:1.35;border-radius:18px}
+  #composer #btnVoice,#composer #btnSend{width:36px;height:36px;min-width:36px;border-radius:50%;flex:none}
+  #composer #btnVoice svg,#composer #btnSend svg{width:18px;height:18px}
+  #composer #btnAttach,#composer #btnShot,#composer #btnScrRec{display:none}
+  #composer:not(.has-text) #btnSend{display:none}
+  #composer.has-text #btnVoice{display:none}
+  #composer .mobile-actions{display:flex}
+  #composer.recording #btnMoreActions{display:none}
+  #composer.recording #msgInput,#composer.recording #btnVoice,#composer.recording #btnSend,#composer.recording #btnAttach{display:none}
 }
 @media (max-width:440px){
   /* on the narrowest phones, presence moves to the sidebar; the bar keeps only actions */
@@ -390,6 +398,20 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .msg.dm-tag .m-body{border-color:rgba(111,179,242,.45)}
 #typingRow{padding:2px 20px 4px;font-size:12px;color:var(--teal);font-style:italic;height:22px;flex:none}
 #composer{display:flex;align-items:flex-end;gap:9px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex:none;border-top:1px solid var(--line)}
+#btnMoreActions{display:none}
+#mobileActionsMenu{display:none}
+.mobile-actions{display:none}
+@media (max-width:640px){
+  #composer{z-index:8}
+  #mobileActionsMenu{position:absolute;inset-inline-start:8px;bottom:calc(100% + 8px);display:flex;flex-direction:column;gap:4px;width:min(250px,calc(100vw - 24px));padding:7px;border:1px solid var(--line2);border-radius:16px;background:var(--panel-bg);box-shadow:0 18px 48px -16px rgba(0,0,0,.65);backdrop-filter:blur(12px);opacity:0;transform:translateY(8px) scale(.98);transform-origin:bottom left;pointer-events:none;visibility:hidden;transition:opacity .16s ease,transform .16s ease,visibility .16s}
+  [dir="rtl"] #mobileActionsMenu{transform-origin:bottom right}
+  #composer.more-open #mobileActionsMenu{opacity:1;transform:none;pointer-events:auto;visibility:visible}
+  .mobile-action{display:flex;align-items:center;gap:10px;width:100%;min-height:42px;padding:7px 9px;border:0;border-radius:11px;background:transparent;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
+  .mobile-action:hover,.mobile-action:active{background:var(--bg3)}
+  .mobile-action .ma-ico{width:31px;height:31px;display:grid;place-items:center;border-radius:9px;background:var(--bg3);color:var(--teal);flex:none}
+  .mobile-action .ma-ico svg{width:17px;height:17px}
+  .mobile-action .ma-txt{font-size:12.5px;font-weight:600;line-height:1.2}
+}
 /* voice message bubbles + recording chip */
 .msg .m-body.vm{padding:10px 12px;min-width:250px}
 .vm-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
@@ -955,10 +977,27 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
         <div id="msgList"></div>
         <div id="typingRow" class="hidden"><span id="typingLbl"></span></div>
         <div id="composer">
+          <button class="icon-btn" id="btnMoreActions" type="button" aria-label="More actions" aria-expanded="false" title="More actions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
           <button class="icon-btn" id="btnAttach" title="Send file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke-linecap="round"/></svg></button>
           <button class="icon-btn" id="btnVoice" title="Voice message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v4M8 22h8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="icon-btn" id="btnShot" title="Capture a screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><circle cx="12" cy="11" r="3.2"/><circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"/><path d="M8 21h8" stroke-linecap="round"/></svg></button>
           <button class="icon-btn" id="btnScrRec" title="Record your screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3" stroke-linejoin="round"/><circle cx="9" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></button>
+          <div id="mobileActionsMenu" class="mobile-actions" role="menu" aria-label="Chat actions">
+            <button class="mobile-action" id="mobileFileAction" type="button" role="menuitem">
+              <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke-linecap="round"/></svg></span>
+              <span class="ma-txt" data-i18n="send_file">Send file</span>
+            </button>
+            <button class="mobile-action" id="mobileShotAction" type="button" role="menuitem">
+              <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><circle cx="12" cy="11" r="3.2"/><path d="M8 21h8" stroke-linecap="round"/></svg></span>
+              <span class="ma-txt" data-i18n="capture_screenshot">Capture screenshot</span>
+            </button>
+            <button class="mobile-action" id="mobileRecAction" type="button" role="menuitem">
+              <span class="ma-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3v10l-6-3" stroke-linejoin="round"/><circle cx="9" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></span>
+              <span class="ma-txt" data-i18n="record_screen">Record screen</span>
+            </button>
+          </div>
           <div id="capPreview" class="hidden"><video autoplay playsinline muted></video><button class="cap-x" title="Hide preview">–</button></div>
 <div id="scrChip" class="hidden">
             <span class="rec-dot"></span>
@@ -1581,7 +1620,7 @@ en:{
  join_note:'Tip: opening an invite link fills this automatically. The code alone gives basic access; Private rooms need the full invitation link for encrypted content.',
  reconnecting:'Connection lost — recovering automatically…', retry_now:'Retry now', online_s:'online',
  share_room:'Share room', control_center:'Control Center', tab_chat:'Chat', tab_files:'Files', tab_calls:'Calls', tab_board:'Board',
- msg_ph:'Message…', send_file:'Send file', files_sub:'Peer-to-peer · chunked · integrity-checked',
+ msg_ph:'Message…', send_file:'Send file', capture_screenshot:'Capture screenshot', record_screen:'Record screen', more_actions:'More actions', files_sub:'Peer-to-peer · chunked · integrity-checked',
  files_empty:'No transfers yet.<br>Drag & drop a file anywhere, or press Send file.',
  calls_sub:'Multiple independent calls can run at once', calls_empty:'No active calls.<br>Call a member from the list, or start a group call.',
  group_call:'Group call', board_closed:'Whiteboard is closed', board_closed_sub:'The Admin has not opened the board for this room yet.',
@@ -1786,7 +1825,7 @@ ar:{
  join_note:'تلميح: فتح رابط الدعوة يملأ هذا الحقل تلقائياً. الرمز وحده يمنح وصولاً أساسياً؛ الغرف الخاصة تحتاج رابط الدعوة الكامل للمحتوى المشفّر.',
  reconnecting:'انقطع الاتصال — تتم الاستعادة تلقائياً…', retry_now:'إعادة المحاولة', online_s:'متصل',
  share_room:'مشاركة الغرفة', control_center:'مركز التحكم', tab_chat:'الدردشة', tab_files:'الملفات', tab_calls:'المكالمات', tab_board:'السبورة',
- msg_ph:'رسالة…', send_file:'إرسال ملف', files_sub:'ندّ لندّ · مجزّأ · مع تحقق من السلامة',
+ msg_ph:'رسالة…', send_file:'إرسال ملف', capture_screenshot:'التقاط لقطة شاشة', record_screen:'تسجيل الشاشة', more_actions:'المزيد من الإجراءات', files_sub:'ندّ لندّ · مجزّأ · مع تحقق من السلامة',
  files_empty:'لا توجد عمليات نقل بعد.<br>اسحب وأفلت ملفاً في أي مكان، أو اضغط إرسال ملف.',
  calls_sub:'يمكن إجراء عدة مكالمات مستقلة في الوقت نفسه', calls_empty:'لا مكالمات نشطة.<br>اتصل بعضو من القائمة أو ابدأ مكالمة جماعية.',
  group_call:'مكالمة جماعية', board_closed:'السبورة مغلقة', board_closed_sub:'لم يفتح المشرف السبورة في هذه الغرفة بعد.',
@@ -4177,16 +4216,48 @@ M.Chat = {
       if(!gate.ok){ M.toast('warn',M.t('perm_denied'),M.t(gate.reason)); return; }
       /* send-side mirror of the authoritative stable deny: no ghost "sent" messages */
       if(M.Perms.selfStableDenied(target?'dm':'chat')){ M.toast('warn',M.t('perm_denied'),M.t(target?'dm_disabled':'chat_disabled')); return; }
-      inp.value=''; inp.style.height='auto';
+      inp.value=''; inp.style.height='auto'; composer?.classList.remove('has-text','more-open');
+      M.$('#btnMoreActions')?.setAttribute('aria-expanded','false');
       M.Chat.send(text,target);
     };
     M.$('#btnSend').onclick=send;
+    const composer=M.$('#composer');
+    const syncComposerMode=()=>{
+      const has=!!inp.value.trim();
+      composer.classList.toggle('has-text',has);
+      if(!has) composer.classList.remove('more-open');
+      const more=M.$('#btnMoreActions');
+      if(more){
+        const label=M.t('more_actions');
+        more.setAttribute('aria-label',label);
+        more.setAttribute('title',label);
+      }
+    };
+    const closeMore=()=>{
+      composer.classList.remove('more-open');
+      const b=M.$('#btnMoreActions');
+      if(b) b.setAttribute('aria-expanded','false');
+    };
+    const openMore=()=>{
+      composer.classList.add('more-open');
+      const b=M.$('#btnMoreActions');
+      if(b) b.setAttribute('aria-expanded','true');
+    };
+    M.$('#btnMoreActions').onclick=e=>{ e.preventDefault(); e.stopPropagation(); composer.classList.contains('more-open')?closeMore():openMore(); };
+    M.$('#mobileActionsMenu').addEventListener('click',e=>e.stopPropagation());
+    M.$('#mobileFileAction').onclick=e=>{ e.preventDefault(); closeMore(); M.$('#btnAttach').click(); };
+    M.$('#mobileShotAction').onclick=e=>{ e.preventDefault(); closeMore(); M.$('#btnShot').click(); };
+    M.$('#mobileRecAction').onclick=e=>{ e.preventDefault(); closeMore(); M.$('#btnScrRec').click(); };
+    document.addEventListener('pointerdown',e=>{ if(!composer.contains(e.target)) closeMore(); });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeMore(); });
     inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
     inp.addEventListener('input',()=>{
       inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px';
+      syncComposerMode();
       M.Chat._typingThrottled ??= M.throttle(()=>{ M.Net.send('type',{to:M.State.chatTarget,n:M.State.self.name}); },1400);
       M.Chat._typingThrottled();
     });
+    syncComposerMode();
     M.$('#btnBackDm').onclick=()=>{ if(M.Chat.view==='inbox') M.Chat.switchTarget(M.Chat._preInbox||null); else M.Chat.switchTarget(null); };
     M.$('#btnInbox').onclick=()=>{ if(M.Chat.view==='inbox') M.Chat.switchTarget(M.Chat._preInbox??M.State.chatTarget); else M.Chat.openInbox(); };
     M.Chat.view='thread';
