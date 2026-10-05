@@ -1497,7 +1497,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.97.5';  /* optional shape fill + robust late-join whiteboard state convergence */
+M.Version = '1.97.8';  /* optional shape fill + robust late-join whiteboard state convergence */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2435,14 +2435,14 @@ M.Admin = {
   /* instance confirmation via rid only (never via the room key): seeing a live Admin
      broadcast our own rid confirms we belong to this instance. A conflicting rid
      demotes us; silence proves nothing and grants nothing. */
-  confirmSelf(){
+  async confirmSelf(){
     if(!M.Admin.pending) return;
     M.Admin.pending=false;
     /* identity authenticated for the current room: its stored rid is now the trusted
        instance, so rid-scoped persistence may restore */
     if(M.Admin.rid && M.State.room && !M.State.room.rid){
       M.State.room.rid=M.Admin.rid;
-      M.App.restoreRoomLocal();
+      await M.App.restoreRoomLocal();
     }
     M.$('#btnCC')?.classList.toggle('hidden',false);
     M.$('#btnTerm')?.classList.toggle('hidden',false);
@@ -2638,7 +2638,9 @@ M.Admin = {
     /* admin commands are ECDSA-signed AND bound to the current authenticated room
        instance, so a valid signature from an old instance never executes elsewhere */
     M.Admin._ensureSeq();   /* never reuse low sequence numbers under this Admin identity after reconnect */
-    const body={cmd:name,...payload,from:M.State.self.id,rid:M.State.room?.rid||undefined,ts:Date.now(),seq:++M.Admin.seq};
+    let payloadCopy={};
+    try{ payloadCopy=JSON.parse(JSON.stringify(payload||{})); }catch(e){ M.log('err','admin command aborted — payload is not serializable: '+(e.message||e)); return false; }
+    const body={cmd:name,...payloadCopy,from:M.State.self.id,rid:M.State.room?.rid||undefined,ts:Date.now(),seq:++M.Admin.seq};
     try{ M.App.putRoom('adminseq',M.Admin.seq); }catch(e){}   /* persist own counter for this rid */
     /* advance THIS identity's high-water locally too, so an older snapshot relayed back to
        the Admin (even under a new transport id) is rejected by the same namespace */
@@ -2746,8 +2748,8 @@ M.Admin = {
   /* cache the exact signed snapshot object (unmodified) for later verbatim relay */
   cacheSnapshot(m){
     if(!m||!m.sig||!m.pub||m.sub!=='snapshot') return;       /* only genuine signed snapshots are cached */
-    M.Admin._snapCache=m;
-    try{ M.App.putRoom('snapcache',{seq:m.seq,m}); }catch(e){}
+    try{ M.Admin._snapCache=JSON.parse(JSON.stringify(m)); }catch(e){ return; }
+    try{ M.App.putRoom('snapcache',{seq:m.seq,m:M.Admin._snapCache}); }catch(e){}
   },
   restoreSnapCache(){
     try{
@@ -3038,13 +3040,14 @@ M.Guard = {
     note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'],
     fill:['x','y','w','h','src'] },
   wbNum(v){ return typeof v==='number' && isFinite(v) && Math.abs(v)<=1e6; },
+  wbColor(v){ return typeof v==='string' && (v==='transparent'||/^#[0-9a-f]{6}$/i.test(v)); },
   wbPt(p){ return Array.isArray(p) && p.length===2 && M.Guard.wbNum(p[0]) && M.Guard.wbNum(p[1]); },
   wbObj(o){
     const G=M.Guard;
     if(!G.isObj(o)||!G.str(32)(o.id)||!G.en(G.wbTypes)(o.type)) return false;
     if('alpha' in o && !G.num(0,1)(o.alpha)) return false;
-    if('color' in o && !G.str(32)(o.color)) return false;
-        if('size' in o && !G.num(0.5,500)(o.size)) return false;
+    if('color' in o && !G.wbColor(o.color)) return false;
+    if('size' in o && !G.num(0.5,500)(o.size)) return false;
     if('pg' in o && !G.str(32)(o.pg)) return false;
     if('by' in o && !G.str(64)(o.by)) return false;
     switch(o.type){
@@ -3054,8 +3057,9 @@ M.Guard = {
         return ['x1','y1','x2','y2'].every(k=>G.wbNum(o[k]));
       case 'rect': case 'ellipse': case 'image': case 'note': case 'fill':
         if(!['x','y','w','h'].every(k=>G.wbNum(o[k]))) return false;
-        if(o.type==='image' || o.type==='fill') return typeof o.src==='string' && o.src.length<=10*1024*1024 && o.src.indexOf('data:image/')===0;
-        if(o.type==='note') return G.str(G.TEXT_MAX)(o.text||'') && (!('bg' in o)||G.str(32)(o.bg));
+        if(o.type==='image' || o.type==='fill') return typeof o.src==='string' && o.src.length<=10*1024*1024 && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(o.src);
+        if(o.type==='note') return G.str(G.TEXT_MAX)(o.text||'') && (!('bg' in o)||G.wbColor(o.bg));
+        if((o.type==='rect'||o.type==='ellipse') && ('fill' in o) && !G.wbColor(o.fill)) return false;
         return true;
       case 'text':
         return G.wbNum(o.x) && G.wbNum(o.y) && G.str(G.TEXT_MAX)(o.text)
@@ -3230,8 +3234,14 @@ M.Guard = {
       if(d.t==='order') return M.Guard.arr(4000,M.Guard.str(32))(d.ids) && M.Guard.shape(d,base,pid,a);
       if(d.t==='req') return M.Guard.shape(d,base,pid,a);
       if(d.t==='state') return M.Guard.shape({sig:d.sig,pub:d.pub,rid:d.rid,from:d.from},base,pid,a)
-        && M.Guard.int(0,Number.MAX_SAFE_INTEGER)(d.rev||0) && (!('objects' in d)||M.Guard.arr(4000,M.Guard.wbObj)(d.objects))
-        && (!('pages' in d)||M.Guard.arr(32,M.Guard.isObj)(d.pages)) && (!('admin' in d)||typeof d.admin==='boolean');
+        && M.Guard.int(0,Number.MAX_SAFE_INTEGER)(d.rev||0)
+        && (!('objects' in d)||M.Guard.arr(4000,M.Guard.wbObj)(d.objects))
+        && (!('pages' in d)||M.Guard.arr(32,M.Guard.isObj)(d.pages))
+        && (!('order' in d)||M.Guard.arr(4000,M.Guard.str(32))(d.order))
+        && (!('pageId' in d)||M.Guard.str(32)(d.pageId))
+        && (!('mode' in d)||M.Guard.en(['a4','free'])(d.mode))
+        && (!('open' in d)||typeof d.open==='boolean')
+        && (!('admin' in d)||typeof d.admin==='boolean');
       return M.Guard.shape(d,base,pid,a);   /* clear/close — logged & ignored downstream as before */
     },
     hist(d,pid,a){
@@ -3590,6 +3600,7 @@ M.Net = {
             if(!M.State.room?.rid){ M.State.room.rid=vrid; M.WBDbg.log('WB: current rid established'); try{ M.Chat.restoreLocal(); }catch(e){} }
             verifiedAt=Date.now();
             M.WBDbg.log('WB: Admin presence verified');
+            if(!M.WB._stateReady){ M.WB._reqN=0; M.WB._lastStateReqAt=0; }
             if(typeof d.wbo==='boolean'){
               M.WBDbg.log('WB: Admin heartbeat reports board '+(d.wbo?'OPEN':'CLOSED'));
               if(d.wbo!==M.State.wb.open){
@@ -3669,6 +3680,7 @@ M.Net = {
          policy could treat it as a valid grant after receiving an unrelated override for someone
          else. Deltas apply their fields; confirmation waits for the next full snapshot. */
       if(m.cmd==='wbCtrl'&&m.sub==='snapshot') M.State.permsConfirmed=true;
+      if(!M.WB._stateReady){ M.WB._reqN=0; M.WB._lastStateReqAt=0; }
       M.Admin.dispatch(m,peerId);
     };
     M.Net.A.type.onMessage = (d,{peerId}) => { if(!M.Guard.check('type',d,peerId)) return; if(d.n) M.Members.adopt(peerId,d.n); M.bus.emit('typing',{peerId,to:d.to}); };
@@ -5779,7 +5791,7 @@ M.FT = {
       const bar=M.el('div','x-bar'); const i=M.el('i'); i.style.width=pct+'%'; bar.appendChild(i); card.appendChild(bar);
       const st=M.el('div','x-stat');
       const label={queued:M.t('st_queued'),sending:M.t('st_sending'),receiving:M.t('st_receiving'),paused:M.t('st_paused'),done:M.t('st_done'),failed:M.t('st_failed'),canceled:M.t('st_canceled'),verify:M.t('st_verify')}[t.status]||t.status;
-      st.innerHTML=`<span class="${t.status==='done'?'ok':(t.status==='failed'?'er':'')}">${label}${t.status==='failed'&&t.err?' — '+t.err:''}</span>`;
+      const statusSpan=M.el('span',t.status==='done'?'ok':(t.status==='failed'?'er':'')); statusSpan.textContent=label+(t.status==='failed'&&t.err?' — '+String(t.err):''); st.appendChild(statusSpan);
       if(['sending','receiving'].includes(t.status)){
         const rem=t.size-(t.sent||t.recv||0);
         const eta=t.speed>1024? ' · ~'+M.fmt.dur(rem/t.speed) : '';
@@ -8216,7 +8228,7 @@ M.WB = {
   mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default — ideal for PDF export; admin can switch to free canvas */
   tool:'pen', color:'#111111', fill:'transparent', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
-  _stateReady:false, _stateReadyRid:null, _lastStateReqAt:0, _stateCache:null, _stateCacheRid:null, _stateReqMax:10,
+  _stateReady:false, _stateReadyRid:null, _lastStateReqAt:0, _stateCache:null, _stateCacheRid:null, _stateReqMax:15, _stateRev:0, _stateBuildSeq:0,
   activePeers:new Map(), editorsNote:null,
   init(){
     const cv=M.$('#boardCanvas'); M.WB.cv=cv; M.WB.ctx=cv.getContext('2d');
@@ -8255,7 +8267,7 @@ M.WB = {
           const o=M.WB.objs.get(id);
           if(o && ['pen','hi','line','arrow','rect','ellipse'].includes(o.type)){ o.size=+e.target.value; M.WB.send({t:'up',o}); }
         });
-        M.WB.dirty=true;
+        M.WB.dirty=true; M.WB.scheduleSave();
       }
     };
     /* ---- text size: slider + typed number, kept in sync ---- */
@@ -8282,7 +8294,7 @@ M.WB = {
             const o=M.WB.objs.get(id);
             if(o && (o.type==='text'||o.type==='note')){ o.style=M.WB.styleStr(); M.WB.send({t:'up',o}); }
           });
-          M.WB.dirty=true;
+          M.WB.dirty=true; M.WB.scheduleSave();
         }
       };
     });
@@ -8299,7 +8311,7 @@ M.WB = {
             const o=M.WB.objs.get(id);
             if(o && (o.type==='text'||o.type==='note')){ o.align=M.WB.align; M.WB.send({t:'up',o}); }
           });
-          M.WB.dirty=true;
+          M.WB.dirty=true; M.WB.scheduleSave();
         }
       };
     });
@@ -8357,7 +8369,8 @@ M.WB = {
     cv.addEventListener('pointerdown', e=>M.WB.pDown(e));
     cv.addEventListener('pointermove', e=>M.WB.pMove(e));
     cv.addEventListener('pointerup', e=>M.WB.pUp(e));
-    cv.addEventListener('pointercancel', e=>M.WB.pUp(e));
+    cv.addEventListener('pointercancel', e=>M.WB.pCancel(e));
+    cv.addEventListener('lostpointercapture', e=>{ if(M.WB.pointers.has(e.pointerId)) M.WB.pCancel(e); });
     cv.addEventListener('dblclick', e=>M.WB.dbl(e));
     cv.addEventListener('wheel', e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); M.WB.zoomAt(Math.exp(-e.deltaY*0.0012), e.clientX-r.left, e.clientY-r.top); }, {passive:false});
     /* object context menu — right-click on desktop */
@@ -8555,7 +8568,8 @@ M.WB = {
     const showText=['text','note'].includes(M.WB.tool)||isTextSel;
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
-    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display='');
+    const showFill=['rect','ellipse'].includes(M.WB.tool)||(!!o&&['rect','ellipse'].includes(o.type));
+    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display=showFill?'':'none');
     const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);
     M.WB.syncFillDot();
     M.WB.syncChip();
@@ -8593,6 +8607,8 @@ M.WB = {
     row.append(ci,lbl); pal.appendChild(row);
   },
   setColor(c){
+    c=String(c||'');
+    if(!/^#[0-9a-f]{6}$/i.test(c)) c='#111111';
     M.WB.color=c; M.WB._colorTouched=true;
     const dot=M.$('#wbColorDot'); if(dot) dot.style.background=c;
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8603,12 +8619,13 @@ M.WB = {
         else return;
         M.WB.send({t:'up',o});
       });
-      M.WB.dirty=true;
+      M.WB.dirty=true; M.WB.scheduleSave();
     }
     if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('stroke');
   },
   setFill(c){
-    c=(c==='transparent'||!c)?'transparent':String(c).slice(0,32);
+    c=String(c||'');
+    if(c!=='transparent'&&!/^#[0-9a-f]{6}$/i.test(c)) c='transparent';
     M.WB.fill=c;
     M.WB.syncFillDot();
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8617,7 +8634,7 @@ M.WB = {
         o.fill=c;
         M.WB.send({t:'up',o});
       });
-      M.WB.dirty=true;
+      M.WB.dirty=true; M.WB.scheduleSave();
     }
     if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('fill');
   },
@@ -8631,10 +8648,10 @@ M.WB = {
           M.WB.send({t:'up',o});
         }
       });
-      M.WB.dirty=true;
+      M.WB.dirty=true; M.WB.scheduleSave();
     }
   },
-  canEdit(){ return M.Perms.can('wbEdit').ok && M.State.wb.open; },
+  canEdit(){ return M.Perms.can('wbEdit').ok && M.State.wb.open && M.Crypto.has(); },
   pDown(e){
     if(!M.State.wb.open) return;
     M.WB.commitText();
@@ -8772,6 +8789,36 @@ M.WB = {
     }
   },
   _liveUpd: null,
+  pCancel(e){
+    try{ M.WB.cv.releasePointerCapture?.(e.pointerId); }catch(_){}
+    M.WB.pointers.delete(e.pointerId);
+    if(M.WB.pointers.size<2) M.WB.pinch=null;
+    clearTimeout(M.WB._lpT); M.WB._lp=null;
+    const d=M.WB.drag;
+    /* pointercancel/lost-capture is a real interruption (OS gesture, scroll, incoming
+       call, browser takeover). Undo every already-broadcast transient mutation so a
+       canceled gesture cannot leave local and remote boards diverged. */
+    if(d?.mode==='move' && d.os){
+      d.os.forEach((src,id)=>{
+        const cur=M.WB.objs.get(id); if(!cur) return;
+        const restored=JSON.parse(JSON.stringify(src));
+        M.WB.objs.set(id,restored);
+        try{ M.WB.send({t:'up',o:restored}); }catch(_){}
+      });
+    } else if(d?.mode==='resize' && d.o){
+      const restored=JSON.parse(JSON.stringify(d.o));
+      M.WB.objs.set(restored.id,restored);
+      try{ M.WB.send({t:'up',o:restored}); }catch(_){}
+    }
+    if(M.WB.drawing){
+      const id=M.WB.drawing.id;
+      M.WB.drawing=null;
+      M.WB.objs.delete(id);
+      M.WB.order=M.WB.order.filter(x=>x!==id);
+      try{ M.WB.send({t:'del',id}); }catch(_){}
+    }
+    M.WB.drag=null; M.WB.dirty=true; M.WB.scheduleSave();
+  },
   pUp(e){
     M.WB.pointers.delete(e.pointerId);
     if(M.WB.pointers.size<2) M.WB.pinch=null;
@@ -8805,6 +8852,7 @@ M.WB = {
       }
       M.WB.dirty=true;
     }
+    M.WB.scheduleSave();
     M.WB.drag=null;
     /* tap-tap opens the editor on text/notes — dblclick is unreliable on touch */
     if(wasTap && M.WB.sel && M.WB.canEdit()){
@@ -8824,6 +8872,7 @@ M.WB = {
         if(o.w<0){o.x+=o.w;o.w=-o.w} if(o.h<0){o.y+=o.h;o.h=-o.h}
         M.WB.send({t:'up',o});
         M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o:JSON.parse(JSON.stringify(o))}]);
+        M.WB.scheduleSave();
         /* a finished drawing is immediately selected — Ctrl+C "just works" without a tool switch */
         M.WB.selSet=new Set([o.id]); M.WB.sel=o.id;
         M.WB.dirty=true;
@@ -8909,24 +8958,33 @@ M.WB = {
   },
 
   /* ---------- ops / sync ---------- */
-  send(op){ if(M.State.wb.open){
-      if(M.Perms.isAdmin()){   /* admin ops carry a real ECDSA signature bound to the current rid */
-        op.rid=M.State.room?.rid||undefined;
-        /* transport-sender binding: the Admin's CURRENT peer id goes INSIDE the signed
-           payload. Receivers treat the op as Admin-authored only if the delivering
-           transport peer matches it — a replayed op forwarded by anyone else fails. */
-        op.from=M.State.self.id;
-        /* fail closed: if signing fails the op is aborted, never sent unsigned */
-        M.Admin.signObj(op).then(sig=>{ op.sig=sig; M.Net.sendEnc('wb',op); })
+  cloneWire(v){
+    try{ return JSON.parse(JSON.stringify(v)); }catch(e){ M.log('err','whiteboard wire clone failed: '+(e.message||e)); return null; }
+  },
+  send(op){
+    const wire=M.WB.cloneWire(op); if(!wire) return false;
+    if(M.State.wb.open){
+      if(M.Perms.isAdmin()){
+        wire.rid=M.State.room?.rid||undefined;
+        wire.from=M.State.self.id;
+        /* Sign an immutable copy, then transmit from that same immutable snapshot. This
+           prevents high-frequency drag/pointer mutations from changing bytes after signing. */
+        M.Admin.signObj(wire).then(sig=>{ const pkt=M.WB.cloneWire({...wire,sig}); if(pkt) M.Net.sendEnc('wb',pkt); })
           .catch(e=>{ M.log('err','whiteboard op aborted — signing failed: '+(e.message||e)); });
-      } else M.Net.sendEnc('wb',op);
-    } M.WB.dirty=true; },
-  localDel(id){ M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave(); },
+      } else M.Net.sendEnc('wb',wire);
+    }
+    M.WB.dirty=true; return true;
+  },
+  localDel(id){ const existed=M.WB.objs.delete(id); M.WB.order=M.WB.order.filter(x=>x!==id); if(M.WB.sel===id) M.WB.sel=null; M.WB.selSet.delete(id); if(existed) M.WB.rev++; M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave(); },
   applyUp(o){
     if(!o.pg) o.pg=M.WB.pages[0].id;   /* legacy/older-build objects belong to the first page */
     const existed=M.WB.objs.has(o.id);
     M.WB.objs.set(o.id,o);
-    if(!existed){ M.WB.order.push(o.id); M.WB.hud(); }
+    if(!existed){
+      /* Bucket fills are raster background patches, so new foreground objects remain visible above them. */
+      if(o.type==='fill') M.WB.order.unshift(o.id); else M.WB.order.push(o.id);
+      M.WB.hud();
+    }
     M.WB.rev++; M.WB.dirty=true; M.WB.scheduleSave();
   },
   /* ---------------- object context menu ---------------- */
@@ -8971,7 +9029,7 @@ M.WB = {
     }
     M.WB.dirty=true;
   },
-  sendOrder(){ if(M.State.wb.open) M.Net.sendEnc('wb',{t:'order',ids:M.WB.order}); },
+  sendOrder(){ if(M.State.wb.open){ M.WB.send({t:'order',ids:[...M.WB.order]}); M.WB.scheduleSave(); } },
   /* ================= clipboard subsystem =================
      Priority: the SYSTEM clipboard is always consulted first on paste (it is
      by definition the freshest thing the user copied); the internal buffer is
@@ -9089,7 +9147,7 @@ M.WB = {
       M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
       M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
       M.WB._flash={ids:new Set([o.id]),t:Date.now()};
-      M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
+      M.WB.dirty=true; M.WB.scheduleSave(); M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
       M.log('info','image pasted ('+Math.round(w)+'×'+Math.round(h)+')');
     };
     img.onerror=()=>M.WB.banner(M.t('wb_paste_empty'),'err');
@@ -9105,7 +9163,7 @@ M.WB = {
     M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
     M.WB.selSet=new Set([o.id]); M.WB.sel=o.id; M.WB.setTool('select');
     M.WB._flash={ids:new Set([o.id]),t:Date.now()};
-    M.WB.dirty=true; M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
+    M.WB.dirty=true; M.WB.scheduleSave(); M.WB.hud(M.t('wb_pasted',{n:1})); M.WB.banner(M.t('wb_pasted',{n:1}));
     M.log('info','external text pasted as whiteboard text ('+String(text).length+' chars)');
   },
   hud(msg){
@@ -9162,7 +9220,7 @@ M.WB = {
     if(!M.State.room) return;
     /* _img is a DOM Image cache, never content — the image data itself (o.src) is kept */
     const objs=[...M.WB.objs.values()].map(o=>{ const c={...o}; delete c._img; return c; });
-    const payload={v:2,pages:M.WB.pages,mode:M.WB.mode,objs};
+    const payload={v:4,pages:M.WB.pages,mode:M.WB.mode,pageId:M.WB.pageId,order:[...M.WB.order],stateRev:M.WB._stateRev||0,objs};
     try{
       const wk=M.App.skey('wbobj'); if(!wk) return;   /* no instance id yet — do not write code-keyed board data */
       await M.WBDB.set(wk,payload);
@@ -9181,13 +9239,28 @@ M.WB = {
     let d=null;
     try{ d=await M.WBDB.get(wk); }catch(e){}
     if(!d) return;
-    if(Array.isArray(d.pages)&&d.pages.length) M.WB.pages=d.pages;
-    if(d.mode) M.WB.mode=d.mode;
+    const rawPages=Array.isArray(d.pages)?d.pages:[];
+    const pages=rawPages.map(p=>M.Guard.pick(p,['id','name']))
+      .filter(p=>M.Guard.str(32)(p.id)&&M.Guard.str(64)(p.name)).slice(0,32);
+    if(pages.length) M.WB.pages=pages;
+    if(!M.WB.pages.length) M.WB.pages=[{id:'pg1',name:'Page 1'}];
+    if(d.mode==='a4'||d.mode==='free') M.WB.mode=d.mode;
+    if(Number.isInteger(d.stateRev)&&d.stateRev>=0) M.WB._stateRev=Math.max(M.WB._stateRev||0,d.stateRev);
     if(d.pageId && M.WB.pages.some(p=>p.id===d.pageId)) M.WB.pageId=d.pageId;
     if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
     if(M.State.wb) M.State.wb.pageId=M.WB.pageId;
-    let n=0;
-    (d.objs||[]).forEach(o=>{ if(!M.WB.objs.has(o.id)){ if(!o.pg) o.pg=M.WB.pages[0].id; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); n++; } });
+    const pageIds=new Set(M.WB.pages.map(p=>p.id));
+    const accepted=[]; const seenIds=new Set(); let n=0;
+    M.WB.objs.clear(); M.WB.order=[];
+    (Array.isArray(d.objs)?d.objs:[]).forEach(raw=>{
+      const o=M.Guard.pickWbObj(raw); if(!o||seenIds.has(o.id)) return;
+      if(!o.pg||!pageIds.has(o.pg)) o.pg=M.WB.pages[0].id;
+      seenIds.add(o.id); accepted.push(o); M.WB.objs.set(o.id,o); n++;
+    });
+    const savedOrder=Array.isArray(d.order)?d.order.filter(id=>seenIds.has(id)):[];
+    const used=new Set();
+    M.WB.order=[...savedOrder.filter(id=>!used.has(id)&&used.add(id)),...accepted.map(o=>o.id).filter(id=>!used.has(id)&&used.add(id))];
+    M.WB.applyMode();
     M.WB.renderPages(); M.WB.hud(); M.WB.dirty=true;
     M.log('info','restored local whiteboard ('+n+' objects incl. images, mode '+M.WB.mode+')');
   },
@@ -9236,7 +9309,7 @@ M.WB = {
     M.WB.selSet.forEach(id=>{ if(gone.has(id)) M.WB.selSet.delete(id); });
     if(M.WB.sel&&gone.has(M.WB.sel)) M.WB.sel=null;
     M.WB.undo=[]; M.WB.redo=[];
-    if(broadcast) try{ M.WB.send({t:'clear',pg}); }catch(e){}
+    if(gone.size) M.WB.rev++;
     M.WB.hud(); M.WB.dirty=true; M.WB.scheduleSave();
   },
   /* ---- multi-page management (admin-authored, signed via wbCtrl) ---- */
@@ -9516,7 +9589,7 @@ M.WB = {
         setTimeout(()=>mk.remove(),5000);
       M.WB.cv.style.opacity='0.998'; requestAnimationFrame(()=>{ M.WB.cv.style.opacity=''; });  /* force a composite pass */
     }
-    M.WB.dirty=true;
+    M.WB.dirty=true; M.WB.scheduleSave();
     try{ M.WB.draw(); }catch(e){ M.log('err','paste draw: '+e.message); }   /* paint immediately — don't wait for the render loop */
     M.WB.hud(M.t('wb_pasted',{n:fresh.size}));
     M.WB.banner(M.t('wb_pasted',{n:fresh.size}));
@@ -9559,7 +9632,7 @@ M.WB = {
       const valid=(d.ids||[]).filter(id=>M.WB.objs.has(id));   /* z-order sync: adopt the sender's stacking, keep any local-only objects on top */
       const missing=M.WB.order.filter(id=>!valid.includes(id));
       M.WB.order=[...valid,...missing];
-      M.WB.dirty=true;
+      M.WB.dirty=true; M.WB.scheduleSave();
       return;
     }
     if(d.t==='req'){
@@ -9604,23 +9677,35 @@ M.WB = {
       M.WBDbg.log('WB: '+(directAdmin?'direct':'relayed')+' Admin-signed board state accepted (rev '+d.rev+')');
       if(!M.State.wb.open && directAdmin){ M.State.wb.open=true; M.WB.refreshUI(); }   /* relays never create Admin board-open authority */
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
-      M.WB.objs.clear(); M.WB.order=[];
-      /* every state object passes the bounded schema + per-type allowlist before it
-         may enter board state — verified admin bytes were already checked above */
-      (d.objects||[]).forEach(raw=>{ const o=M.Guard.pickWbObj(raw); if(!o) return;
-        if(!o.pg) o.pg=M.WB.pages[0]?.id||'pg1'; M.WB.objs.set(o.id,o); M.WB.order.push(o.id); });
-      if(Array.isArray(d.pages)&&d.pages.length)
-        M.WB.pages=d.pages.map(p=>M.Guard.pick(p,['id','name'])).filter(p=>M.Guard.str(32)(p.id));
-      if(!M.WB.pages.find(p=>p.id===M.WB.pageId)) M.WB.pageId=M.WB.pages[0].id;
-      if(M.State.wb) M.State.wb.pageId=M.WB.pageId;
+      const pages=Array.isArray(d.pages)?d.pages.map(p=>M.Guard.pick(p,['id','name']))
+        .filter(p=>M.Guard.str(32)(p.id)&&M.Guard.str(64)(p.name)).slice(0,32):[];
+      if(!pages.length){ M.WBDbg.reject('WB: state rejected — missing/invalid page set'); return; }
+      const pageIds=new Set(pages.map(p=>p.id));
+      if(!Array.isArray(d.objects)||d.objects.length>4000){ M.WBDbg.reject('WB: state rejected — missing/invalid object set'); return; }
+      if('order' in d && (!Array.isArray(d.order)||d.order.length>4000)){ M.WBDbg.reject('WB: state rejected — invalid z-order set'); return; }
+      const incoming=[]; const seenIds=new Set();
+      d.objects.forEach(raw=>{
+        const o=M.Guard.pickWbObj(raw); if(!o||seenIds.has(o.id)) return;
+        if(!o.pg||!pageIds.has(o.pg)) o.pg=pages[0].id;
+        seenIds.add(o.id); incoming.push(o);
+      });
+      M.WB.pages=pages;
+      M.WB.objs.clear(); incoming.forEach(o=>M.WB.objs.set(o.id,o));
+      const ordered=Array.isArray(d.order)?d.order.filter(id=>seenIds.has(id)):incoming.map(o=>o.id);
+      const used=new Set();
+      M.WB.order=[...ordered.filter(id=>!used.has(id)&&used.add(id)),...incoming.map(o=>o.id).filter(id=>!used.has(id)&&used.add(id))];
+      M.WB.pageId=pageIds.has(d.pageId)?d.pageId:pages[0].id;
+      if(d.mode==='a4'||d.mode==='free') M.WB.mode=d.mode;
+      if(M.State.wb){ M.State.wb.pageId=M.WB.pageId; if(directAdmin&&typeof d.open==='boolean') M.State.wb.open=d.open; }
       M.WB.renderPages(); M.WB.hud();
       /* advance the watermark ONLY now that the state was actually applied */
       M.WB._asRev=d.rev;
       M.WB.rev=Math.max(M.WB.rev,d.rev||0);
       M.WB._stateReady=true; M.WB._stateReadyRid=rid; M.WB._reqN=0; M.WB._lastStateReqAt=0;
+      M.WB.scheduleSave();   /* persist the authoritative full board locally before the member can refresh */
       /* Keep the exact verified Admin-signed state for safe relay to another late
          joiner. The relay copy is content-authenticated by the Admin signature. */
-      if(d.admin&&d.sig&&d.pub){ M.WB._stateCache=Object.fromEntries(Object.entries(d).filter(([k])=>k!=='peerId')); M.WB._stateCacheRid=rid; }
+      if(d.admin&&d.sig&&d.pub){ try{ M.WB._stateCache=M.WB.cloneWire(Object.fromEntries(Object.entries(d).filter(([k])=>k!=='peerId'))); M.WB._stateCacheRid=rid; }catch(e){} }
       M.WB.dirty=true;
       M.log('info','board state synced ('+M.WB.objs.size+' objects, authoritative rev '+d.rev+(directAdmin?'':' via verified relay')+')');
       return;
@@ -9722,29 +9807,47 @@ M.WB = {
     return false;
   },
   sendState(target){
-    const objects=[...M.WB.objs.values()];
-    /* pub travels OUTSIDE the signed payload (alongside sig), exactly like Admin
-       commands — receivers strip {sig,pub} before verifying, so both must match. */
-    const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined,from:M.State.self.id};
+    if(!M.State.room) return;
+    const requestRev=++M.WB._stateBuildSeq;
+    const rid=M.State.room.rid||'';
+    const stateRev=Math.max(Number(M.WB.rev)||0,Number(M.WB._stateRev)||0, M.Perms.isAdmin()?(Number(M.Admin.seq)||0):0)+1;
+    M.WB._stateRev=stateRev; M.WB.rev=Math.max(M.WB.rev,stateRev);
+    /* Complete immutable snapshot: objects + z-order + active page + mode/open state.
+       Repair the order defensively so an object that exists in the map but was accidentally
+       omitted from the order list is still included in the authoritative snapshot. */
+    const allObjs=[]; const allIds=new Set();
+    M.WB.objs.forEach(o=>{ if(!o||allIds.has(o.id)) return; const c=M.WB.cloneWire(o); if(c){ allObjs.push(c); allIds.add(c.id); } });
+    const order=[]; const orderedIds=new Set();
+    M.WB.order.forEach(id=>{ if(allIds.has(id)&&!orderedIds.has(id)){ order.push(id); orderedIds.add(id); } });
+    allObjs.forEach(o=>{ if(!orderedIds.has(o.id)){ order.push(o.id); orderedIds.add(o.id); } });
+    const byId=new Map(allObjs.map(o=>[o.id,o]));
+    const objects=order.map(id=>byId.get(id)).filter(Boolean);
+    const pages=M.WB.pages.map(p=>({id:p.id,name:p.name}));
+    const msg=M.WB.cloneWire({t:'state',rev:stateRev,objects,pages,order,pageId:M.WB.pageId,mode:M.WB.mode,open:!!M.State.wb.open,admin:M.Perms.isAdmin(),rid,from:M.State.self.id});
+    if(!msg) return;
+    const wireText=JSON.stringify(msg);
+    const plainBytes=M.te.encode(wireText).byteLength;
+    const cipherBytes=plainBytes+12+16; /* AES-GCM IV + authentication tag */
+    const cipherB64Chars=4*Math.ceil(cipherBytes/3);
+    const envelopeChars=cipherB64Chars+10; /* JSON wrapper: {"e":"…"} + slack */
+    if(wireText.length>M.Guard.ENV.wb || envelopeChars>M.Guard.CIPHER.wb){ M.log('warn','board state snapshot too large ('+wireText.length+' chars / '+envelopeChars+' encrypted chars) — not transmitted'); M.toast('warn',M.t('tab_board'),M.t('wb_save_fail'),{ms:7000}); return; }
+    if(!M.Crypto.has()){ M.log('warn','board state not sent — room encryption key unavailable'); return; }
     if(M.Perms.isAdmin()){
       M.Admin.signObj(msg).then(sig=>{
-        const pkt={...msg,sig,pub:M.Admin.pubJwk};
-        M.WB._stateCache=Object.fromEntries(Object.entries(pkt).filter(([k])=>k!=='peerId'));
-        M.WB._stateCacheRid=msg.rid||'';
-        /* A late join can lose the first data-channel send while its transport is
-           still opening. Retransmit the same signed state a few times; the receiver's
-           revision gate makes duplicates harmless and idempotent. */
-        const delays=(target!=null)?[0,550,1500]:[0];
-        delays.forEach(ms=>setTimeout(()=>{ try{ M.Net.sendEnc('wb',pkt,target); }catch(e){} },ms));
+        if(requestRev!==M.WB._stateBuildSeq) return;   /* a newer snapshot is already being built; never cache/send an older async signature */
+        const pkt=M.WB.cloneWire({...msg,sig,pub:M.WB.cloneWire(M.Admin.pubJwk)}); if(!pkt) return;
+        M.WB._stateCache=M.WB.cloneWire(pkt); M.WB._stateCacheRid=rid; M.WB.scheduleSave();
+        const delays=(target!=null)?[0,600,1500,3200,6000]:[0];
+        delays.forEach(ms=>setTimeout(()=>{ try{ M.Net.sendEnc('wb',M.WB.cloneWire(pkt),target); }catch(e){ M.log('warn','board state retransmit failed: '+(e.message||e)); } },ms));
       }).catch(e=>{ M.log('err','authoritative board state aborted — signing failed: '+(e.message||e)); });
     } else if(M.WB._stateCache && (!M.State.room?.rid || !M.WB._stateCacheRid || M.WB._stateCacheRid===M.State.room.rid)) {
-      try{ M.Net.sendEnc('wb',M.WB._stateCache,target); }catch(e){ M.log('warn','cached board state relay failed: '+(e.message||e)); }
+      try{ M.Net.sendEnc('wb',M.WB.cloneWire(M.WB._stateCache),target); }catch(e){ M.log('warn','cached board state relay failed: '+(e.message||e)); }
     }
   },
   maybeReqState(){
     if(M.Perms.isAdmin() || !M.State.room) return;
     const rid=M.State.room?.rid||'';
-    if(M.WB._stateReadyRid!==rid){ M.WB._stateReadyRid=rid; M.WB._stateReady=false; M.WB._stateReqMax=10; M.WB._lastStateReqAt=0; M.WB._reqN=0; M.WB._asRev=-1; }
+    if(M.WB._stateReadyRid!==rid){ M.WB._stateReadyRid=rid; M.WB._stateReady=false; M.WB._stateReqMax=15; M.WB._lastStateReqAt=0; M.WB._reqN=0; M.WB._asRev=-1; }
     /* Never request a board snapshot while the authenticated Admin state says the
        board is closed. A state packet has no separate "open" field, so requesting
        one in the closed state would otherwise make a member open it accidentally. */
@@ -9780,7 +9883,7 @@ M.WB = {
         if(b.cvm){ M.WB.mode=b.cvm; }
         if(b.rid && M.State.room && M.State.room.rid!==b.rid){
           M.State.room.rid=b.rid;   /* signed snapshot is authoritative for the current instance */
-          M.App.restoreRoomLocal();   /* (re)restore under the authenticated rid; no-op if nothing stored */
+          try{ M.Chat.restoreLocal(); }catch(e){}   /* board state itself will arrive from the signed WB snapshot; do not race it with stale local WB data */
         }
         /* authoritative stable deny map from the SIGNED snapshot — hydrated BEFORE the
            'perms' emit so the send-side composer gate sees the current deny state.
@@ -9957,6 +10060,7 @@ M.WB = {
       fresh.add(o.id);
     });
     if(u.length) M.WB.pushUndo(u,r);
+    M.WB.scheduleSave();
     M.WB.selSet=fresh; M.WB.sel=[...fresh].pop()||null;
     M.WB._flash={ids:fresh,t:Date.now()};
     M.WB.focusGroup(fresh);          /* zoom to the clones so duplication is always visibly confirmed */
@@ -9979,6 +10083,7 @@ M.WB = {
         const o={id:M.uid(9),type:'image',x:60,y:60,w:c.width,h:c.height,src,by:M.State.self.id};
         M.WB.send({t:'up',o}); M.WB.applyUp(o);
         M.WB.pushUndo([{t:'del',id:o.id}],[{t:'up',o}]);
+        M.WB.scheduleSave();
         M.log('info','image inserted ('+M.fmt.bytes(f.size)+' → '+M.fmt.bytes(src.length)+')');
       };
       img.onerror=()=>M.toast('err','Image','Could not read image');
@@ -10424,7 +10529,7 @@ M.App = {
       M.State.room.rid=rid;
       const pinMatch=!!(M.Admin.pubJwk && M.State.roomPubPin && M.Admin.pubPin()===M.State.roomPubPin);
       const originProof=!!(rid && M.Admin.rid && rid===M.Admin.rid && pinMatch && !M.App.tombstoned(code));
-      if(M.Admin.pending && originProof) M.Admin.confirmSelf();
+      if(M.Admin.pending && originProof) await M.Admin.confirmSelf();
       if(!M.Admin.pending && M.Admin.pubJwk) M.State.room.isCreator=true;
       /* knownAdmin requires the stored pointer to name the EXACT rid being joined AND a
          key for that exact rid. A key held for a different instance of the same code
@@ -10496,7 +10601,7 @@ M.App = {
     M.App._sessionEnded=false; M.App._ending=false;
     if(!M.State.room.name) M.State.room.name=M.Perms.isAdmin()?M.t('room_of',{n:M.State.self.name}):'';
     if(M.State.room.rid){   /* admin: rid known → restore this instance's data now */
-      M.App.restoreRoomLocal();
+      await M.App.restoreRoomLocal();
       if(!M.State.room.name && M.Perms.isAdmin()) M.State.room.name=M.t('room_of',{n:M.State.self.name});
       if(M.Perms.isAdmin() && M.State.room.name) M.App.putRoom('rname',M.State.room.name);
     }
@@ -10569,8 +10674,9 @@ M.App = {
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.WB._asRev=-1; M.WB._asRid=null;   /* authoritative-state watermark reset with the board */
     M.WB._stateReady=false; M.WB._stateReadyRid=null; M.WB._lastStateReqAt=0; M.WB._reqN=0;
-    M.WB._stateCache=null; M.WB._stateCacheRid=null;
+    M.WB._stateCache=null; M.WB._stateCacheRid=null; M.WB._stateRev=0;
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
+    M.WB._stateBuildSeq=0; M.WB._stateReady=false; M.WB._stateCache=null; M.WB._stateCacheRid=null;
     M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
     M.State.timerUntil=0; M.App._sessionEnded=false; M.App._ending=false;
@@ -10609,10 +10715,10 @@ M.App.putRoom = function(base,val){ const k=M.App.skey(base); if(k) M.Store.set(
 M.App.getRoom = function(base){ const k=M.App.skey(base); return k? M.Store.get(k):null; };
 M.App.getRoomStore = function(base){ return M.App.getRoom(base); };
 /* restore ALL rid-scoped state in one place, only after the instance is authenticated */
-M.App.restoreRoomLocal = function(){
+M.App.restoreRoomLocal = async function(){
   if(!M.State.room?.rid) return;
-  M.Chat.restoreLocal();
-  M.WB.restoreLocal();
+  try{ M.Chat.restoreLocal(); }catch(e){}
+  try{ await M.WB.restoreLocal(); }catch(e){ M.log('warn','whiteboard local restore failed: '+(e?.message||e)); }
   if(M.Admin.priv||M.Admin.legacy){
     const ws=M.App.getRoom('wb'); if(ws){ Object.assign(M.State.wb,ws); if(ws.cvm) M.WB.mode=ws.cvm; if(ws.pageId && M.WB.pages.some(p=>p.id===ws.pageId)) M.WB.pageId=ws.pageId; }
     const tu=M.App.getRoom('timer'); if(tu && tu>Date.now()) M.State.timerUntil=tu;
