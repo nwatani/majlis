@@ -661,6 +661,8 @@ html[data-theme="light"] #rcBanner b{color:#a3271e}
 #boardBar .btool b,#boardBar .btool i{line-height:1;font-family:Georgia,'IBM Plex Sans',serif}
 #boardBar .btool.on b,#boardBar .btool.on i{color:var(--amber2)}
 #wbColorDot{width:17px;height:17px;border-radius:50%;border:2px solid var(--line2);display:block;transition:background .15s}
+#wbFillDot{width:17px;height:17px;border-radius:4px;border:2px solid var(--line2);display:block;transition:background .15s,border-color .15s}
+#wbFillDot.none{background:repeating-linear-gradient(135deg,transparent 0 4px,var(--line2) 4px 5px);}
 #wbFontN{width:52px;padding:5px 6px;border:1px solid var(--line2);border-radius:7px;background:var(--bg1);color:var(--ink);font-family:var(--mono);font-size:12px;flex:none}
 #wbFontN:focus{outline:none;border-color:var(--amber)}
 /* Whiteboard diagnostics panel — guaranteed contrast on both themes */
@@ -1051,6 +1053,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg3);border:1px soli
           <button class="btool" data-tool="image" title="Insert image (I)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9" stroke-linejoin="round"/></svg></button>
           <span class="bsep"></span>
           <button class="btool" id="wbColorBtn" title="Stroke color palette" aria-label="Stroke color palette"><span id="wbColorDot" style="background:#111111"></span></button>
+          <button class="btool" id="wbFillBtn" data-ctx="fill" title="Shape fill color" aria-label="Shape fill color"><span id="wbFillDot" class="none"></span></button>
           <button class="btool" data-tool="fill" title="Fill with color — Paint bucket (F)" aria-label="Fill with color — Paint bucket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4h8l5 5-8 8H4l-2-2 8-8" stroke-linejoin="round"/><path d="M9 6l9 9" stroke-linecap="round"/><path d="M17.5 17.5c0-1.5 1.5-2 2.5-2 .9 0 1.7.5 1.7 1.4 0 .9-.7 1.6-1.7 1.6-.9 0-1.7-.4-2.5-1z" stroke-linejoin="round"/></svg></button>
           <label class="brange" data-ctx="stroke" title="Stroke width"><span id="wbSizeLbl">4</span><input type="range" id="wbSize" min="1" max="24" value="4"></label>
           <span class="bsep"></span>
@@ -1494,7 +1497,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.97.3';  /* build stamp — restored board rendering/color palette + Paint bucket */
+M.Version = '1.97.5';  /* optional shape fill + robust late-join whiteboard state convergence */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1730,7 +1733,7 @@ en:{
  export_fail:'Export failed — please try again', export_hint:'On phones you can also long-press the preview to save it straight to your photos.',
  wb_hint_text:'Tap anywhere on the board, type, then press Enter or Place ✓',
  wb_hint_note:'Tap to drop a sticky note, then type inside it',
- wb_custom:'Custom color', wb_fill_tool:'Fill with color (Paint bucket)', wb_fill_tip:'Click inside a closed area to fill it with the current color.',
+ wb_custom:'Custom color', wb_no_fill:'No fill', wb_fill_custom:'Custom fill color', wb_fill_help:'Fill with color — choose the default fill for new shapes or apply it to the selected shape', wb_fill_tool:'Fill with color (Paint bucket)', wb_fill_tip:'Click inside a closed area to fill it with the current color.',
  wb_copy:'Copy', wb_paste:'Paste', wb_duplicate:'Duplicate', wb_front:'Bring to Front', wb_back:'Send to Back', wb_delete:'Delete',
  wb_copied_short:'{n} copied',
  wb_copy_latest:'No selection — copied your latest object',
@@ -1932,7 +1935,7 @@ ar:{
  export_fail:'فشل التصدير — حاول مجدداً', export_hint:'على الهواتف يمكنك أيضاً الضغط المطوّل على المعاينة لحفظها مباشرة في الصور.',
  wb_hint_text:'اضغط في أي مكان على السبورة، اكتب، ثم Enter أو «وضع» ✓',
  wb_hint_note:'اضغط لوضع ملاحظة لاصقة، ثم اكتب داخلها',
- wb_custom:'لون مخصّص', wb_fill_tool:'تعبئة باللون (دلو الطلاء)', wb_fill_tip:'انقر داخل مساحة مغلقة لتعبئتها باللون الحالي.',
+ wb_custom:'لون مخصّص', wb_no_fill:'بدون تعبئة', wb_fill_custom:'لون تعبئة مخصّص', wb_fill_help:'تعبئة باللون — اختر لوناً افتراضياً للأشكال الجديدة أو طبّقه على الشكل المحدد', wb_fill_tool:'تعبئة باللون (دلو الطلاء)', wb_fill_tip:'انقر داخل مساحة مغلقة لتعبئتها باللون الحالي.',
  wb_copy:'نسخ', wb_paste:'لصق', wb_duplicate:'تكرار', wb_front:'تقديم للأمام', wb_back:'إرسال للخلف', wb_delete:'حذف',
  wb_copied_short:'نُسخ {n}',
  wb_copy_latest:'لا يوجد تحديد — نُسخ آخر عنصر لمسته',
@@ -2545,6 +2548,9 @@ M.Admin = {
      open the board from the Admin's signed state. */
   async verifyState(m){
     if(!m||!m.sig||!m.pub) return false;
+    /* Once this client already knows the authenticated room instance, a state from
+       another rid must never be accepted, even when signed by the same public key. */
+    if(M.State.room?.rid && m.rid!==M.State.room.rid) return false;
     let key=M.State.roomPub;
     if(!key){
       if(!M.State.roomPubPin) return false;
@@ -3027,7 +3033,7 @@ M.Guard = {
   wbTypes:['pen','hi','line','arrow','rect','ellipse','text','note','image','fill'],
   WB_OBJ_KEYS:{ pen:['color','size','pts'], hi:['color','size','pts'],
     line:['color','size','x1','y1','x2','y2'], arrow:['color','size','x1','y1','x2','y2'],
-    rect:['color','size','x','y','w','h'], ellipse:['color','size','x','y','w','h'],
+    rect:['color','fill','size','x','y','w','h'], ellipse:['color','fill','size','x','y','w','h'],
     text:['x','y','w','text','size','color','align','style'],
     note:['x','y','w','h','text','size','bg'], image:['x','y','w','h','src'],
     fill:['x','y','w','h','src'] },
@@ -8208,8 +8214,9 @@ M.WB = {
   objs:new Map(), order:[], rev:0, undo:[], redo:[], sel:null, selSet:new Set(),
   pages:[{id:'pg1',name:'Page 1'}], pageId:'pg1',   /* multi-page board; objects carry o.pg */
   mode:'a4', A4:{w:794,h:1123}, _lastMode:'',       /* A4 sheet by default — ideal for PDF export; admin can switch to free canvas */
-  tool:'pen', color:'#111111', size:4, font:22, align:null, bold:false, italic:false,
+  tool:'pen', color:'#111111', fill:'transparent', size:4, font:22, align:null, bold:false, italic:false,
   view:{x:80,y:60,s:1}, dirty:true, drawing:null, drag:null,
+  _stateReady:false, _stateReadyRid:null, _lastStateReqAt:0, _stateCache:null, _stateCacheRid:null, _stateReqMax:10,
   activePeers:new Map(), editorsNote:null,
   init(){
     const cv=M.$('#boardCanvas'); M.WB.cv=cv; M.WB.ctx=cv.getContext('2d');
@@ -8225,18 +8232,21 @@ M.WB = {
     M.bus.on('perms', ()=>M.WB.refreshUI());
     /* toolbar */
     M.$$('#boardBar [data-tool]').forEach(b=>b.onclick=()=>M.WB.setTool(b.dataset.tool));
-    /* ---- drawing color palette ---- */
-    M.$('#wbColorBtn').onclick=e=>{
+    /* ---- drawing / shape-fill color palettes ---- */
+    const openPalette=(kind,anchor,e)=>{
       e.stopPropagation();
       const pal=M.$('#wbPalette');
-      if(!pal.classList.contains('hidden')){ pal.classList.add('hidden'); return; }
-      const r=e.currentTarget.getBoundingClientRect();
+      if(!pal.classList.contains('hidden') && M.WB._palKind===kind){ pal.classList.add('hidden'); return; }
+      const r=anchor.getBoundingClientRect();
       pal.style.top=(r.bottom+8)+'px';
       pal.style.left=Math.max(8,Math.min(r.left,innerWidth-230))+'px';
-      M.WB.renderPal();
+      M.WB._palKind=kind;
+      M.WB.renderPal(kind);
       pal.classList.remove('hidden');
     };
-    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn')) M.$('#wbPalette').classList.add('hidden'); });
+    M.$('#wbColorBtn').onclick=e=>openPalette('stroke',e.currentTarget,e);
+    M.$('#wbFillBtn').onclick=e=>openPalette('fill',e.currentTarget,e);
+    document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#wbPalette,#wbColorBtn,#wbFillBtn')) M.$('#wbPalette').classList.add('hidden'); });
     /* ---- stroke width (drawings & shapes) ---- */
     M.$('#wbSize').oninput=e=>{
       M.WB.size=+e.target.value; M.$('#wbSizeLbl').textContent=e.target.value;
@@ -8404,7 +8414,7 @@ M.WB = {
     M.WB._curSend=M.throttle(pt=>{ if(M.State.wb.open && M.Net.A.cur) M.Net.send('cur',pt); },90);
     M.bus.on('netReady',()=>{ M.Net.A.cur.onMessage=(d,{peerId})=>{ if(M.Guard.check('cur',d,peerId)){ M.WB.activePeers.set(peerId,{...M.Guard.pick(d,M.Guard.PICK.cur),t:Date.now()}); M.WB.dirty=true; M.WB.peersUI(); } }; });
     setInterval(()=>{ let ch=false; M.WB.activePeers.forEach((v,k)=>{ if(Date.now()-v.t>5000){ M.WB.activePeers.delete(k); ch=true; } }); if(ch){ M.WB.dirty=true; M.WB.peersUI(); } },2000);
-    setInterval(()=>M.WB.tickReq(),7000);   /* bounded state convergence while the Admin is verified online */
+    setInterval(()=>M.WB.tickReq(),7000);   /* bounded state convergence while the board is open */
     /* render loop — UNKILLABLE: the next frame is scheduled FIRST, and a draw
        error can never stop the chain or blank the board again */
     const loop=()=>{
@@ -8545,23 +8555,41 @@ M.WB = {
     const showText=['text','note'].includes(M.WB.tool)||isTextSel;
     M.$$('#boardBar [data-ctx="stroke"]').forEach(el=>el.style.display=showStroke?'':'none');
     M.$$('#boardBar [data-ctx="text"]').forEach(el=>el.style.display=showText?'':'none');
-    const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);   /* enabled as soon as anything exists on the board */
+    M.$$('#boardBar [data-ctx="fill"]').forEach(el=>el.style.display='');
+    const cb=M.$('#wbCopy'); if(cb) cb.classList.toggle('dim',M.WB.order.length===0);
+    M.WB.syncFillDot();
     M.WB.syncChip();
   },
-  renderPal(){
+  syncFillDot(){
+    const d=M.$('#wbFillDot'); if(!d) return;
+    const none=M.WB.fill==='transparent'||!M.WB.fill;
+    d.classList.toggle('none',none);
+    d.style.background=none?'':'var(--wb-fill-current)';
+    if(!none) d.style.background=M.WB.fill;
+    d.title=none?M.t('wb_no_fill'):M.t('wb_fill_custom');
+  },
+  renderPal(kind){
+    kind=kind||M.WB._palKind||'stroke'; M.WB._palKind=kind;
     const pal=M.$('#wbPalette'); if(!pal) return; pal.innerHTML='';
     const colors=['#111111','#43525a','#9aa8b0','#ffffff','#e5484d','#f76b15','#f5a83c',
       '#ffd60a','#30a46c','#12a594','#0091ff','#6e56cf','#e93d82','#8d6e4b'];
+    const current=kind==='fill'?M.WB.fill:M.WB.color;
+    if(kind==='fill'){
+      const none=M.el('button'); none.title=M.t('wb_no_fill'); none.setAttribute('aria-label',M.t('wb_no_fill'));
+      none.style.background='repeating-linear-gradient(135deg,transparent 0 5px,var(--line2) 5px 6px)';
+      none.classList.toggle('on',current==='transparent');
+      none.onclick=()=>M.WB.setFill('transparent'); pal.appendChild(none);
+    }
     colors.forEach(c=>{
       const b=M.el('button'); b.style.background=c; b.title=c; b.setAttribute('aria-label',c);
-      b.classList.toggle('on',String(M.WB.color||'').toLowerCase()===c.toLowerCase());
-      b.onclick=()=>M.WB.setColor(c);
+      b.classList.toggle('on',String(current||'').toLowerCase()===c.toLowerCase());
+      b.onclick=()=>kind==='fill'?M.WB.setFill(c):M.WB.setColor(c);
       pal.appendChild(b);
     });
     const row=M.el('div','wb-pal-row');
-    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(String(M.WB.color||''))?M.WB.color:'#111111';
-    ci.oninput=()=>M.WB.setColor(ci.value);
-    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=M.t('wb_custom');
+    const ci=M.el('input'); ci.type='color'; ci.value=/^#[0-9a-f]{6}$/i.test(String(current||''))&&current!=='transparent'?current:'#111111';
+    ci.oninput=()=>kind==='fill'?M.WB.setFill(ci.value):M.WB.setColor(ci.value);
+    const lbl=M.el('span','dim'); lbl.style.fontSize='11px'; lbl.textContent=kind==='fill'?M.t('wb_fill_custom'):M.t('wb_custom');
     row.append(ci,lbl); pal.appendChild(row);
   },
   setColor(c){
@@ -8570,12 +8598,28 @@ M.WB = {
     if(M.WB.selSet.size && M.WB.canEdit()){
       M.WB.selSet.forEach(id=>{
         const o=M.WB.objs.get(id); if(!o) return;
-        if(o.type==='note') o.bg=c; else o.color=c;
+        if(o.type==='note') o.bg=c;
+        else if(['pen','hi','line','arrow','rect','ellipse','text'].includes(o.type)) o.color=c;
+        else return;
         M.WB.send({t:'up',o});
       });
       M.WB.dirty=true;
     }
-    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal(M.WB._palKind);
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('stroke');
+  },
+  setFill(c){
+    c=(c==='transparent'||!c)?'transparent':String(c).slice(0,32);
+    M.WB.fill=c;
+    M.WB.syncFillDot();
+    if(M.WB.selSet.size && M.WB.canEdit()){
+      M.WB.selSet.forEach(id=>{
+        const o=M.WB.objs.get(id); if(!o||!['rect','ellipse'].includes(o.type)) return;
+        o.fill=c;
+        M.WB.send({t:'up',o});
+      });
+      M.WB.dirty=true;
+    }
+    if(!M.$('#wbPalette').classList.contains('hidden')) M.WB.renderPal('fill');
   },
   _fontApply(){
     if(M.WB.selSet.size && M.WB.canEdit()){
@@ -8648,7 +8692,7 @@ M.WB = {
         M.WB.drawing={id:M.uid(9), type:tool, x1:wx,y1:wy,x2:wx,y2:wy, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'rect': case 'ellipse':
-        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
+        M.WB.drawing={id:M.uid(9), type:tool, x:wx,y:wy,w:0,h:0, color:M.WB.color, fill:M.WB.fill, size:M.WB.size, pg:M.WB.pageId, by:M.State.self.id};
         M.WB.objs.set(M.WB.drawing.id,M.WB.drawing); M.WB.order.push(M.WB.drawing.id); M.WB.dirty=true; break;
       case 'fill':
         M.WB.bucketFill(wx,wy);
@@ -9519,9 +9563,14 @@ M.WB = {
       return;
     }
     if(d.t==='req'){
-      if(M.Perms.isAdmin()){ setTimeout(()=>M.WB.sendState(from),60); }   /* only an authenticated Admin answers as authoritative */
-      else if(!M.WB.adminOnline() && M.WB.objs.size>0){                          /* Admin absent: peer fallback only */
-        setTimeout(()=>{ if(!M.WB.adminOnline() && Math.random()<0.5) M.WB.sendState(from); },700+Math.random()*900);
+      if(M.Perms.isAdmin()){
+        setTimeout(()=>M.WB.sendState(from),60);
+      } else if(M.WB._stateCache){
+        /* A member may relay the last VERIFIED Admin-signed board state. The receiver
+           still verifies the Admin signature and revision before applying it, so this
+           relay never grants Admin authority to the transport peer. */
+        const delay=350+Math.random()*700;
+        setTimeout(()=>{ try{ M.WB.sendState(from); }catch(e){} },delay);
       }
       return;
     }
@@ -9531,20 +9580,20 @@ M.WB = {
          verifyObj for members who already hold the key; verifyState bootstraps the
          key from the pin and adopts the rid for a fresh member so the board opens.
          Holding the room key alone never grants board authority. */
-      const sigOk=!!(d.admin && d.sig && (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)));
+      const directAdmin=(d.from===from);
+      /* Direct states must be Admin-originated on the current transport. A relayed
+         state may come from another member, but only the exact Admin signature/pin
+         can authorize it; relay transport never becomes Admin and cannot open a
+         closed board on its own. */
+      const sigOk=!!(d.admin && d.sig && (directAdmin ? (await M.Admin.verifyObj(d) || await M.Admin.verifyState(d)) : await M.Admin.verifyState(d)));
       if(!sigOk){ M.WBDbg.reject('WB: state rejected — unauthenticated (no valid Admin signature/pin/rid)'); return; }
-      /* TRANSPORT-SENDER BINDING: the signed state carries the Admin's peer id (from).
-         Only the peer actually delivering it may present it as Admin-originated. A
-         replayed state forwarded by a member fails here and gains NOTHING — it does
-         not open the board, does not replace state, and grants no Admin identity. */
-      if(d.from!==from){ M.WBDbg.reject('WB: state rejected — signed sender does not match transport peer (replayed content)'); return; }
       /* REPLAY PROTECTION — decided BEFORE any board mutation. The authoritative
          revision watermark is bound to the current room instance (rid); a new
          instance resets it. Only a STRICTLY NEWER valid Admin state may replace the
          board; an equal rev is an idempotent retransmission; an older rev is a
          replay and is rejected. */
       const rid=M.State.room?.rid||'';
-      if(M.WB._asRid!==rid){ M.WB._asRid=rid; M.WB._asRev=-1; }
+      if(M.WB._asRid!==rid){ M.WB._asRid=rid; M.WB._asRev=-1; M.WB._stateReady=false; M.WB._stateReadyRid=rid; M.WB._reqN=0; }
       const verdict=M.Guard.stateGate(M.WB._asRev,d.rev);
       if(verdict==='malformed'){ M.WBDbg.reject('WB: state rejected — malformed revision'); return; }
       if(verdict==='stale'){ M.WBDbg.reject('WB: stale board state replay rejected (rev '+d.rev+' < applied '+M.WB._asRev+')'); return; }
@@ -9552,8 +9601,8 @@ M.WB = {
       /* NOTE: authoritative state proves Admin-CONTENT, not Admin transport presence.
          adminVerifiedAt is deliberately NOT set here — Admin presence comes only from
          the sender-bound signed heartbeat and verified Admin commands. */
-      M.WBDbg.log('WB: authoritative board state accepted (rev '+d.rev+')');
-      if(!M.State.wb.open){ M.State.wb.open=true; M.WB.refreshUI(); }   /* open only AFTER passing the rev gate */
+      M.WBDbg.log('WB: '+(directAdmin?'direct':'relayed')+' Admin-signed board state accepted (rev '+d.rev+')');
+      if(!M.State.wb.open && directAdmin){ M.State.wb.open=true; M.WB.refreshUI(); }   /* relays never create Admin board-open authority */
       try{ M.Chat.restoreLocal(); }catch(e){}   /* rid may have just been adopted — restore this instance's chat */
       M.WB.objs.clear(); M.WB.order=[];
       /* every state object passes the bounded schema + per-type allowlist before it
@@ -9567,8 +9616,13 @@ M.WB = {
       M.WB.renderPages(); M.WB.hud();
       /* advance the watermark ONLY now that the state was actually applied */
       M.WB._asRev=d.rev;
-      M.WB.rev=Math.max(M.WB.rev,d.rev||0); M.WB.dirty=true;
-      M.log('info','board state synced ('+M.WB.objs.size+' objects, authoritative rev '+d.rev+')');
+      M.WB.rev=Math.max(M.WB.rev,d.rev||0);
+      M.WB._stateReady=true; M.WB._stateReadyRid=rid; M.WB._reqN=0; M.WB._lastStateReqAt=0;
+      /* Keep the exact verified Admin-signed state for safe relay to another late
+         joiner. The relay copy is content-authenticated by the Admin signature. */
+      if(d.admin&&d.sig&&d.pub){ M.WB._stateCache=Object.fromEntries(Object.entries(d).filter(([k])=>k!=='peerId')); M.WB._stateCacheRid=rid; }
+      M.WB.dirty=true;
+      M.log('info','board state synced ('+M.WB.objs.size+' objects, authoritative rev '+d.rev+(directAdmin?'':' via verified relay')+')');
       return;
     }
   },
@@ -9671,39 +9725,42 @@ M.WB = {
     const objects=[...M.WB.objs.values()];
     /* pub travels OUTSIDE the signed payload (alongside sig), exactly like Admin
        commands — receivers strip {sig,pub} before verifying, so both must match. */
-    /* `from` carries the Admin's current transport id INSIDE the signed payload so a
-       replayed state forwarded by another peer can never count as Admin-originated */
     const msg={t:'state',rev:M.WB.rev,objects,pages:M.WB.pages,admin:M.Perms.isAdmin(),rid:M.State.room?.rid||undefined,from:M.State.self.id};
     if(M.Perms.isAdmin()){
-      /* authoritative state is signed; receivers verify the signature against the
-         accepted Admin key — the pin identifies, the signature authorizes.
-         Fail closed: a signing failure aborts the broadcast, never sends unsigned */
-      M.Admin.signObj(msg).then(sig=>{ M.Net.sendEnc('wb',{...msg, sig, pub:M.Admin.pubJwk},target); })
-        .catch(e=>{ M.log('err','authoritative board state aborted — signing failed: '+(e.message||e)); });
-    } else M.Net.sendEnc('wb',msg,target);
+      M.Admin.signObj(msg).then(sig=>{
+        const pkt={...msg,sig,pub:M.Admin.pubJwk};
+        M.WB._stateCache=Object.fromEntries(Object.entries(pkt).filter(([k])=>k!=='peerId'));
+        M.WB._stateCacheRid=msg.rid||'';
+        /* A late join can lose the first data-channel send while its transport is
+           still opening. Retransmit the same signed state a few times; the receiver's
+           revision gate makes duplicates harmless and idempotent. */
+        const delays=(target!=null)?[0,550,1500]:[0];
+        delays.forEach(ms=>setTimeout(()=>{ try{ M.Net.sendEnc('wb',pkt,target); }catch(e){} },ms));
+      }).catch(e=>{ M.log('err','authoritative board state aborted — signing failed: '+(e.message||e)); });
+    } else if(M.WB._stateCache && (!M.State.room?.rid || !M.WB._stateCacheRid || M.WB._stateCacheRid===M.State.room.rid)) {
+      try{ M.Net.sendEnc('wb',M.WB._stateCache,target); }catch(e){ M.log('warn','cached board state relay failed: '+(e.message||e)); }
+    }
   },
   maybeReqState(){
-    /* recovery request: a member with a verified online Admin requests the signed
-       state whether or not the board is locally open yet (the request exists precisely
-       to make it open). Bounded by tickReq's retry counter. */
     if(M.Perms.isAdmin() || !M.State.room) return;
-    if(M.WB.adminOnline() && (M.WB.objs.size===0 || !M.State.wb.open)){
-      M.WBDbg.reqN++;
-      M.WBDbg.log('WB: requesting authoritative board state');
-      M.Net.sendEnc('wb',{t:'req'});
-    }
+    const rid=M.State.room?.rid||'';
+    if(M.WB._stateReadyRid!==rid){ M.WB._stateReadyRid=rid; M.WB._stateReady=false; M.WB._stateReqMax=10; M.WB._lastStateReqAt=0; M.WB._reqN=0; M.WB._asRev=-1; }
+    /* Never request a board snapshot while the authenticated Admin state says the
+       board is closed. A state packet has no separate "open" field, so requesting
+       one in the closed state would otherwise make a member open it accidentally. */
+    if(!M.State.wb.open) return;
+    if(M.WB._stateReady) return;
+    const now=Date.now();
+    if(now-(M.WB._lastStateReqAt||0)<850) return;
+    if((M.WB._reqN||0)>=M.WB._stateReqMax) return;
+    M.WB._reqN=(M.WB._reqN||0)+1; M.WBDbg.reqN=M.WB._reqN; M.WB._lastStateReqAt=now;
+    M.WBDbg.log('WB: requesting authoritative board state (attempt '+M.WB._reqN+')');
+    try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){ M.log('warn','WB state request failed: '+(e.message||e)); }
   },
-  /* convergence: while the Admin is verified online, a member whose board hasn't
-     opened yet re-requests the signed state a bounded number of times, so a dropped
-     snapshot or request on a flaky relay always converges. Resets once it opens. */
   tickReq(){
     if(M.Perms.isAdmin() || !M.State.room) return;
-      if(!M.State.wb.open && M.WB.adminOnline() && (M.WB._reqN||0)<6){
-      M.WB._reqN=(M.WB._reqN||0)+1; M.WBDbg.reqN=M.WB._reqN;
-      M.WBDbg.log('WB: requesting authoritative board state (retry '+M.WB._reqN+')');
-      try{ M.Net.sendEnc('wb',{t:'req'}); }catch(e){}
-    }
-    if(M.State.wb.open && M.WB.objs.size>0) M.WB._reqN=0;
+    M.WB.maybeReqState();
+    if(M.WB._stateReady) M.WB._reqN=0;
   },
 
   /* ---------- admin control ---------- */
@@ -9803,7 +9860,7 @@ M.WB = {
         M.toast('info',M.t('tab_board'),M.t(M.WB.mode==='a4'?'wb_m_a4':'wb_m_free'),{ms:4500});
         M.log('info','canvas mode → '+M.WB.mode);
         break;
-      case 'sync': { const objects=[...M.WB.objs.values()]; M.Net.sendEnc('wb',{t:'state',rev:M.WB.rev,objects,force:true}); M.toast('ok','Synced', objects.length+' objects broadcast'); break; }
+      case 'sync': { if(M.Perms.isAdmin()) M.WB.sendState(); else M.WB.maybeReqState(); M.toast('ok','Synced', 'Board state synchronization requested'); break; }
       case 'end': W.open=false; M.WB.objs.clear(); M.WB.order=[]; M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1'; M.WB.renderPages(); M.WB.dirty=true; M.WB.saveLocal(); M.toast('warn',M.t('wb_closed_ev')); break;   /* propagates via this signed wbCtrl; never re-broadcast unsigned */
     }
     M.WB.refreshUI(); M.bus.emit('members'); M.bus.emit('wbPeers');
@@ -9818,8 +9875,9 @@ M.WB = {
     if(bb){ bb.classList.toggle('on',open); bb.title=open?M.t('wb_close_short'):M.t('tab_board'); }
     const edit=M.WB.canEdit();
     M.$$('#boardBar .btool, #boardFoot .btool').forEach(b=>{ if(['wbClear','wbZo','wbZi','wbFit','wbDbg'].includes(b.id)) return; b.disabled = open? !edit : true; });
-    { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; }
+    { const c=M.$('#wbColorBtn'); if(c) c.disabled=!edit||!open; const f=M.$('#wbFillBtn'); if(f) f.disabled=!edit||!open; }
     M.$('#wbSize').disabled=!edit||!open; M.$('#wbFont').disabled=!edit||!open;
+    M.WB.syncFillDot();
     M.$('#wbClear').classList.toggle('hidden',!M.Perms.isAdmin());
     if(M.Perms.isAdmin()) M.$('#wbClear').disabled=!open||M.State.wb.locked;
     M.$('#wbExport').disabled = !open || !M.Perms.can('wbExport').ok;
@@ -10186,10 +10244,12 @@ M.WB = {
       }
       case 'rect': {
         const x=Math.min(o.x,o.x+o.w),y=Math.min(o.y,o.y+o.h),w=Math.abs(o.w),h=Math.abs(o.h);
+        if(o.fill && o.fill!=='transparent'){ ctx.fillStyle=o.fill; ctx.fillRect(x,y,w,h); }
         ctx.strokeStyle=o.color||'#E9F3F4'; ctx.strokeRect(x,y,w,h); break;
       }
       case 'ellipse': {
         ctx.beginPath(); ctx.ellipse(o.x+o.w/2,o.y+o.h/2,Math.abs(o.w/2),Math.abs(o.h/2),0,0,Math.PI*2);
+        if(o.fill && o.fill!=='transparent'){ ctx.fillStyle=o.fill; ctx.fill(); }
         ctx.strokeStyle=o.color||'#E9F3F4'; ctx.stroke(); break;
       }
       case 'text': {
@@ -10508,6 +10568,8 @@ M.App = {
     M.FT.sends.clear(); M.FT.recvs.clear();
     M.WB.objs.clear(); M.WB.order=[]; M.WB.undo=[]; M.WB.redo=[]; M.WB.sel=null; M.WB.selSet=new Set(); M.WB.rev=0; M.WB.activePeers.clear();
     M.WB._asRev=-1; M.WB._asRid=null;   /* authoritative-state watermark reset with the board */
+    M.WB._stateReady=false; M.WB._stateReadyRid=null; M.WB._lastStateReqAt=0; M.WB._reqN=0;
+    M.WB._stateCache=null; M.WB._stateCacheRid=null;
     M.WB.pages=[{id:'pg1',name:'Page 1'}]; M.WB.pageId='pg1';
     M.WB.mode='a4'; M.WB._lastMode=''; M.WB.view={x:80,y:60,s:1};   /* every room starts on the A4 sheet, fitted when opened */
     M.Call.sessions.clear(); M.Call.seenInvites.clear(); M.Call._pending=null; M.Notify.ring(false);
