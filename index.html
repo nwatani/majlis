@@ -1497,7 +1497,7 @@ M.$$ = (s, r=document) => [...r.querySelectorAll(s)];
 M.el = (tag, cls, html) => { const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 M.uid = (n=10) => { const c='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(n)); for(let i=0;i<n;i++) s+=c[a[i]%c.length]; return s; };
 M.roomCode = () => { const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s=''; const a=crypto.getRandomValues(new Uint8Array(6)); for(let i=0;i<6;i++) s+=c[a[i]%c.length]; return s; };
-M.Version = '1.97.8';  /* optional shape fill + robust late-join whiteboard state convergence */
+M.Version = '1.97.9';  /* transport recovery hardening: automatic room rebuild after stale Admin reconnects */
 M.b64 = buf => { const u=new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 M.unb64 = str => { const s=atob(str), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; };
 M.b64url = buf => M.b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -3322,6 +3322,22 @@ M.Net = {
   /* verified-Admin heartbeat freshness: an Admin heartbeat older than this is stale.
      Heartbeats fire every 12s, so 30s tolerates one missed beat but rejects replays. */
   HB_FRESH:30000,
+  /* Transport-generation/recovery state. A browser refresh creates a NEW Trystero peer
+     identity. Some Trystero 0.25.4 paths can leave the surviving peer attached to a stale
+     shared-peer binding, so ICE restart alone is insufficient. Generation fencing prevents
+     late callbacks from an old room instance from mutating the new session. */
+  _gen:0,
+  _handshakes:new Map(),
+  _adminLinkWatch:new Map(),
+  _adminRecoveryWatch:null,
+  _rejoinPromise:null,
+  _rejoinTimer:null,
+  _rejoinAttempts:0,
+  _rejoinLastAt:0,
+  _rejoinReason:'',
+  _adminGoneAt:0,
+  _rejoinMax:3,
+  _rejoinWindow:90000,
   /* PINNED DEPENDENCIES (single-file deployment):
      • @trystero-p2p/mqtt @0.25.4 — signaling (MQTT-over-WSS). Loaded from jsDelivr
        (byte-for-byte npm mirror) as the primary source; esm.run is a transform
@@ -3373,8 +3389,14 @@ M.Net = {
     return s;
   },
   async join(code, {isCreator}){
+    const gen=++M.Net._gen;
+    /* A fresh join owns the transport generation. Any callback from an older Trystero
+       room is ignored after this point. */
+    M.Net._clearRecoveryTimers?.();
     if(M.Net.onProgress) M.Net.onProgress('Loading signaling module…');
-    M.T=await M.Net.loadTrystero();
+    const T=await M.Net.loadTrystero();
+    if(gen!==M.Net._gen) return;
+    M.T=T;
     if(M.Net.onProgress) M.Net.onProgress('Connecting to relay network…');
     /* NOTE: no relay-level password here. Coupling "can connect" to the E2EE key
        made manual-code joins to private rooms silently impossible (mismatched
@@ -3382,6 +3404,9 @@ M.Net = {
        Connectivity stays open; content remains E2EE via the app-level AES-GCM
        layer for invite-link holders. */
     const cfg={ appId:'majlis-meet-v1', rtcConfig:{ iceServers:M.Net.iceServers() } };
+    /* Shorter handshake timeout keeps a stale shared-peer binding from waiting forever.
+       The app-level recovery watchdog below rebuilds the room when the Admin must return. */
+    cfg.handshakeTimeoutMs=12000;
     /* redundant signaling relays — if one broker dies, the others keep the room alive */
     const custom=M.Store.get('broker');
     cfg.relayConfig={ urls:[custom,'wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'].filter(Boolean) };
@@ -3389,14 +3414,25 @@ M.Net = {
 
     M.Net.room=M.T.joinRoom(cfg, M.App.nsRoom(M.State.room.rid), {
       onJoinError: d => {
+        if(gen!==M.Net._gen) return;
         const pid=d.peerId;
         M.log('warn','peer link issue: '+M.fmt.idShort(pid||'?')+' '+(d.error?.message||''));
-        if(!M.Net.connected){ M.bus.emit('joinFail', d.error?.message||'failed'); return; }
+        if(!M.Net.connected){
+          /* During an automatic room rebuild the temporary disconnected phase is expected.
+             Do not surface it as a user-facing join failure or let it abort recovery. */
+          if(M.Net._rejoinPromise) { M.log('info','peer join error during automatic recovery: '+(d.error?.message||'failed')); return; }
+          M.bus.emit('joinFail', d.error?.message||'failed'); return;
+        }
         /* ---- self-healing: restart ICE against the failed peer, don't just report it ---- */
         const rec=M.Net._joinErrs.get(pid)||{n:0,t:Date.now()};
         if(Date.now()-rec.t>60000){ rec.n=0; rec.t=Date.now(); }
         rec.n++; M.Net._joinErrs.set(pid,rec);
         M.Net.healPeer(pid);
+        /* Repeated link failures toward a previously verified Admin are a strong signal
+           that the surviving client has a stale shared-peer binding. Rebuild the room
+           rather than asking the user to refresh. */
+        const knownAdmin = !M.Perms.isAdmin() && (M.Grace?.sawAdmin || M.Net._adminGoneAt>0);
+        if(knownAdmin && rec.n>=2) M.Net.scheduleRoomRejoin('repeated Admin link failures');
         if(Date.now()-(M.Net._jeT||0)>12000){
           M.Net._jeT=Date.now();
           const name=M.Members.name(pid);
@@ -3405,6 +3441,8 @@ M.Net = {
         }
       },
       onPeerHandshake: async (peerId, send, receive) => {
+        if(gen!==M.Net._gen) throw new Error('stale room generation');
+        M.Net._armHandshake(peerId,gen);
         await send(profile());
         const {data}=await receive();
         if(!data || typeof data!=='object') throw new Error('bad handshake');
@@ -3413,11 +3451,14 @@ M.Net = {
         if(M.State.perms?.roomLocked){ M.log('warn','room locked — rejecting '+peerId); throw new Error('locked'); }
         /* Guard boundary: unvalidated handshake profiles are never adopted into peer
            state; validated ones enter through the hello allowlist only */
+        if(gen!==M.Net._gen) throw new Error('stale room generation');
+        M.Net._clearHandshake(peerId);
         M.Net._early.set(peerId, M.Guard.check('hello',data,peerId) ? M.Guard.pick(data,M.Guard.PICK.hello) : {});
       }
     });
     M.Net._early=new Map();
     const R=M.Net.room; M.Net.A={};
+    if(gen!==M.Net._gen){ try{ R?.leave?.(); }catch(e){} return; }
     /* 'kp' = E2EE key-proof beacon: proves room-key possession so the full signed
        room snapshot is only delivered to authorized (key-holding) members */
     for(const n of ['hello','bye','chat','type','sig','adm','wb','ft','hb','cur','ftbin','who','hist','rc','dupe','probe','idc','idp','kp']) M.Net.A[n]=R.makeAction(n);
@@ -3504,6 +3545,8 @@ M.Net = {
 
     /* presence */
     R.onPeerJoin = peerId => {
+      if(gen!==M.Net._gen) return;
+      M.Net._clearHandshake(peerId);
       M.log('info','peer joined '+M.fmt.idShort(peerId));
       if(!M.State.peers.has(peerId)) M.Members.upsert(peerId,{status:'connecting'});
       /* the room announces itself: anyone already inside answers newcomers the
@@ -3519,6 +3562,9 @@ M.Net = {
       M.Net.hbTick();
     };
     R.onPeerLeave = peerId => {
+      if(gen!==M.Net._gen) return;
+      M.Net._clearHandshake(peerId);
+      M.Net._clearAdminLinkWatch(peerId);
       M.log('warn','peer left '+M.fmt.idShort(peerId));
       M.bus.emit('peerLeave',peerId);
       M.Net.keyPeers?.delete(peerId);   /* key-possession is per transport session */
@@ -3624,6 +3670,7 @@ M.Net = {
         if(d.mid && d.midpub && M.Id.verifyMid(d.mid,d.midpub)){ patch.claimedMid=d.mid; patch.claimedMidPub=d.midpub; } }
       if(verifiedAt!=null) patch.adminVerifiedAt=verifiedAt;
       M.Members.upsert(peerId,patch);
+      if(verifiedAt!=null) M.Net._adminRecovered();
       /* a peer claiming a stable identity must prove key possession before it is trusted */
       const pp=M.State.peers.get(peerId);
       if(pp && pp.claimedMid && !pp.midAuth && M.Id.priv) M.Id.challengePeer(peerId);
@@ -3775,8 +3822,19 @@ M.Net = {
     };
 
     M.Net.connected=true;
+    /* Successful room creation/rebuild resets the attempt window. Do not clear sawAdmin:
+       that flag belongs to Grace and is intentionally kept across a transport rebuild. */
+    if(!M.Net._rejoinPromise){ M.Net._rejoinAttempts=0; M.Net._rejoinLastAt=0; }
+    if(M.Net.hasVerifiedAdmin()) M.Net._adminGoneAt=0;
     M.Net.monitorRelays();
     M.Net.heartbeat=setInterval(()=>M.Net.hbTick(),12000);
+    clearTimeout(M.Net._adminRecoveryWatch); M.Net._adminRecoveryWatch=null;
+    if(!M.Perms.isAdmin() && M.Grace?.sawAdmin && M.Net._adminGoneAt){
+      M.Net._adminRecoveryWatch=setTimeout(()=>{
+        M.Net._adminRecoveryWatch=null;
+        if(gen===M.Net._gen && M.Net.connected && !M.Net.hasVerifiedAdmin()) M.Net.scheduleRoomRejoin('room transport has no verified Admin after recovery');
+      },8000);
+    }
     M.Net.staleCheck=setInterval(()=>{
       const now=Date.now();
       M.State.peers.forEach((m,pid)=>{ const lb=M.Net.lastHb.get(pid); if(m.status==='online' && lb && now-lb>50000){ M.log('warn','peer stale → offline: '+m.name); M.Members.offline(pid); } });
@@ -3793,8 +3851,13 @@ M.Net = {
         M.Net._pcSeen.add(pc);
         const onState=()=>{
           const st=pc.iceConnectionState;
-          if(st==='failed'||st==='closed'||st==='disconnected') M.Grace.eval();   /* any link loss re-checks verified-Admin absence; adm flag never consulted */
+          if(st==='failed'||st==='closed'||st==='disconnected') {
+            M.Grace.eval();   /* any link loss re-checks verified-Admin absence; adm flag never consulted */
+            const m=M.State.peers.get(pid);
+            if(m && M.Members.verifiedAdmin(m) && !M.Perms.isAdmin()) M.Net._watchAdminTransport(pid,pc,gen);
+          }
           if(st==='connected'||st==='completed'){
+            M.Net._clearAdminLinkWatch(pid);
             if(M.Net._restarts.has(pid)||M.Net._joinErrs.has(pid)){ M.Net._restarts.delete(pid); M.Net._joinErrs.delete(pid); M.log('info','peer link recovered: '+M.fmt.idShort(pid)); M.toast('ok',M.Members.name(pid),M.t('link_recovered')); }
           } else if(st==='disconnected'){
             setTimeout(()=>{ if(pc.iceConnectionState==='disconnected') M.Net._tryRestart(pc,pid); },4000);
@@ -3938,8 +4001,150 @@ M.Net = {
     M.Net._relaySeen=false;
     check(); clearInterval(M.Net._relayT); M.Net._relayT=setInterval(check,3000);
   },
+  _clearRecoveryTimers(){
+    clearTimeout(M.Net._rejoinTimer); M.Net._rejoinTimer=null;
+    clearTimeout(M.Net._adminRecoveryWatch); M.Net._adminRecoveryWatch=null;
+    if(M.Net._handshakes){ for(const t of M.Net._handshakes.values()) clearTimeout(t); M.Net._handshakes.clear(); }
+  },
+  _armHandshake(peerId,gen){
+    M.Net._clearHandshake(peerId);
+    if(M.Perms.isAdmin() || !M.Grace?.sawAdmin) return;
+    const timer=setTimeout(()=>{
+      M.Net._handshakes.delete(peerId);
+      if(gen!==M.Net._gen || !M.Net.connected) return;
+      /* If the Admin is already verified, this was merely a slow peer handshake. Only
+         rebuild while the room is genuinely without a verified Admin. */
+      if(!M.Net.hasVerifiedAdmin() && M.Net._adminGoneAt) M.Net.scheduleRoomRejoin('handshake stalled while Admin was absent');
+    },5500);
+    M.Net._handshakes.set(peerId,timer);
+  },
+  _clearHandshake(peerId){
+    const t=M.Net._handshakes?.get(peerId); if(t) clearTimeout(t);
+    M.Net._handshakes?.delete(peerId);
+  },
+  _watchAdminTransport(peerId,pc,gen){
+    if(M.Perms.isAdmin() || !M.Grace?.sawAdmin || !pc) return;
+    if(!M.Members.verifiedAdmin(M.State.peers.get(peerId))) return;
+    const old=M.Net._adminLinkWatch.get(peerId); if(old) clearTimeout(old);
+    const t=setTimeout(()=>{
+      M.Net._adminLinkWatch.delete(peerId);
+      if(gen!==M.Net._gen || !M.Net.connected || M.Perms.isAdmin()) return;
+      const m=M.State.peers.get(peerId);
+      const st=pc.iceConnectionState||pc.connectionState||'';
+      if(!m || !['failed','disconnected','closed'].includes(st)) return;
+      m.adminVerifiedAt=0;
+      M.Net._adminGoneAt=Date.now();
+      M.bus.emit('members');
+      M.Net.scheduleRoomRejoin('Admin transport remained disconnected');
+    },6500);
+    M.Net._adminLinkWatch.set(peerId,t);
+  },
+  _clearAdminLinkWatch(peerId){
+    const t=M.Net._adminLinkWatch?.get(peerId); if(t) clearTimeout(t);
+    M.Net._adminLinkWatch?.delete(peerId);
+  },
+  hasVerifiedAdmin(){
+    if(M.Perms.isAdmin()) return true;
+    return [...M.State.peers.values()].some(p=>M.Members?.verifiedAdmin?.(p));
+  },
+  _adminRecovered(){
+    for(const t of M.Net._adminLinkWatch?.values?.()||[]) clearTimeout(t);
+    M.Net._adminLinkWatch?.clear?.();
+    M.Net._adminGoneAt=0;
+    M.Net._rejoinAttempts=0;
+    M.Net._rejoinReason='';
+    clearTimeout(M.Net._rejoinTimer); M.Net._rejoinTimer=null;
+    M.log('info','verified Admin transport recovered — automatic room rebuild canceled');
+  },
+  scheduleRoomRejoin(reason){
+    if(M.Perms.isAdmin() || !M.App._inRoom || !M.State.room?.code || !M.Net.connected) return;
+    if(!M.Grace?.sawAdmin) return;   /* never rebuild a room that has never verified an Admin */
+    if(M.Net.hasVerifiedAdmin()) return;
+    if(M.Net._rejoinPromise) return;
+    M.Net._adminGoneAt ||= Date.now();
+    M.Net._rejoinReason=reason||'Admin transport recovery';
+    const now=Date.now();
+    if(now-M.Net._rejoinLastAt<2500) return;
+    if(M.Net._rejoinAttempts>=M.Net._rejoinMax){
+      if(now-M.Net._rejoinLastAt < M.Net._rejoinWindow) return;
+      M.Net._rejoinAttempts=0;
+    }
+    if(M.Net._rejoinTimer) return;
+    M.log('warn','scheduling automatic room transport rebuild: '+M.Net._rejoinReason);
+    M.Net._rejoinTimer=setTimeout(()=>{
+      M.Net._rejoinTimer=null;
+      M.Net.rejoinRoom().catch(e=>{
+        M.log('err','automatic room rebuild failed: '+(e.message||e));
+        /* A failed rebuild must not leave the Member stranded until a manual refresh.
+           Retry using the same bounded attempt window and a fresh backoff. */
+        M.Net._rejoinLastAt=0;
+        if(M.App._inRoom && !M.Perms.isAdmin() && M.Grace?.sawAdmin && !M.Net.hasVerifiedAdmin())
+          setTimeout(()=>M.Net.scheduleRoomRejoin('retry after automatic room rebuild failure'),1200);
+      });
+    },1400);
+  },
+  async _leaveForRejoin(){
+    /* Trystero can retain a shared-peer connection after a leave/rejoin cycle. Close the
+       currently known RTCPeerConnections FIRST, then leave the room. This mirrors the
+       safest application-side recovery pattern for stale shared-peer bindings. */
+    const room=M.Net.room;
+    M.Net._gen++;   /* invalidate callbacks from the stale transport */
+    for(const t of M.Net._handshakes?.values?.()||[]) clearTimeout(t);
+    M.Net._handshakes?.clear?.();
+    for(const t of M.Net._adminLinkWatch?.values?.()||[]) clearTimeout(t);
+    M.Net._adminLinkWatch?.clear?.();
+    try{
+      const pcs=room?.getPeers?.()||{};
+      for(const pid of Object.keys(pcs)){
+        try{ pcs[pid]?.close?.(); }catch(e){}
+      }
+    }catch(e){}
+    try{ await Promise.resolve(room?.leave?.()); }catch(e){ M.log('warn','room.leave() during recovery failed: '+(e.message||e)); }
+    /* A rejected/slow leave must not prevent a new room object from being created. */
+    try{ M.Net.disc?.leave?.(); }catch(e){}
+    M.Net.disc=null;
+    clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null;
+    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT);
+    clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
+    M.Net.connected=false;
+    clearTimeout(M.Net._adminRecoveryWatch); M.Net._adminRecoveryWatch=null;
+    M.Net.room=null; M.Net.A={}; M.Net.keyPeers=null; M.Net.lastHb.clear(); M.Net.rtt.clear();
+    M.Net._early=new Map(); M.Net._encBlocked=false;
+    M.Net._pcSeen=new WeakSet(); M.Net._restarts?.clear?.(); M.Net._joinErrs?.clear?.();
+  },
+  async rejoinRoom(){
+    if(M.Net._rejoinPromise) return M.Net._rejoinPromise;
+    if(M.Perms.isAdmin() || !M.App._inRoom || !M.State.room?.code || !M.Grace?.sawAdmin) return false;
+    if(M.Net.hasVerifiedAdmin()) return true;
+    const code=M.State.room.code;
+    const rid=M.State.room.rid;
+    M.Net._rejoinPromise=(async()=>{
+      M.Net._rejoinAttempts++;
+      M.Net._rejoinLastAt=Date.now();
+      const attempt=M.Net._rejoinAttempts;
+      M.log('warn',`automatic room transport rebuild #${attempt}: ${M.Net._rejoinReason||'Admin recovery'}`);
+      try{
+        await M.Net._leaveForRejoin();
+        if(!M.App._inRoom || M.State.room?.code!==code) return false;
+        if(rid && M.State.room.rid!==rid) return false;   /* never cross a room instance */
+        await M.Net.join(code,{isCreator:false});
+        if(!M.Net.connected) return false;
+        M.State.self.id=M.T.selfId;
+        M.Net.announceKey();
+        try{ M.Net.hbTick(); }catch(e){}
+        setTimeout(()=>{ try{ if(M.App._inRoom) M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },700);
+        setTimeout(()=>{ try{ if(M.App._inRoom) M.Net.sendEnc('hist',{t:'hreq'}); }catch(e){} },2600);
+        M.log('info','automatic room transport rebuild complete — waiting for Admin verification');
+        return true;
+      }finally{
+        M.Net._rejoinPromise=null;
+      }
+    })();
+    return M.Net._rejoinPromise;
+  },
   nudge(){
     if(!M.Net.connected) return;
+    if(!M.Perms.isAdmin() && M.Grace?.sawAdmin && !M.Net.hasVerifiedAdmin()) M.Net.scheduleRoomRejoin('recovery nudge: Admin not verified');
     M.Net.hbTick();   /* full-profile heartbeat → names/status recover after network switches */
     M.bus.emit('nudge');
     M.log('info','nudge: re-announced presence');
@@ -3997,7 +4202,20 @@ M.Net = {
     if(n) M.log('info','heal sweep: restarted '+n+' stale link(s)');
     M.Net.nudge();
   },
-  leave(){ try{ M.Net.room?.leave(); }catch(e){} try{ M.Net.disc?.leave(); }catch(e){} M.Net.disc=null; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null; clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT); M.Net.connected=false; }
+  async leave(){
+    M.Net._gen++;
+    M.Net._clearRecoveryTimers();
+    const room=M.Net.room;
+    /* close peer connections before leave so a rejected Trystero leave cannot leave stale
+       shared-peer transports behind for the next join */
+    try{ const pcs=room?.getPeers?.()||{}; for(const pid of Object.keys(pcs)){ try{ pcs[pid]?.close?.(); }catch(e){} } }catch(e){}
+    try{ await Promise.resolve(room?.leave?.()); }catch(e){ M.log('warn','room.leave() failed: '+(e.message||e)); }
+    try{ await Promise.resolve(M.Net.disc?.leave?.()); }catch(e){}
+    M.Net.disc=null; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null;
+    clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
+    M.Net.connected=false; clearTimeout(M.Net._adminRecoveryWatch); M.Net._adminRecoveryWatch=null; for(const t of M.Net._adminLinkWatch?.values?.()||[]) clearTimeout(t); M.Net._adminLinkWatch?.clear?.(); M.Net.room=null; M.Net.A={}; M.Net.keyPeers=null; M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._early=new Map();
+    M.Net._pcSeen=new WeakSet(); M.Net._restarts?.clear?.(); M.Net._joinErrs?.clear?.(); M.Net._encBlocked=false;
+  }
 };
 
 /* ---------------- Duplicate-session guard ---------------------------------
@@ -4125,11 +4343,22 @@ M.Members = {
   offline(peerId, graceful){
     const m=M.State.peers.get(peerId); if(!m) return;
     if(m.status==='offline') return;
+    const wasVerifiedAdmin=!M.Perms.isAdmin() && M.Members.verifiedAdmin(m);
     m.status='offline';
+    /* Remove freshness immediately: a dead Admin must not continue to satisfy Grace while
+       a transport rebuild is pending. */
+    if(wasVerifiedAdmin) m.adminVerifiedAt=0;
     M.bus.emit('sysmsg',{text:M.t('sys_left',{n:M.Members.say(m)})});
     M.bus.emit('peerOffline',peerId);
     M.bus.emit('members');
     M.log('warn',m.name+' went offline'+(graceful?' (bye)':''));
+    /* Critical reconnect path: if this was the previously verified Admin, rebuild the
+       surviving member's Trystero room automatically. The user should never have to
+       refresh the Member tab just because the Admin refreshed. */
+    if(wasVerifiedAdmin){
+      M.Net._adminGoneAt=Date.now();
+      M.Net.scheduleRoomRejoin(graceful?'Admin sent bye':'Admin transport lost');
+    }
   },
   /* names are harvested from ANY application payload (chat, typing, files,
      call invites…) — the sidebar can never stay stuck on a generic label
@@ -4160,11 +4389,11 @@ M.Members = {
 /* ---------------- Recovery ---------------- */
 M.Recovery = {
   init(){
-    window.addEventListener('online',()=>{ M.log('info','network online'); M.toast('ok',M.t('reconnect_ok')); M.Net.healAll(); M.bus.emit('netOnline'); });
+    window.addEventListener('online',()=>{ M.log('info','network online'); M.toast('ok',M.t('reconnect_ok')); M.Net.healAll(); if(!M.Perms.isAdmin()&&M.Grace?.sawAdmin&&!M.Net.hasVerifiedAdmin()) M.Net.scheduleRoomRejoin('browser network recovered while Admin absent'); M.bus.emit('netOnline'); });
     window.addEventListener('offline',()=>{ M.log('warn','network offline'); M.toast('warn',M.t('reconnect_lost')); M.bus.emit('netOffline'); });
     navigator.connection?.addEventListener?.('change',()=>{ M.log('info','network change: '+(navigator.connection.effectiveType||'?')); M.Net.nudge(); });
     document.addEventListener('visibilitychange',()=>{
-      if(document.visibilityState==='visible'){ M.log('info','app foregrounded'); M.Net.healAll(); M.bus.emit('foreground'); }
+      if(document.visibilityState==='visible'){ M.log('info','app foregrounded'); M.Net.healAll(); if(!M.Perms.isAdmin()&&M.Grace?.sawAdmin&&!M.Net.hasVerifiedAdmin()) M.Net.scheduleRoomRejoin('foreground recovery while Admin absent'); M.bus.emit('foreground'); }
       else M.bus.emit('background');
     });
     M.bus.on('relayStatus',({ok})=>{
@@ -10656,7 +10885,7 @@ M.App = {
     },500);
   },
   resetState(){
-    M.Net.room=null; M.Net.disc=null; M.Net.A={}; M.Net.connected=false; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null; M.Net._early=new Map(); M.Net._encBlocked=false;
+    M.Net.room=null; M.Net.disc=null; M.Net.A={}; M.Net.connected=false; M.Net._gen++; M.Net._clearRecoveryTimers(); M.Net._rejoinAttempts=0; M.Net._rejoinLastAt=0; M.Net._adminGoneAt=0; M.Net._rejoinReason=''; M.Net._adminLinkWatch?.forEach(t=>clearTimeout(t)); M.Net._adminLinkWatch?.clear?.(); clearTimeout(M.Net._adminRecoveryWatch); M.Net._adminRecoveryWatch=null; clearInterval(M.Net._discAnnounceT); M.Net._discAnnounceT=null; M.Net._early=new Map(); M.Net._encBlocked=false;
     M.App._inRoom=false;
     M.Net.lastHb.clear(); M.Net.rtt.clear(); M.Net._restarts?.clear();
     clearInterval(M.Net.heartbeat); clearInterval(M.Net.staleCheck); clearInterval(M.Net._relayT); clearInterval(M.Net.namePatrol); clearInterval(M.Net._linkT); clearInterval(M.Net._pingT);
@@ -11343,7 +11572,14 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!crypto.subtle){ M.lobbyMsg('⚠ Insecure context: HTTPS is required for full functionality (crypto, media).',true); }
     window.addEventListener('error',e=>M.log('err','uncaught: '+(e.message||e.error)));
     window.addEventListener('unhandledrejection',e=>M.log('err','promise: '+(e.reason?.message||e.reason)));
-    addEventListener('beforeunload',()=>{ try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){} try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} });
+    let unloadAnnounced=false;
+    const announceUnload=()=>{
+      if(unloadAnnounced) return; unloadAnnounced=true;
+      try{ M.Net.send('bye',{ts:Date.now()}); }catch(e){}
+      try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){}
+    };
+    addEventListener('beforeunload',announceUnload);
+    addEventListener('pagehide',announceUnload,{capture:true});
     document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ try{ M.Chat._save(); M.WB.saveLocal(); }catch(e){} } });
     /* purge any extractable private-key material left in localStorage by older builds */
     try{ for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); if(k&&k.startsWith('mj.adminKey.')) localStorage.removeItem(k); } }catch(e){}
